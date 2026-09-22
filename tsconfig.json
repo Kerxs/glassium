@@ -15,6 +15,13 @@
     "moduleResolution": "bundler",
     "types": ["@webgpu/types", "node"],
 
+    // 要和 vite.config.ts 里的 alias 保持一致。两处各写一遍是 Vite + tsc 这套组合
+    // 的固有重复：Vite 负责打包时解析，tsc 只负责类型检查，谁也不读对方的配置。
+    "baseUrl": ".",
+    "paths": {
+      "glassium": ["./src/index.ts"]
+    },
+
     "strict": true,
     "noUncheckedIndexedAccess": true,
     "noImplicitOverride": true,

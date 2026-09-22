@@ -70,3 +70,20 @@ export {
 // 渲染器后端要用它们拼出完整着色器（绑定、入口点与 Y 翻转各后端手写）。
 export { OPTICS_WGSL } from './shaders/optics.wgsl.ts'
 export { OPTICS_GLSL } from './shaders/generated/optics.glsl.ts'
+
+// —— 渲染器（T5 起）——
+// 注意：现在只有画布、分辨率策略与帧循环，**还没有玻璃**。
+// stage.register() 要等面板落地（T7/T9）才会出现 —— 提前放一个空壳
+// 会让调用方以为能用。
+export {
+  createGlassStage,
+  simulateReducedMotion,
+  type Backend,
+  type DegradeReason,
+  type GlassStage,
+  type GlassStageOptions,
+  type GlassStats
+} from './renderer/stage.ts'
+
+export { deviceLossCount, simulateNoWebGpu } from './webgpu/device.ts'
+export type { ProbeReport } from './webgpu/probe.ts'

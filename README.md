@@ -63,7 +63,15 @@ GPU 输出由 `playground/verify.html` 手工验证。绿色徽章不等于像�
       重写器（`src/shaders/translate-glsl.ts`）。生成物签入、CI 校验重生成同一性；
       重写器**看不懂就抛**，不产出「能跑但微妙不对」的着色器
 
-**72 条测试全绿。** 现在可以用这个包算出「该画什么」，但还画不出来——渲染器从 T5 开始。
+- [x] **T5** 画布宿主、分辨率策略与帧循环（`src/renderer/stage.ts`）。三层宿主、
+      WebGPU device 单例、降级阶梯、`prefers-reduced-motion` 彻底停循环。
+      **还没有玻璃**——只有一层渐变场景，用来验证管线通不通
+
+**72 条测试全绿**，playground 可跑（`npm run dev`）。玻璃本身从 T7 开始。
+
+T5 顺带把两个计划阶段悬着的硬件问题测掉了，结果记在
+[docs/calibration.md](docs/calibration.md)：`minUniformBufferOffsetAlignment` 实测 256
+（256B stride 假设成立），以及 WGSL 的**动态层索引采样可用**（模糊分档不必退回静态绑定）。
 
 （其余任务完成后逐条勾上。没勾的就是没有。）
 

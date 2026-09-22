@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Glassium Playground</title>
+    <style>
+      /*
+        R1：<glass-*> 到 stage 宿主之间的每个祖先都必须背景透明。
+        页面背景属于**场景**，不属于 CSS —— 这里给 html/body 设不透明底色的话，
+        画布（z-index:0）会被整块盖掉，表现为完全不可见且无报错。
+      */
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+        background: transparent;
+        min-height: 100%;
+      }
+
+      body {
+        font: 14px/1.6 system-ui, -apple-system, "Segoe UI", sans-serif;
+        color: #fff;
+        -webkit-font-smoothing: antialiased;
+      }
+
+      /* L1：DOM 内容层，压在画布之上 */
+      .content {
+        position: relative;
+        z-index: 1;
+        max-width: 760px;
+        margin: 0 auto;
+        padding: 12vh 24px 40vh;
+      }
+
+      h1 {
+        margin: 0 0 8px;
+        font-size: clamp(28px, 6vw, 44px);
+        font-weight: 600;
+        letter-spacing: -0.02em;
+      }
+
+      p {
+        margin: 0 0 16px;
+        max-width: 56ch;
+        color: rgba(255, 255, 255, 0.78);
+      }
+
+      code {
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        font-size: 0.92em;
+        padding: 1px 5px;
+        border-radius: 4px;
+        background: rgba(255, 255, 255, 0.14);
+      }
+
+      /* 统计面板。刻意**不**用玻璃 —— 它要在玻璃坏掉的时候还能读。 */
+      .stats {
+        position: fixed;
+        z-index: 2;
+        top: 12px;
+        right: 12px;
+        padding: 10px 12px;
+        border-radius: 10px;
+        background: rgba(6, 14, 26, 0.86);
+        border: 1px solid rgba(255, 255, 255, 0.16);
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        font-size: 11px;
+        line-height: 1.7;
+        white-space: pre;
+        color: rgba(255, 255, 255, 0.9);
+        pointer-events: none;
+      }
+
+      .stats b {
+        color: #aed5f3;
+        font-weight: 600;
+      }
+
+      /* L2：预留给 T13+ 的 glass-above-DOM。现在是空的。 */
+      #glassium-overlay {
+        position: fixed;
+        inset: 0;
+        z-index: 3;
+        pointer-events: none;
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        * {
+          transition: none !important;
+          animation: none !important;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="content">
+      <h1>Glassium</h1>
+      <p>
+        T5：画布、分辨率策略与帧循环。场景是一层渐变 —— 它只用来验证管线通不通，
+        <strong>不是</strong>用来判断玻璃好不好看的。
+      </p>
+      <p>
+        平滑渐变是检验折射最差的背景：透镜把采样点挪 24px，而渐变在 24px 内只变约
+        1/255，与没有透镜无从区分。真正的判据是 T12 的 calibration 场景。
+      </p>
+      <p>
+        这段文字在 L1（<code>z-index: 1</code>），画布在 L0（<code>z-index: 0</code>）。
+        文字可以正常选中、聚焦、输入 —— 布局与命中测试始终归 DOM。
+      </p>
+      <p>
+        <code>?glassium.simulate=no-webgpu</code> 可以强制走降级阶梯，
+        用来验证探测与警告那条路径（本机只有 Edge，平时永远走不到）。
+      </p>
+    </main>
+
+    <div id="glassium-overlay"></div>
+    <div class="stats" id="stats">初始化中…</div>
+
+    <script type="module" src="./main.ts"></script>
+  </body>
+</html>

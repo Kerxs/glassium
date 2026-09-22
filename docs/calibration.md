@@ -101,9 +101,52 @@ viewport 3840x2160 @2x · composite 7680x4320 · scene 1920x1080 (0.500x css, 2.
 「最终像素数 > maxPixels」当判据就会在这里误报，让人去查一个不存在的冲突。
 判据必须是「地板是否抬高了比例」。已有回归测试钉住。
 
+## 本机 GPU 实测（T5）
+
+Edge 153 / NVIDIA Lovelace（RTX 40 系）/ Windows 11。两个计划阶段悬着的问题都有答案了。
+
+### adapter 限制
+
+| 限制 | 实测值 | 影响 |
+|---|---|---|
+| `minUniformBufferOffsetAlignment` | **256** | **256B stride 的假设成立**，`PanelUniforms` 不必重排 |
+| `maxUniformBufferBindingSize` | 65536 | 65536 / 256 = **单个 buffer 最多 256 个面板**，够用 |
+| `maxTextureArrayLayers` | 256 | 模糊分档只要 K=3，绰绰有余 |
+| `maxTextureDimension2D` | 8192 | 8K 视口下合成目标 7680×4320 仍在范围内 |
+| `maxBindGroups` | 4 | 设计用 3 组（stage / panel / 纹理），留一组余量 |
+
+注意这是**单台机器单块显卡**的数。移动端 GPU 的 `maxUniformBufferBindingSize` 常见是
+16384（= 64 个面板），真要跑移动端时得重新测。
+
+### 动态层索引采样：可用
+
+```
+[Glassium] 能力探测：动态层索引采样=可用 · 256B stride=成立（对齐要求 256B）
+```
+
+`textureSampleLevel(layers, samp, uv, probe.layer, 0.0)` 里 `probe.layer` 来自 uniform，
+编译与建管线都通过。所以 K 层模糊放一个 `texture_2d_array` 按 σ 选层的设计成立，
+**不需要**退回三个静态 `texture_2d` 绑定加分支链。
+
+探测代码在 `src/webgpu/probe.ts`，每次启动都跑 —— 这个答案会随驱动和浏览器版本变，
+不该固化成一句注释。
+
+### 分辨率解析（真实浏览器）
+
+```
+viewport 832x901 css @1.5x · composite 1248x1352 · scene 1096x1187 (1.317x css, 1.30MP)
+viewport 1024x768 css @1.5x · composite 1536x1152 · scene 1317x987  (1.286x css, 1.30MP)
+```
+
+两例都是**预算封顶**而非地板生效：视口不大、dpr 1.5，预算允许场景渲染到 CSS 分辨率
+**之上**（1.3x）但仍低于设备分辨率（1.5x），于是取预算值。`budgetExceeded` 皆为 false。
+
+832×901 那一例的场景是 1,300,952 像素，比预算多 952 个 —— 取整溢出，不是冲突。
+这正是前面记的那个坑，判据取「地板是否抬高了比例」才不会在这里误报。
+
 ## 待补
 
 - [ ] 上游 playground 默认值的并列对比（需要 T7 之后才有可比的渲染结果）
-- [ ] 本机 adapter 的 `minUniformBufferOffsetAlignment` 实测值（T5）
 - [ ] 两层模糊插值的 σ 插值误差（T6）
 - [ ] `1 dp → 1 CSS px` 与上游截图的实际吻合度（T12）
+- [ ] WebGL2 侧的 `UNIFORM_BUFFER_OFFSET_ALIGNMENT` 与 `EXT_color_buffer_float`（T11）
