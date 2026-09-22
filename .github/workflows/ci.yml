@@ -9,12 +9,12 @@ jobs:
   check:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # meshora 用 Node 22，这里用 24，是有硬理由的：测试直接跑带类型标注的
       # .ts，靠的是 Node 原生类型擦除。22 上跑不了，而为此引入一个测试框架
       # 就是给零依赖的库加依赖。
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 24
           cache: npm
