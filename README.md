@@ -67,7 +67,12 @@ GPU 输出由 `playground/verify.html` 手工验证。绿色徽章不等于像�
       WebGPU device 单例、降级阶梯、`prefers-reduced-motion` 彻底停循环。
       **还没有玻璃**——只有一层渐变场景，用来验证管线通不通
 
-**72 条测试全绿**，playground 可跑（`npm run dev`）。玻璃本身从 T7 开始。
+- [x] **T6** 模糊金字塔与 colorFilter（`src/renderer/blur.ts`）。6 级 mip 链，
+      每帧 10 趟且**与面板数量无关**；σ 扫描实测单调、级边界无突变。
+      顺带把 calibration 场景（棋盘格 + 硬对角线 + 黑白阶跃）从 T12 提前过来 ——
+      线性渐变几乎是高斯模糊的不动点，没有高频图案就验不了模糊
+
+**80 条测试全绿**，playground 可跑（`npm run dev`）。玻璃本身从 T7 开始。
 
 T5 顺带把两个计划阶段悬着的硬件问题测掉了，结果记在
 [docs/calibration.md](docs/calibration.md)：`minUniformBufferOffsetAlignment` 实测 256

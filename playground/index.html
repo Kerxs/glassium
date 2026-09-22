@@ -77,6 +77,50 @@
         font-weight: 600;
       }
 
+      /* 控件面板。和 stats 一样刻意不用玻璃 —— 玻璃坏掉时它还得能用。 */
+      .controls {
+        position: fixed;
+        z-index: 2;
+        left: 12px;
+        bottom: 12px;
+        padding: 12px 14px;
+        border-radius: 10px;
+        background: rgba(6, 14, 26, 0.86);
+        border: 1px solid rgba(255, 255, 255, 0.16);
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        font-size: 11px;
+        color: rgba(255, 255, 255, 0.9);
+        display: grid;
+        gap: 8px;
+        min-width: 240px;
+      }
+
+      .controls label {
+        display: grid;
+        grid-template-columns: 5.5em 1fr 3.2em;
+        align-items: center;
+        gap: 8px;
+      }
+
+      .controls select {
+        background: rgba(255, 255, 255, 0.1);
+        color: #fff;
+        border: 1px solid rgba(255, 255, 255, 0.2);
+        border-radius: 5px;
+        padding: 2px 4px;
+        font: inherit;
+      }
+
+      .controls input[type='range'] {
+        width: 100%;
+        accent-color: #aed5f3;
+      }
+
+      .controls output {
+        text-align: right;
+        color: #aed5f3;
+      }
+
       /* L2：预留给 T13+ 的 glass-above-DOM。现在是空的。 */
       #glassium-overlay {
         position: fixed;
@@ -113,6 +157,32 @@
         用来验证探测与警告那条路径（本机只有 Edge，平时永远走不到）。
       </p>
     </main>
+
+    <div class="controls" id="controls">
+      <label>
+        scene
+        <select id="scene">
+          <option value="calibration">calibration</option>
+          <option value="gradient">gradient</option>
+        </select>
+        <output></output>
+      </label>
+      <label>
+        blur
+        <input id="blur" type="range" min="0" max="32" step="0.25" value="0" />
+        <output id="blurOut">0</output>
+      </label>
+      <label>
+        saturation
+        <input id="sat" type="range" min="0" max="2" step="0.05" value="1" />
+        <output id="satOut">1.00</output>
+      </label>
+      <label>
+        tint α
+        <input id="tint" type="range" min="0" max="1" step="0.02" value="0" />
+        <output id="tintOut">0.00</output>
+      </label>
+    </div>
 
     <div id="glassium-overlay"></div>
     <div class="stats" id="stats">初始化中…</div>

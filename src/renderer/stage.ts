@@ -14,11 +14,13 @@
  * 放在 -1 会被任何带不透明 background 的祖先整块盖掉 —— 表现为完全不可见且无报错。
  */
 
+import { parseTint } from '../core/material.ts'
 import { describeViewport, resolveViewport, type ResolvedViewport } from '../core/units.ts'
-import { PRESENT_WGSL, SCENE_WGSL } from '../shaders/scene.wgsl.ts'
+import { BACKDROP_WGSL, BLUR_WGSL } from '../shaders/blur.wgsl.ts'
+import { SCENE_WGSL } from '../shaders/scene.wgsl.ts'
 import { acquireDevice, releaseDevice, type DeviceFailure } from '../webgpu/device.ts'
 import { probeCapabilities, type ProbeReport } from '../webgpu/probe.ts'
-import { SCENE_FORMAT, TargetPool } from './targets.ts'
+import { BACKDROP_FORMAT, BlurChain, levelForSigma } from './blur.ts'
 
 export type Backend = 'webgpu' | 'webgl2' | 'none'
 
@@ -30,6 +32,10 @@ export interface GlassStats {
   readonly drawCalls: number
   /** 渲染目标分配次数。稳定后不应再增长。 */
   readonly targetAllocations: number
+  /** 上一帧的模糊趟数。应当等于 2×(K−1)，**与面板数量无关**。 */
+  readonly blurPasses: number
+  /** 模糊链的级数 K。 */
+  readonly blurLevels: number
   readonly viewport: ResolvedViewport | null
   readonly reducedMotion: boolean
 }
@@ -59,6 +65,28 @@ export interface DegradeReason {
   readonly detail: string
 }
 
+/**
+ * 背景调试参数。
+ *
+ * 这是**实验用的全局旋钮**，不是最终 API —— 真正的用法是逐面板的 GlassMaterial（T7）。
+ * 放在 debug 下面是为了不让人误以为它是正式接口。
+ */
+export interface BackdropDebugParams {
+  /** 模糊 σ，dp。 */
+  readonly blurDp?: number
+  readonly saturation?: number
+  /** CSS 颜色字符串，alpha 是叠加强度。 */
+  readonly tint?: string
+  /**
+   * 场景图案。
+   *
+   * 'calibration' 是棋盘格 + 硬对角线 + 黑白阶跃 —— **判断效果对不对只能用它**。
+   * 'gradient' 好看，但线性渐变几乎是高斯模糊的不动点，也几乎看不出折射与色散，
+   * 拿它验效果等于什么都没验。
+   */
+  readonly scene?: 'gradient' | 'calibration'
+}
+
 export interface GlassStage {
   readonly backend: Backend
   readonly canvas: HTMLCanvasElement
@@ -66,11 +94,30 @@ export interface GlassStage {
     stats(): GlassStats
     /** 能力探测结果。backend 不是 webgpu 时为 null。 */
     readonly probe: ProbeReport | null
+    /** 调整全屏背景视图的参数。见 BackdropDebugParams。 */
+    setBackdrop(params: BackdropDebugParams): void
+    /**
+     * 回读画布中心的一块像素（RGBA8，边长 READBACK_SIZE）。
+     *
+     * 必须走 GPU 侧的 copyTextureToBuffer —— **DOM 侧读不出来**：
+     * 对 WebGPU 画布调 drawImage / createImageBitmap 得到的是全黑，即使
+     * 画面正常显示、即使 configure 时加了 COPY_SRC。画面明明在动而回读一片黑，
+     * 很容易被当成「渲染没出来」去查渲染，实际是读法不对。
+     */
+    readback(): Promise<Uint8Array>
   }
   /** 请求重绘一帧。reduced-motion 下由 resize 等事件驱动。 */
   requestRender(): void
   dispose(): void
 }
+
+/**
+ * 回读区域的边长。
+ *
+ * 256 不是随便取的：copyTextureToBuffer 要求 bytesPerRow 是 256 的倍数，
+ * 而 256 像素 × 4 字节 = 1024，正好整除。
+ */
+export const READBACK_SIZE = 256
 
 /** 着色器没起来时的兜底底色，照 meshora 的做法：宁可退回 CSS，也不要白屏。 */
 const CSS_FALLBACK =
@@ -154,27 +201,46 @@ export async function createGlassStage(options: GlassStageOptions = {}): Promise
     activeStage = stage
     return stage
   }
-  context.configure({ device, format, alphaMode })
+  context.configure({
+    device,
+    format,
+    alphaMode,
+    // 默认只有 RENDER_ATTACHMENT。不加 COPY_SRC 的话画布**能正常显示**，但
+    // drawImage / createImageBitmap 读出来全是 0 —— 画面明明在动，回读却是一片黑，
+    // 很容易被当成「渲染没出来」而去查渲染。
+    // T12 的 /verify.html 靠回读比对 GPU 与 CPU 实现，没有它整条验证路线都不成立。
+    usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC
+  })
 
   const probe = await probeCapabilities(device)
-  const targets = new TargetPool(device)
 
   // —— 管线 ——
   const sceneModule = device.createShaderModule({ label: 'glassium:scene', code: SCENE_WGSL })
-  const presentModule = device.createShaderModule({ label: 'glassium:present', code: PRESENT_WGSL })
+  const blurModule = device.createShaderModule({ label: 'glassium:blur', code: BLUR_WGSL })
+  const backdropModule = device.createShaderModule({
+    label: 'glassium:backdrop',
+    code: BACKDROP_WGSL
+  })
 
   const scenePipeline = device.createRenderPipeline({
     label: 'glassium:scene',
     layout: 'auto',
     vertex: { module: sceneModule, entryPoint: 'vs' },
-    fragment: { module: sceneModule, entryPoint: 'fs', targets: [{ format: SCENE_FORMAT }] },
+    fragment: { module: sceneModule, entryPoint: 'fs', targets: [{ format: BACKDROP_FORMAT }] },
     primitive: { topology: 'triangle-list' }
   })
-  const presentPipeline = device.createRenderPipeline({
-    label: 'glassium:present',
+  const blurPipeline = device.createRenderPipeline({
+    label: 'glassium:blur',
     layout: 'auto',
-    vertex: { module: presentModule, entryPoint: 'vs' },
-    fragment: { module: presentModule, entryPoint: 'fs', targets: [{ format }] },
+    vertex: { module: blurModule, entryPoint: 'vs' },
+    fragment: { module: blurModule, entryPoint: 'fs', targets: [{ format: BACKDROP_FORMAT }] },
+    primitive: { topology: 'triangle-list' }
+  })
+  const backdropPipeline = device.createRenderPipeline({
+    label: 'glassium:backdrop',
+    layout: 'auto',
+    vertex: { module: backdropModule, entryPoint: 'vs' },
+    fragment: { module: backdropModule, entryPoint: 'fs', targets: [{ format }] },
     primitive: { topology: 'triangle-list' }
   })
 
@@ -190,15 +256,29 @@ export async function createGlassStage(options: GlassStageOptions = {}): Promise
     entries: [{ binding: 0, resource: { buffer: sceneUniforms } }]
   })
 
+  // BackdropUniforms: vec4f tint + f32 saturation + f32 level + 2xf32 pad = 32B
+  const backdropUniforms = device.createBuffer({
+    label: 'glassium:backdrop-uniforms',
+    size: 32,
+    usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
+  })
+  const backdropUniformData = new Float32Array(8)
+
+  // mipmapFilter 必须是 linear —— 模糊链的连续 σ 全靠硬件在相邻两级之间三线性插值。
+  // 写成 nearest 的话 σ 扫描会出现肉眼可见的台阶，而那看起来像「模糊档位不够」，
+  // 不像「采样器配错了」。
   const sampler = device.createSampler({
     label: 'glassium:linear',
     magFilter: 'linear',
-    minFilter: 'linear'
+    minFilter: 'linear',
+    mipmapFilter: 'linear'
   })
+
+  const blurChain = new BlurChain(device, blurPipeline, sampler)
 
   // —— 状态 ——
   let viewport: ResolvedViewport | null = null
-  let presentBindGroup: GPUBindGroup | null = null
+  let backdropBindGroup: GPUBindGroup | null = null
   let disposed = false
   let rafId = 0
   let pendingOneShot = 0
@@ -209,11 +289,24 @@ export async function createGlassStage(options: GlassStageOptions = {}): Promise
   let fpsWindowFrames = 0
   const startTime = performance.now()
 
+  const readbackBuffer = device.createBuffer({
+    label: 'glassium:readback',
+    size: READBACK_SIZE * READBACK_SIZE * 4,
+    usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ
+  })
+  let pendingReadback: ((data: Uint8Array) => void) | null = null
+
+  // 背景调试参数（实验用，非正式 API）
+  let backdropBlurDp = 0
+  let backdropSaturation = 1
+  let backdropTint: [number, number, number, number] = [1, 1, 1, 0]
+  let sceneMode = 0
+
   const motionQuery = window.matchMedia('(prefers-reduced-motion: reduce)')
   const readReducedMotion = (): boolean => reducedMotionOverride ?? motionQuery.matches
   let reducedMotion = readReducedMotion()
 
-  const syncViewport = (): boolean => {
+  const syncViewport = (): void => {
     const cssWidth = Math.max(1, Math.round(window.innerWidth))
     const cssHeight = Math.max(1, Math.round(window.innerHeight))
     const dpr = window.devicePixelRatio || 1
@@ -226,52 +319,63 @@ export async function createGlassStage(options: GlassStageOptions = {}): Promise
       viewport.sceneWidth !== next.sceneWidth ||
       viewport.sceneHeight !== next.sceneHeight
 
-    if (changed) {
-      canvas.width = next.compositeWidth
-      canvas.height = next.compositeHeight
-      console.info(`[Glassium] ${describeViewport(next)}`)
-      if (next.budgetExceeded) {
-        console.warn(
-          '[Glassium] 保底清晰度压过了像素预算 —— 场景分辨率高于预算允许的值。' +
-            '这是定死的优先级，不是 bug，但大视口上会更吃 GPU。'
-        )
-      }
-      const target = targets.ensure(next)
-      presentBindGroup = device.createBindGroup({
-        layout: presentPipeline.getBindGroupLayout(0),
-        entries: [
-          { binding: 0, resource: sampler },
-          { binding: 1, resource: target.view }
-        ]
-      })
-    }
     viewport = next
-    return changed
+    if (!changed) return
+
+    canvas.width = next.compositeWidth
+    canvas.height = next.compositeHeight
+    const textures = blurChain.ensure(next)
+    console.info(`[Glassium] ${describeViewport(next)} · 模糊链 ${textures.levels} 级`)
+    if (next.budgetExceeded) {
+      console.warn(
+        '[Glassium] 保底清晰度压过了像素预算 —— 场景分辨率高于预算允许的值。' +
+          '这是定死的优先级，不是 bug，但大视口上会更吃 GPU。'
+      )
+    }
+    backdropBindGroup = device.createBindGroup({
+      layout: backdropPipeline.getBindGroupLayout(0),
+      entries: [
+        { binding: 0, resource: { buffer: backdropUniforms } },
+        { binding: 1, resource: sampler },
+        { binding: 2, resource: textures.chainView }
+      ]
+    })
   }
 
   const renderFrame = (now: number): void => {
-    if (disposed || !viewport) return
+    if (disposed) return
     syncViewport()
-    const target = targets.ensure(viewport)
-    if (!presentBindGroup) return
+    if (!viewport) return
+    const textures = blurChain.ensure(viewport)
+    if (!backdropBindGroup) return
 
     const elapsed = (now - startTime) / 1000
-    sceneUniformData[0] = target.width
-    sceneUniformData[1] = target.height
-    // reduced-motion 下时间冻结在 0：循环不跑的同时，画面也必须是确定的那一帧，
+    sceneUniformData[0] = textures.width
+    sceneUniformData[1] = textures.height
+    // reduced-motion 下时间冻结在 0：循环不跑的同时画面也必须是确定的那一帧，
     // 否则 resize 触发的重绘会跳到另一个相位，看起来像闪烁。
     sceneUniformData[2] = reducedMotion ? 0 : elapsed
-    sceneUniformData[3] = 0
+    sceneUniformData[3] = sceneMode
     device.queue.writeBuffer(sceneUniforms, 0, sceneUniformData)
+
+    // blur 的 dp 要换算到场景像素：场景目标通常不是 CSS 分辨率。
+    const sigmaScenePx = backdropBlurDp * viewport.sceneScale
+    backdropUniformData[0] = backdropTint[0]
+    backdropUniformData[1] = backdropTint[1]
+    backdropUniformData[2] = backdropTint[2]
+    backdropUniformData[3] = backdropTint[3]
+    backdropUniformData[4] = backdropSaturation
+    backdropUniformData[5] = levelForSigma(sigmaScenePx, textures.levels)
+    device.queue.writeBuffer(backdropUniforms, 0, backdropUniformData)
 
     const encoder = device.createCommandEncoder({ label: 'glassium:frame' })
 
-    // 1) 场景 → 场景目标
+    // 1) 场景 -> 模糊链的 mip 0（锐利背景就是这一级，不需要额外拷贝）
     const scenePass = encoder.beginRenderPass({
       label: 'glassium:scene',
       colorAttachments: [
         {
-          view: target.view,
+          view: textures.sceneView,
           clearValue: { r: 0, g: 0, b: 0, a: 1 },
           loadOp: 'clear',
           storeOp: 'store'
@@ -283,28 +387,52 @@ export async function createGlassStage(options: GlassStageOptions = {}): Promise
     scenePass.draw(3)
     scenePass.end()
 
-    // 2) 场景目标 → 画布（放大）
-    //    T7 起中间会插入玻璃 pass，那时这一步的输入变成合成目标。
+    // 2) 建模糊链。趟数只和级数有关，与面板数量无关。
+    blurChain.build(encoder)
+
+    // 3) 背景 -> 画布。T7 起玻璃 pass 会插在这之前。
+    const canvasTexture = context.getCurrentTexture()
     const presentPass = encoder.beginRenderPass({
       label: 'glassium:present',
       colorAttachments: [
         {
-          view: context.getCurrentTexture().createView(),
+          view: canvasTexture.createView(),
           clearValue: { r: 0, g: 0, b: 0, a: 1 },
           loadOp: 'clear',
           storeOp: 'store'
         }
       ]
     })
-    presentPass.setPipeline(presentPipeline)
-    presentPass.setBindGroup(0, presentBindGroup)
+    presentPass.setPipeline(backdropPipeline)
+    presentPass.setBindGroup(0, backdropBindGroup)
     presentPass.draw(3)
     presentPass.end()
 
+    // 回读要在 present 之后、submit 之前排进同一个 encoder。
+    const readbackResolve = pendingReadback
+    if (readbackResolve) {
+      pendingReadback = null
+      const ox = Math.max(0, Math.floor((canvasTexture.width - READBACK_SIZE) / 2))
+      const oy = Math.max(0, Math.floor((canvasTexture.height - READBACK_SIZE) / 2))
+      encoder.copyTextureToBuffer(
+        { texture: canvasTexture, origin: { x: ox, y: oy } },
+        { buffer: readbackBuffer, bytesPerRow: READBACK_SIZE * 4 },
+        { width: READBACK_SIZE, height: READBACK_SIZE }
+      )
+    }
+
     device.queue.submit([encoder.finish()])
 
+    if (readbackResolve) {
+      void readbackBuffer.mapAsync(GPUMapMode.READ).then(() => {
+        const copy = new Uint8Array(readbackBuffer.getMappedRange()).slice()
+        readbackBuffer.unmap()
+        readbackResolve(copy)
+      })
+    }
+
     frames++
-    drawCalls = 2
+    drawCalls = 2 + blurChain.passesLastFrame
 
     if (fpsWindowStart === 0) fpsWindowStart = now
     fpsWindowFrames++
@@ -389,10 +517,29 @@ export async function createGlassStage(options: GlassStageOptions = {}): Promise
         fps,
         frames,
         drawCalls,
-        targetAllocations: targets.allocations,
+        targetAllocations: blurChain.allocations,
+        blurPasses: blurChain.passesLastFrame,
+        blurLevels: blurChain.textures?.levels ?? 0,
         viewport,
         reducedMotion
-      })
+      }),
+      readback(): Promise<Uint8Array> {
+        return new Promise<Uint8Array>((resolve, reject) => {
+          if (pendingReadback) {
+            reject(new Error('[Glassium] 上一次回读还没完成'))
+            return
+          }
+          pendingReadback = resolve
+          requestRender()
+        })
+      },
+      setBackdrop(params: BackdropDebugParams): void {
+        if (params.blurDp !== undefined) backdropBlurDp = params.blurDp
+        if (params.saturation !== undefined) backdropSaturation = params.saturation
+        if (params.tint !== undefined) backdropTint = parseTint(params.tint)
+        if (params.scene !== undefined) sceneMode = params.scene === 'calibration' ? 1 : 0
+        requestRender()
+      }
     },
     requestRender,
     dispose(): void {
@@ -404,7 +551,9 @@ export async function createGlassStage(options: GlassStageOptions = {}): Promise
       motionQuery.removeEventListener('change', onMotionChange)
       onReducedMotionOverrideChange = null
       sceneUniforms.destroy()
-      targets.destroy()
+      backdropUniforms.destroy()
+      readbackBuffer.destroy()
+      blurChain.destroy()
       canvas.remove()
       releaseDevice()
       activeStage = null
@@ -441,12 +590,16 @@ function makeInertStage(
     canvas,
     debug: {
       probe: null,
+      setBackdrop(): void {},
+      readback: (): Promise<Uint8Array> => Promise.resolve(new Uint8Array(0)),
       stats: (): GlassStats => ({
         backend: 'none',
         fps: 0,
         frames: 0,
         drawCalls: 0,
         targetAllocations: 0,
+        blurPasses: 0,
+        blurLevels: 0,
         viewport: null,
         reducedMotion: window.matchMedia('(prefers-reduced-motion: reduce)').matches
       })

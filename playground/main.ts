@@ -41,7 +41,8 @@ function render(stage: GlassStage): void {
     `<b>fps</b>      ${s.fps}${s.reducedMotion ? '  (reduced-motion：不启动循环)' : ''}`,
     `<b>frames</b>   ${s.frames}`,
     `<b>draws</b>    ${s.drawCalls}`,
-    `<b>allocs</b>   ${s.targetAllocations}`
+    `<b>allocs</b>   ${s.targetAllocations}`,
+    `<b>blur</b>     ${s.blurPasses} 趟 / ${s.blurLevels} 级`
   ]
 
   if (v) {
@@ -67,6 +68,33 @@ function render(stage: GlassStage): void {
   statsEl.innerHTML = lines.join('\n')
 }
 
+function wireControls(stage: GlassStage): void {
+  const scene = document.getElementById('scene') as HTMLSelectElement
+  const blur = document.getElementById('blur') as HTMLInputElement
+  const sat = document.getElementById('sat') as HTMLInputElement
+  const tint = document.getElementById('tint') as HTMLInputElement
+  const blurOut = document.getElementById('blurOut') as HTMLOutputElement
+  const satOut = document.getElementById('satOut') as HTMLOutputElement
+  const tintOut = document.getElementById('tintOut') as HTMLOutputElement
+
+  const apply = (): void => {
+    const a = Number(tint.value)
+    blurOut.textContent = blur.value
+    satOut.textContent = Number(sat.value).toFixed(2)
+    tintOut.textContent = a.toFixed(2)
+    stage.debug.setBackdrop({
+      blurDp: Number(blur.value),
+      saturation: Number(sat.value),
+      tint: `rgba(255, 255, 255, ${a})`,
+      scene: scene.value as 'gradient' | 'calibration'
+    })
+  }
+
+  for (const el of [blur, sat, tint]) el.addEventListener('input', apply)
+  scene.addEventListener('change', apply)
+  apply()
+}
+
 async function main(): Promise<void> {
   const stage = await createGlassStage({
     onDegrade: (r) => {
@@ -77,6 +105,7 @@ async function main(): Promise<void> {
   // 供浏览器面板的 javascript_tool 读取 —— 验证靠读数值，不靠看截图猜。
   Object.assign(window as unknown as Record<string, unknown>, { glassiumStage: stage })
 
+  wireControls(stage)
   render(stage)
   // stats 面板本身不该驱动渲染，所以用低频定时器读，而不是挂进 rAF。
   setInterval(() => render(stage), 250)

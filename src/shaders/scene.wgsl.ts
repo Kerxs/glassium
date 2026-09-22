@@ -49,7 +49,7 @@ export const SCENE_WGSL = /* wgsl */ `
 struct SceneUniforms {
   resolution: vec2f,
   time: f32,
-  _pad: f32,
+  mode: f32,        // 0 = gradient，1 = calibration
 }
 
 @group(0) @binding(0) var<uniform> scene: SceneUniforms;
@@ -65,7 +65,31 @@ fn palette(t: f32) -> vec3f {
   return mix(lower, c2, smoothstep(0.55, 1.0, k));
 }
 
+/**
+ * 校准图案：棋盘格 + 硬对角线 + 黑白阶跃。全高频、几何已知。
+ *
+ * 这个场景本来排在 T12，提前到 T6 是因为**没有它就验不了 T6 自己**：
+ * 线性渐变几乎是高斯模糊的不动点（模糊一个线性斜坡还是同一个斜坡），
+ * 在渐变上扫 σ 测到的差异小到接近本底噪声，根本分辨不出有没有台阶。
+ *
+ * 布局：左上半是棋盘格（处处高频），右下半是黑白竖直阶跃（一条硬边），
+ * 两者之间的 45° 对角线本身又是一条硬边。
+ */
+fn calibration(uv: vec2f, res: vec2f) -> vec3f {
+  let p = uv * res;
+  let cell = 24.0;
+  let checker = step(0.5, fract((floor(p.x / cell) + floor(p.y / cell)) * 0.5));
+  let halfPlane = step(0.0, p.x + p.y - (res.x + res.y) * 0.5);
+  let vstep = step(res.x * 0.5, p.x);
+  let right = mix(vec3f(0.04, 0.04, 0.05), vec3f(0.96, 0.96, 0.98), vstep);
+  return mix(vec3f(checker, checker, checker), right, halfPlane);
+}
+
 @fragment fn fs(in: VsOut) -> @location(0) vec4f {
+  if (scene.mode > 0.5) {
+    return vec4f(calibration(in.uv, scene.resolution), 1.0);
+  }
+
   let aspect = scene.resolution.x / max(scene.resolution.y, 1.0);
   let p = vec2f(in.uv.x * aspect, in.uv.y);
 
@@ -75,24 +99,5 @@ fn palette(t: f32) -> vec3f {
   let t = clamp((p.x * 0.45 + p.y * 0.85) * 0.78 + drift, 0.0, 1.0);
 
   return vec4f(palette(t), 1.0);
-}
-`
-
-/**
- * 呈现（把场景目标放大贴到画布）。
- *
- * 场景目标受像素预算约束，通常比画布小（1080p@2x 下是 1520x855 对 3840x2160），
- * 所以这一步是**放大**。用线性采样，取纹素中心。
- */
-export const PRESENT_WGSL = /* wgsl */ `
-${FULLSCREEN_VS}
-
-@group(0) @binding(0) var samp: sampler;
-@group(0) @binding(1) var src: texture_2d<f32>;
-
-@fragment fn fs(in: VsOut) -> @location(0) vec4f {
-  // 用 textureSampleLevel 而不是 textureSample：全项目统一，免得将来有人把这段
-  // 复制进带分支的玻璃着色器里，再去查为什么编译不过（隐式导数要求统一控制流）。
-  return textureSampleLevel(src, samp, in.uv, 0.0);
 }
 `
