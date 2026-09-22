@@ -1,0 +1,42 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # meshora 用 Node 22，这里用 24，是有硬理由的：测试直接跑带类型标注的
+      # .ts，靠的是 Node 原生类型擦除。22 上跑不了，而为此引入一个测试框架
+      # 就是给零依赖的库加依赖。
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - run: npm ci
+
+      - name: 类型门禁
+        run: npm run typecheck
+
+      - name: CPU 测试
+        run: npm test
+
+      # 改了光学却没跑 gen:conformance 的话，签入的向量就和实现漂了，
+      # 而那份向量是未来 Android / iOS 渲染器唯一的契约。
+      - name: 符合性向量同一性
+        run: |
+          npm run gen:conformance
+          git diff --exit-code -- spec/conformance/
+
+      # T4 会在这里加一步同构的「GLSL 重生成同一性」。现在不加 ——
+      # 引用一个还不存在的脚本只会让 CI 恒红，而一个恒红的 CI 等于没有 CI。
+
+      # 这个 job 不覆盖 GPU 输出。绿色徽章只代表数学和类型是对的，
+      # 不代表像素是对的 —— 像素由 playground/verify.html 手工验证。
+      # 详见 spec/golden/README.md。

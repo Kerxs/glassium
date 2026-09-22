@@ -1,0 +1,31 @@
+{
+  // 工作区里其它项目都没有 tsconfig —— Vite/esbuild 只做转译、不做类型检查，
+  // 对纯站点而言够用。Glassium 破这个例，只为一件事：`tsc --noEmit` 类型门禁。
+  //
+  // 理由是着色器 uniform 的字节布局必须和 TS 侧的 ArrayBuffer 打包严格对齐。
+  // 写错一个偏移量，esbuild 不会吭声，WebGPU 也不会报错 —— 你只会看到一块
+  // 位置微妙不对的玻璃，然后花半天怀疑光学。类型检查抓不住全部，但抓得住
+  // 其中最蠢的一类。
+  //
+  // noEmit 恒为 true：构建产物由 Vite 出，tsc 只当检查器用。
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "types": ["@webgpu/types", "node"],
+
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "noImplicitOverride": true,
+    "noFallthroughCasesInSwitch": true,
+    "exactOptionalPropertyTypes": true,
+
+    "allowImportingTsExtensions": true,
+    "verbatimModuleSyntax": true,
+    "isolatedModules": true,
+    "skipLibCheck": true,
+    "noEmit": true
+  },
+  "include": ["src", "playground", "scripts", "vite.config.ts"]
+}

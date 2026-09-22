@@ -1,0 +1,12 @@
+Glassium
+Copyright 2026 Glassium Contributors
+
+This product includes software developed as a derivative of
+AndroidLiquidGlass / Backdrop (io.github.kyant0:backdrop),
+Copyright 2025 Kyant, licensed under the Apache License, Version 2.0.
+https://github.com/Kyant0/AndroidLiquidGlass
+
+The optical mathematics in src/core/optics.ts and
+src/shaders/optics.wgsl.ts are ported from that project's
+internal/Shaders.kt and have been modified. See docs/porting-notes.md
+for the full list of changes.

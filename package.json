@@ -1,0 +1,24 @@
+{
+  "name": "glassium",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Liquid Glass 渲染框架 —— Web/TypeScript 实现",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit",
+    "test": "node --test",
+    "gen:conformance": "node scripts/gen-conformance.ts"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "@webgpu/types": "^0.1.60",
+    "typescript": "^5.7.2",
+    "vite": "^6.0.7"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

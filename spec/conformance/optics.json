@@ -1,0 +1,2963 @@
+{
+  "$comment": "由 scripts/gen-conformance.ts 生成，请勿手改。这是 Glassium 光学的平台中立契约：任何新渲染器（Android/iOS/…）都应当对这些输入产出同样的输出。容差建议 1e-6。",
+  "generator": "scripts/gen-conformance.ts",
+  "toleranceHint": 0.000001,
+  "groups": {
+    "signedDistanceAndGradient": [
+      {
+        "input": {
+          "p": [
+            61.59,
+            -8.19
+          ],
+          "halfSize": [
+            150,
+            90
+          ],
+          "radius": 82.37,
+          "gradRadius": 90
+        },
+        "expect": {
+          "sd": -81.81,
+          "grad": [
+            0.19058091214104578,
+            -0.9816714908397243
+          ],
+          "gradNormalized": [
+            0.19058091214104578,
+            -0.9816714908397243
+          ]
+        }
+      },
+      {
+        "input": {
+          "p": [
+            -118.97,
+            -89.43
+          ],
+          "halfSize": [
+            150,
+            90
+          ],
+          "radius": 66.92,
+          "gradRadius": 90
+        },
+        "expect": {
+          "sd": 8.514836779832706,
+          "grad": [
+            -0.5504923203431834,
+            -0.8348402273747821
+          ],
+          "gradNormalized": [
+            -0.5504923203431834,
+            -0.8348402273747821
+          ]
+        }
+      },
+      {
+        "input": {
+          "p": [
+            189.86,
+            -119.52
+          ],
+          "halfSize": [
+            150,
+            90
+          ],
+          "radius": 71.48,
+          "gradRadius": 90
+        },
+        "expect": {
+          "sd": 78.8449666555759,
+          "grad": [
+            0.7357932241192476,
+            -0.6772062694188546
+          ],
+          "gradNormalized": [
+            0.7357932241192477,
+            -0.6772062694188548
+          ]
+        }
+      },
+      {
+        "input": {
+          "p": [
+            55.06,
+            79.44
+          ],
+          "halfSize": [
+            150,
+            90
+          ],
+          "radius": 32.23,
+          "gradRadius": 48.345
+        },
+        "expect": {
+          "sd": -10.560000000000002,
+          "grad": [
+            0,
+            1
+          ],
+          "gradNormalized": [
+            0,
+            1
+          ]
+        }
+      },
+      {
+        "input": {
+          "p": [
+            -72.49,
+            -138.55
+          ],
+          "halfSize": [
+            150,
+            90
+          ],
+          "radius": 51.6,
+          "gradRadius": 77.4
+        },
+        "expect": {
+          "sd": 48.550000000000004,
+          "grad": [
+            0,
+            -1
+          ],
+          "gradNormalized": [
+            0,
+            -1
+          ]
+        }
+      },
+      {
+        "input": {
+          "p": [
+            -162.08,
+            2.31
+          ],
+          "halfSize": [
+            150,
+            90
+          ],
+          "radius": 62.5,
+          "gradRadius": 90
+        },
+        "expect": {
+          "sd": 12.080000000000013,
+          "grad": [
+            -0.9997440554516197,
+            0.02262351849621122
+          ],
+          "gradNormalized": [
+            -0.9997440554516198,
+            0.022623518496211224
+          ]
+        }
+      },
+      {
+        "input": {
+          "p": [
+            -88.41,
+            -55.12
+          ],
+          "halfSize": [
+            150,
+            90
+          ],
+          "radius": 56.67,
+          "gradRadius": 85.005
+        },
+        "expect": {
+          "sd": -34.88,
+          "grad": [
+            -0.4232317666175045,
+            -0.9060214521333512
+          ],
+          "gradNormalized": [
+            -0.4232317666175045,
+            -0.9060214521333512
+          ]
+        }
+      },
+      {
+        "input": {
+          "p": [
+            138.11,
+            62.99
+          ],
+          "halfSize": [
+            150,
+            90
+          ],
+          "radius": 77.19,
+          "gradRadius": 90
+        },
+        "expect": {
+          "sd": 5.163642299536463,
+          "grad": [
+            0.7784224647226781,
+            0.6277407637035141
+          ],
+          "gradNormalized": [
+            0.7784224647226781,
+            0.6277407637035141
+          ]
+        }
+      },
+      {
+        "input": {
+          "p": [
+            157.78,
+            60.66
+          ],
+          "halfSize": [
+            150,
+            90
+          ],
+          "radius": 20.6,
+          "gradRadius": 30.900000000000002
+        },
+        "expect": {
+          "sd": 7.779999999999994,
+          "grad": [
+            0.9991876992527726,
+            0.040298159535530696
+          ],
+          "gradNormalized": [
+            0.9991876992527726,
+            0.040298159535530696
+          ]
+        }
+      },
+      {
+        "input": {
+          "p": [
+            -77.55,
+            53.65
+          ],
+          "halfSize": [
+            150,
+            90
+          ],
+          "radius": 39.36,
+          "gradRadius": 59.04
+        },
+        "expect": {
+          "sd": -36.35,
+          "grad": [
+            0,
+            1
+          ],
+          "gradNormalized": [
+            0,
+            1
+          ]
+        }
+      },
+      {
+        "input": {
+          "p": [
+            80.87,
+            41.84
+          ],
+          "halfSize": [
+            150,
+            90
+          ],
+          "radius": 74.34,
+          "gradRadius": 90
+        },
+        "expect": {
+          "sd": -47.64662067103529,
+          "grad": [
+            0.4463578894672633,
+            0.8948545325975225
+          ],
+          "gradNormalized": [
+            0.4463578894672633,
+            0.8948545325975225
+          ]
+        }
+      },
+      {
+        "input": {
+          "p": [
+            -72.06,
+            21.36
+          ],
+          "halfSize": [
+            150,
+            90
+          ],
+          "radius": 31.49,
+          "gradRadius": 47.235
+        },
+        "expect": {
+          "sd": -68.64,
+          "grad": [
+            0,
+            1
+          ],
+          "gradNormalized": [
+            0,
+            1
+          ]
+        }
+      },
+      {
+        "input": {
+          "p": [
+            -114.36,
+            36.01
+          ],
+          "halfSize": [
+            150,
+            90
+          ],
+          "radius": 11.89,
+          "gradRadius": 17.835
+        },
+        "expect": {
+          "sd": -35.640000000000015,
+          "grad": [
+            -1,
+            0
+          ],
+          "gradNormalized": [
+            -1,
+            0
+          ]
+        }
+      },
+      {
+        "input": {
+          "p": [
+            -167.14,
+            67.68
+          ],
+          "halfSize": [
+            150,
+            90
+          ],
+          "radius": 84.86,
+          "gradRadius": 90
+        },
+        "expect": {
+          "sd": 34.78636057983542,
+          "grad": [
+            -0.8454438977750538,
+            0.5340642430596944
+          ],
+          "gradNormalized": [
+            -0.8454438977750538,
+            0.5340642430596944
+          ]
+        }
+      },
+      {
+        "input": {
+          "p": [
+            -175.7,
+            138.03
+          ],
+          "halfSize": [
+            150,
+            90
+          ],
+          "radius": 21.15,
+          "gradRadius": 31.724999999999998
+        },
+        "expect": {
+          "sd": 62.40115139840983,
+          "grad": [
+            -0.5843141076284593,
+            0.8115275864851159
+          ],
+          "gradNormalized": [
+            -0.5843141076284594,
+            0.811527586485116
+          ]
+        }
+      },
+      {
+        "input": {
+          "p": [
+            1.91,
+            -46.47
+          ],
+          "halfSize": [
+            150,
+            90
+          ],
+          "radius": 43.7,
+          "gradRadius": 65.55000000000001
+        },
+        "expect": {
+          "sd": -43.53,
+          "grad": [
+            0,
+            -1
+          ],
+          "gradNormalized": [
+            0,
+            -1
+          ]
+        }
+      },
+      {
+        "input": {
+          "p": [
+            99.92,
+            -85.78
+          ],
+          "halfSize": [
+            150,
+            90
+          ],
+          "radius": 64.14,
+          "gradRadius": 90
+        },
+        "expect": {
+          "sd": -2.592538638868291,
+          "grad": [
+            0.421924736917679,
+            -0.9066308600400427
+          ],
+          "gradNormalized": [
+            0.421924736917679,
+            -0.9066308600400427
+          ]
+        }
+      },
+      {
+        "input": {
+          "p": [
+            117.43,
+            36.55
+          ],
+          "halfSize": [
+            150,
+            90
+          ],
+          "radius": 1.51,
+          "gradRadius": 2.265
+        },
+        "expect": {
+          "sd": -32.57,
+          "grad": [
+            1,
+            0
+          ],
+          "gradNormalized": [
+            1,
+            0
+          ]
+        }
+      },
+      {
+        "input": {
+          "p": [
+            -12.03,
+            101.24
+          ],
+          "halfSize": [
+            150,
+            90
+          ],
+          "radius": 3.93,
+          "gradRadius": 5.8950000000000005
+        },
+        "expect": {
+          "sd": 11.240000000000002,
+          "grad": [
+            0,
+            1
+          ],
+          "gradNormalized": [
+            0,
+            1
+          ]
+        }
+      },
+      {
+        "input": {
+          "p": [
+            -97.1,
+            -95.24
+          ],
+          "halfSize": [
+            150,
+            90
+          ],
+          "radius": 26.62,
+          "gradRadius": 39.93
+        },
+        "expect": {
+          "sd": 5.239999999999998,
+          "grad": [
+            0,
+            -1
+          ],
+          "gradNormalized": [
+            0,
+            -1
+          ]
+        }
+      },
+      {
+        "input": {
+          "p": [
+            174.85,
+            47.65
+          ],
+          "halfSize": [
+            150,
+            90
+          ],
+          "radius": 45.64,
+          "gradRadius": 68.46000000000001
+        },
+        "expect": {
+          "sd": 24.926735789605573,
+          "grad": [
+            0.9630090246449218,
+            0.2694691419298994
+          ],
+          "gradNormalized": [
+            0.9630090246449219,
+            0.26946914192989946
+          ]
+        }
+      },
+      {
+        "input": {
+          "p": [
+            -39.06,
+            36.51
+          ],
+          "halfSize": [
+            150,
+            90
+          ],
+          "radius": 33,
+          "gradRadius": 49.5
+        },
+        "expect": {
+          "sd": -53.49,
+          "grad": [
+            0,
+            1
+          ],
+          "gradNormalized": [
+            0,
+            1
+          ]
+        }
+      },
+      {
+        "input": {
+          "p": [
+            98.75,
+            21.91
+          ],
+          "halfSize": [
+            150,
+            90
+          ],
+          "radius": 43.8,
+          "gradRadius": 65.69999999999999
+        },
+        "expect": {
+          "sd": -51.25,
+          "grad": [
+            1,
+            0
+          ],
+          "gradNormalized": [
+            1,
+            0
+          ]
+        }
+      },
+      {
+        "input": {
+          "p": [
+            -89.02,
+            138.26
+          ],
+          "halfSize": [
+            150,
+            90
+          ],
+          "radius": 51.29,
+          "gradRadius": 76.935
+        },
+        "expect": {
+          "sd": 48.259999999999984,
+          "grad": [
+            -0.12641872700835122,
+            0.9919769682112523
+          ],
+          "gradNormalized": [
+            -0.12641872700835124,
+            0.9919769682112524
+          ]
+        }
+      },
+      {
+        "input": {
+          "p": [
+            -51.18,
+            -45.91
+          ],
+          "halfSize": [
+            150,
+            90
+          ],
+          "radius": 41.98,
+          "gradRadius": 62.97
+        },
+        "expect": {
+          "sd": -44.09,
+          "grad": [
+            0,
+            -1
+          ],
+          "gradNormalized": [
+            0,
+            -1
+          ]
+        }
+      },
+      {
+        "input": {
+          "p": [
+            -53.62,
+            98.96
+          ],
+          "halfSize": [
+            150,
+            90
+          ],
+          "radius": 69.49,
+          "gradRadius": 90
+        },
+        "expect": {
+          "sd": 8.959999999999994,
+          "grad": [
+            0,
+            1
+          ],
+          "gradNormalized": [
+            0,
+            1
+          ]
+        }
+      },
+      {
+        "input": {
+          "p": [
+            58.8,
+            66.95
+          ],
+          "halfSize": [
+            150,
+            90
+          ],
+          "radius": 30.5,
+          "gradRadius": 45.75
+        },
+        "expect": {
+          "sd": -23.049999999999997,
+          "grad": [
+            0,
+            1
+          ],
+          "gradNormalized": [
+            0,
+            1
+          ]
+        }
+      },
+      {
+        "input": {
+          "p": [
+            -137.49,
+            57
+          ],
+          "halfSize": [
+            150,
+            90
+          ],
+          "radius": 63.32,
+          "gradRadius": 90
+        },
+        "expect": {
+          "sd": -4.15110192001206,
+          "grad": [
+            -0.8055415580041752,
+            0.5925392799875853
+          ],
+          "gradNormalized": [
+            -0.8055415580041752,
+            0.5925392799875853
+          ]
+        }
+      },
+      {
+        "input": {
+          "p": [
+            45.57,
+            -115.96
+          ],
+          "halfSize": [
+            150,
+            90
+          ],
+          "radius": 67.76,
+          "gradRadius": 90
+        },
+        "expect": {
+          "sd": 25.959999999999994,
+          "grad": [
+            0,
+            -1
+          ],
+          "gradNormalized": [
+            0,
+            -1
+          ]
+        }
+      },
+      {
+        "input": {
+          "p": [
+            -39.04,
+            -6.83
+          ],
+          "halfSize": [
+            150,
+            90
+          ],
+          "radius": 58.8,
+          "gradRadius": 88.19999999999999
+        },
+        "expect": {
+          "sd": -83.17,
+          "grad": [
+            0,
+            -1
+          ],
+          "gradNormalized": [
+            0,
+            -1
+          ]
+        }
+      },
+      {
+        "input": {
+          "p": [
+            117.02,
+            -86.24
+          ],
+          "halfSize": [
+            150,
+            90
+          ],
+          "radius": 37.73,
+          "gradRadius": 56.595
+        },
+        "expect": {
+          "sd": -3.429513122989057,
+          "grad": [
+            0.40805345114780395,
+            -0.912958039017329
+          ],
+          "gradNormalized": [
+            0.40805345114780395,
+            -0.912958039017329
+          ]
+        }
+      },
+      {
+        "input": {
+          "p": [
+            -164.89,
+            -33.67
+          ],
+          "halfSize": [
+            150,
+            90
+          ],
+          "radius": 84.39,
+          "gradRadius": 90
+        },
+        "expect": {
+          "sd": 18.779191137664725,
+          "grad": [
+            -0.9521465513419549,
+            -0.3056418570281593
+          ],
+          "gradNormalized": [
+            -0.9521465513419549,
+            -0.3056418570281593
+          ]
+        }
+      },
+      {
+        "input": {
+          "p": [
+            31.83,
+            -81.48
+          ],
+          "halfSize": [
+            150,
+            90
+          ],
+          "radius": 34.71,
+          "gradRadius": 52.065
+        },
+        "expect": {
+          "sd": -8.519999999999996,
+          "grad": [
+            0,
+            -1
+          ],
+          "gradNormalized": [
+            0,
+            -1
+          ]
+        }
+      },
+      {
+        "input": {
+          "p": [
+            114.9,
+            -33.66
+          ],
+          "halfSize": [
+            150,
+            90
+          ],
+          "radius": 52.8,
+          "gradRadius": 79.19999999999999
+        },
+        "expect": {
+          "sd": -35.099999999999994,
+          "grad": [
+            0.8878093705141724,
+            -0.4602113879808156
+          ],
+          "gradNormalized": [
+            0.8878093705141724,
+            -0.4602113879808156
+          ]
+        }
+      },
+      {
+        "input": {
+          "p": [
+            -38.77,
+            122.64
+          ],
+          "halfSize": [
+            150,
+            90
+          ],
+          "radius": 53.29,
+          "gradRadius": 79.935
+        },
+        "expect": {
+          "sd": 32.64000000000001,
+          "grad": [
+            0,
+            1
+          ],
+          "gradNormalized": [
+            0,
+            1
+          ]
+        }
+      },
+      {
+        "input": {
+          "p": [
+            17.51,
+            37.83
+          ],
+          "halfSize": [
+            150,
+            90
+          ],
+          "radius": 14.55,
+          "gradRadius": 21.825000000000003
+        },
+        "expect": {
+          "sd": -52.17,
+          "grad": [
+            0,
+            1
+          ],
+          "gradNormalized": [
+            0,
+            1
+          ]
+        }
+      },
+      {
+        "input": {
+          "p": [
+            104.97,
+            -29.34
+          ],
+          "halfSize": [
+            150,
+            90
+          ],
+          "radius": 30.95,
+          "gradRadius": 46.425
+        },
+        "expect": {
+          "sd": -45.03,
+          "grad": [
+            1,
+            0
+          ],
+          "gradNormalized": [
+            1,
+            0
+          ]
+        }
+      },
+      {
+        "input": {
+          "p": [
+            -158.12,
+            -83.43
+          ],
+          "halfSize": [
+            150,
+            90
+          ],
+          "radius": 50.66,
+          "gradRadius": 75.99
+        },
+        "expect": {
+          "sd": 22.818000108876134,
+          "grad": [
+            -0.7712416026490223,
+            -0.636542528306921
+          ],
+          "gradNormalized": [
+            -0.7712416026490223,
+            -0.636542528306921
+          ]
+        }
+      },
+      {
+        "input": {
+          "p": [
+            -125.23,
+            35.8
+          ],
+          "halfSize": [
+            150,
+            90
+          ],
+          "radius": 0.04,
+          "gradRadius": 0.06
+        },
+        "expect": {
+          "sd": -24.770000000000003,
+          "grad": [
+            -1,
+            0
+          ],
+          "gradNormalized": [
+            -1,
+            0
+          ]
+        }
+      },
+      {
+        "input": {
+          "p": [
+            -17.2,
+            -134.71
+          ],
+          "halfSize": [
+            150,
+            90
+          ],
+          "radius": 63.18,
+          "gradRadius": 90
+        },
+        "expect": {
+          "sd": 44.710000000000015,
+          "grad": [
+            0,
+            -1
+          ],
+          "gradNormalized": [
+            0,
+            -1
+          ]
+        }
+      },
+      {
+        "input": {
+          "p": [
+            104.52,
+            -65.93
+          ],
+          "halfSize": [
+            150,
+            90
+          ],
+          "radius": 88.91,
+          "gradRadius": 90
+        },
+        "expect": {
+          "sd": -10.869046007881224,
+          "grad": [
+            0.559621809191492,
+            -0.8287481105120188
+          ],
+          "gradNormalized": [
+            0.5596218091914918,
+            -0.8287481105120186
+          ]
+        }
+      },
+      {
+        "input": {
+          "p": [
+            49.93,
+            -135.64
+          ],
+          "halfSize": [
+            150,
+            90
+          ],
+          "radius": 3.24,
+          "gradRadius": 4.86
+        },
+        "expect": {
+          "sd": 45.63999999999998,
+          "grad": [
+            0,
+            -1
+          ],
+          "gradNormalized": [
+            0,
+            -1
+          ]
+        }
+      },
+      {
+        "input": {
+          "p": [
+            -198.66,
+            20.92
+          ],
+          "halfSize": [
+            150,
+            90
+          ],
+          "radius": 46.26,
+          "gradRadius": 69.39
+        },
+        "expect": {
+          "sd": 48.65999999999999,
+          "grad": [
+            -0.9999965520642611,
+            0.0026259968753911326
+          ],
+          "gradNormalized": [
+            -0.9999965520642611,
+            0.0026259968753911326
+          ]
+        }
+      },
+      {
+        "input": {
+          "p": [
+            84.1,
+            113.24
+          ],
+          "halfSize": [
+            150,
+            90
+          ],
+          "radius": 69.03,
+          "gradRadius": 90
+        },
+        "expect": {
+          "sd": 23.293072955789327,
+          "grad": [
+            0.20816038854657612,
+            0.9780947053532898
+          ],
+          "gradNormalized": [
+            0.20816038854657612,
+            0.9780947053532898
+          ]
+        }
+      },
+      {
+        "input": {
+          "p": [
+            141.22,
+            131.19
+          ],
+          "halfSize": [
+            150,
+            90
+          ],
+          "radius": 81.59,
+          "gradRadius": 90
+        },
+        "expect": {
+          "sd": 61.15531340818163,
+          "grad": [
+            0.5263880817477895,
+            0.8502444280287184
+          ],
+          "gradNormalized": [
+            0.5263880817477896,
+            0.8502444280287185
+          ]
+        }
+      },
+      {
+        "input": {
+          "p": [
+            91.39,
+            -101.65
+          ],
+          "halfSize": [
+            150,
+            90
+          ],
+          "radius": 5.26,
+          "gradRadius": 7.89
+        },
+        "expect": {
+          "sd": 11.650000000000011,
+          "grad": [
+            0,
+            -1
+          ],
+          "gradNormalized": [
+            0,
+            -1
+          ]
+        }
+      },
+      {
+        "input": {
+          "p": [
+            -138.26,
+            -12.45
+          ],
+          "halfSize": [
+            150,
+            90
+          ],
+          "radius": 56.58,
+          "gradRadius": 84.87
+        },
+        "expect": {
+          "sd": -11.740000000000009,
+          "grad": [
+            -0.9950277556416927,
+            -0.09959801957195671
+          ],
+          "gradNormalized": [
+            -0.9950277556416927,
+            -0.09959801957195671
+          ]
+        }
+      },
+      {
+        "input": {
+          "p": [
+            191.08,
+            -11.32
+          ],
+          "halfSize": [
+            150,
+            90
+          ],
+          "radius": 42.49,
+          "gradRadius": 63.735
+        },
+        "expect": {
+          "sd": 41.08000000000002,
+          "grad": [
+            1,
+            0
+          ],
+          "gradNormalized": [
+            1,
+            0
+          ]
+        }
+      },
+      {
+        "input": {
+          "p": [
+            37.45,
+            44.74
+          ],
+          "halfSize": [
+            150,
+            90
+          ],
+          "radius": 49.59,
+          "gradRadius": 74.385
+        },
+        "expect": {
+          "sd": -45.26,
+          "grad": [
+            0,
+            1
+          ],
+          "gradNormalized": [
+            0,
+            1
+          ]
+        }
+      },
+      {
+        "input": {
+          "p": [
+            -179.19,
+            80.82
+          ],
+          "halfSize": [
+            150,
+            90
+          ],
+          "radius": 4.53,
+          "gradRadius": 6.795
+        },
+        "expect": {
+          "sd": 29.189999999999998,
+          "grad": [
+            -1,
+            0
+          ],
+          "gradNormalized": [
+            -1,
+            0
+          ]
+        }
+      },
+      {
+        "input": {
+          "p": [
+            -33.62,
+            -105.62
+          ],
+          "halfSize": [
+            150,
+            90
+          ],
+          "radius": 26.98,
+          "gradRadius": 40.47
+        },
+        "expect": {
+          "sd": 15.620000000000008,
+          "grad": [
+            0,
+            -1
+          ],
+          "gradNormalized": [
+            0,
+            -1
+          ]
+        }
+      },
+      {
+        "input": {
+          "p": [
+            -113.65,
+            16.79
+          ],
+          "halfSize": [
+            150,
+            90
+          ],
+          "radius": 55.34,
+          "gradRadius": 83.01
+        },
+        "expect": {
+          "sd": -36.349999999999994,
+          "grad": [
+            -0.97864759028779,
+            0.2055453575829478
+          ],
+          "gradNormalized": [
+            -0.97864759028779,
+            0.2055453575829478
+          ]
+        }
+      },
+      {
+        "input": {
+          "p": [
+            72.69,
+            105.36
+          ],
+          "halfSize": [
+            150,
+            90
+          ],
+          "radius": 23.78,
+          "gradRadius": 35.67
+        },
+        "expect": {
+          "sd": 15.36,
+          "grad": [
+            0,
+            1
+          ],
+          "gradNormalized": [
+            0,
+            1
+          ]
+        }
+      },
+      {
+        "input": {
+          "p": [
+            -90.51,
+            28.61
+          ],
+          "halfSize": [
+            150,
+            90
+          ],
+          "radius": 89.95,
+          "gradRadius": 90
+        },
+        "expect": {
+          "sd": -48.19493803141947,
+          "grad": [
+            -0.7294551835197882,
+            0.684028607030519
+          ],
+          "gradNormalized": [
+            -0.7294551835197882,
+            0.684028607030519
+          ]
+        }
+      },
+      {
+        "input": {
+          "p": [
+            -132.81,
+            -84.46
+          ],
+          "halfSize": [
+            150,
+            90
+          ],
+          "radius": 39.98,
+          "gradRadius": 59.97
+        },
+        "expect": {
+          "sd": 1.317671847211912,
+          "grad": [
+            -0.6179427521877207,
+            -0.7862230949410385
+          ],
+          "gradNormalized": [
+            -0.6179427521877208,
+            -0.7862230949410386
+          ]
+        }
+      },
+      {
+        "input": {
+          "p": [
+            -59.64,
+            71.04
+          ],
+          "halfSize": [
+            150,
+            90
+          ],
+          "radius": 56.17,
+          "gradRadius": 84.255
+        },
+        "expect": {
+          "sd": -18.959999999999994,
+          "grad": [
+            0,
+            1
+          ],
+          "gradNormalized": [
+            0,
+            1
+          ]
+        }
+      },
+      {
+        "input": {
+          "p": [
+            27.85,
+            -101.39
+          ],
+          "halfSize": [
+            150,
+            90
+          ],
+          "radius": 50.83,
+          "gradRadius": 76.245
+        },
+        "expect": {
+          "sd": 11.39,
+          "grad": [
+            0,
+            -1
+          ],
+          "gradNormalized": [
+            0,
+            -1
+          ]
+        }
+      },
+      {
+        "input": {
+          "p": [
+            85.38,
+            -84.85
+          ],
+          "halfSize": [
+            150,
+            90
+          ],
+          "radius": 12.49,
+          "gradRadius": 18.735
+        },
+        "expect": {
+          "sd": -5.150000000000011,
+          "grad": [
+            0,
+            -1
+          ],
+          "gradNormalized": [
+            0,
+            -1
+          ]
+        }
+      },
+      {
+        "input": {
+          "p": [
+            -107.25,
+            -35.94
+          ],
+          "halfSize": [
+            150,
+            90
+          ],
+          "radius": 8.67,
+          "gradRadius": 13.004999999999999
+        },
+        "expect": {
+          "sd": -42.750000000000014,
+          "grad": [
+            -1,
+            0
+          ],
+          "gradNormalized": [
+            -1,
+            0
+          ]
+        }
+      },
+      {
+        "input": {
+          "p": [
+            183.5,
+            38.44
+          ],
+          "halfSize": [
+            150,
+            90
+          ],
+          "radius": 31.69,
+          "gradRadius": 47.535000000000004
+        },
+        "expect": {
+          "sd": 33.5,
+          "grad": [
+            1,
+            0
+          ],
+          "gradNormalized": [
+            1,
+            0
+          ]
+        }
+      },
+      {
+        "input": {
+          "p": [
+            22.15,
+            -55.63
+          ],
+          "halfSize": [
+            150,
+            90
+          ],
+          "radius": 71.57,
+          "gradRadius": 90
+        },
+        "expect": {
+          "sd": -34.37,
+          "grad": [
+            0,
+            -1
+          ],
+          "gradNormalized": [
+            0,
+            -1
+          ]
+        }
+      },
+      {
+        "input": {
+          "p": [
+            -132.87,
+            -50.91
+          ],
+          "halfSize": [
+            150,
+            90
+          ],
+          "radius": 35.83,
+          "gradRadius": 53.745
+        },
+        "expect": {
+          "sd": -17.129999999999995,
+          "grad": [
+            -0.9283979800235017,
+            -0.37158739306962746
+          ],
+          "gradNormalized": [
+            -0.9283979800235017,
+            -0.37158739306962746
+          ]
+        }
+      },
+      {
+        "input": {
+          "p": [
+            -89.61,
+            20.58
+          ],
+          "halfSize": [
+            150,
+            90
+          ],
+          "radius": 40.64,
+          "gradRadius": 60.96
+        },
+        "expect": {
+          "sd": -60.39,
+          "grad": [
+            -1,
+            0
+          ],
+          "gradNormalized": [
+            -1,
+            0
+          ]
+        }
+      },
+      {
+        "input": {
+          "p": [
+            194.29,
+            -69.45
+          ],
+          "halfSize": [
+            150,
+            90
+          ],
+          "radius": 57.18,
+          "gradRadius": 85.77
+        },
+        "expect": {
+          "sd": 50.69918149485563,
+          "grad": [
+            0.8939042318096752,
+            -0.44825798861008004
+          ],
+          "gradNormalized": [
+            0.8939042318096752,
+            -0.44825798861008004
+          ]
+        }
+      }
+    ],
+    "refractionProfile": [
+      {
+        "input": {
+          "sd": 0,
+          "heightPx": 24,
+          "amountPx": 48,
+          "squircleExponent": 2
+        },
+        "expect": {
+          "displacement": 48
+        }
+      },
+      {
+        "input": {
+          "sd": 0,
+          "heightPx": 24,
+          "amountPx": 48,
+          "squircleExponent": 4
+        },
+        "expect": {
+          "displacement": 48
+        }
+      },
+      {
+        "input": {
+          "sd": -1,
+          "heightPx": 24,
+          "amountPx": 48,
+          "squircleExponent": 2
+        },
+        "expect": {
+          "displacement": 34.28869079919792
+        }
+      },
+      {
+        "input": {
+          "sd": -1,
+          "heightPx": 24,
+          "amountPx": 48,
+          "squircleExponent": 4
+        },
+        "expect": {
+          "displacement": 17.80778123252751
+        }
+      },
+      {
+        "input": {
+          "sd": -2,
+          "heightPx": 24,
+          "amountPx": 48,
+          "squircleExponent": 2
+        },
+        "expect": {
+          "displacement": 28.816673906749116
+        }
+      },
+      {
+        "input": {
+          "sd": -2,
+          "heightPx": 24,
+          "amountPx": 48,
+          "squircleExponent": 4
+        },
+        "expect": {
+          "displacement": 12.656999340264873
+        }
+      },
+      {
+        "input": {
+          "sd": -3,
+          "heightPx": 24,
+          "amountPx": 48,
+          "squircleExponent": 2
+        },
+        "expect": {
+          "displacement": 24.762099922755496
+        }
+      },
+      {
+        "input": {
+          "sd": -3,
+          "heightPx": 24,
+          "amountPx": 48,
+          "squircleExponent": 4
+        },
+        "expect": {
+          "displacement": 9.501511754132462
+        }
+      },
+      {
+        "input": {
+          "sd": -4,
+          "heightPx": 24,
+          "amountPx": 48,
+          "squircleExponent": 2
+        },
+        "expect": {
+          "displacement": 21.4670016771568
+        }
+      },
+      {
+        "input": {
+          "sd": -4,
+          "heightPx": 24,
+          "amountPx": 48,
+          "squircleExponent": 4
+        },
+        "expect": {
+          "displacement": 7.283483297136739
+        }
+      },
+      {
+        "input": {
+          "sd": -5,
+          "heightPx": 24,
+          "amountPx": 48,
+          "squircleExponent": 2
+        },
+        "expect": {
+          "displacement": 18.67424340276964
+        }
+      },
+      {
+        "input": {
+          "sd": -5,
+          "heightPx": 24,
+          "amountPx": 48,
+          "squircleExponent": 4
+        },
+        "expect": {
+          "displacement": 5.6284346744401095
+        }
+      },
+      {
+        "input": {
+          "sd": -6,
+          "heightPx": 24,
+          "amountPx": 48,
+          "squircleExponent": 2
+        },
+        "expect": {
+          "displacement": 16.25098426722491
+        }
+      },
+      {
+        "input": {
+          "sd": -6,
+          "heightPx": 24,
+          "amountPx": 48,
+          "squircleExponent": 4
+        },
+        "expect": {
+          "displacement": 4.354370849230442
+        }
+      },
+      {
+        "input": {
+          "sd": -7,
+          "heightPx": 24,
+          "amountPx": 48,
+          "squircleExponent": 2
+        },
+        "expect": {
+          "displacement": 14.117851307805164
+        }
+      },
+      {
+        "input": {
+          "sd": -7,
+          "heightPx": 24,
+          "amountPx": 48,
+          "squircleExponent": 4
+        },
+        "expect": {
+          "displacement": 3.356884324622941
+        }
+      },
+      {
+        "input": {
+          "sd": -8,
+          "heightPx": 24,
+          "amountPx": 48,
+          "squircleExponent": 2
+        },
+        "expect": {
+          "displacement": 12.22291236000337
+        }
+      },
+      {
+        "input": {
+          "sd": -8,
+          "heightPx": 24,
+          "amountPx": 48,
+          "squircleExponent": 4
+        },
+        "expect": {
+          "displacement": 2.5694157690611643
+        }
+      },
+      {
+        "input": {
+          "sd": -9,
+          "heightPx": 24,
+          "amountPx": 48,
+          "squircleExponent": 2
+        },
+        "expect": {
+          "displacement": 10.53001200960961
+        }
+      },
+      {
+        "input": {
+          "sd": -9,
+          "heightPx": 24,
+          "amountPx": 48,
+          "squircleExponent": 4
+        },
+        "expect": {
+          "displacement": 1.9462601049775472
+        }
+      },
+      {
+        "input": {
+          "sd": -10,
+          "heightPx": 24,
+          "amountPx": 48,
+          "squircleExponent": 2
+        },
+        "expect": {
+          "displacement": 9.01282262076414
+        }
+      },
+      {
+        "input": {
+          "sd": -10,
+          "heightPx": 24,
+          "amountPx": 48,
+          "squircleExponent": 4
+        },
+        "expect": {
+          "displacement": 1.454229921601744
+        }
+      },
+      {
+        "input": {
+          "sd": -11,
+          "heightPx": 24,
+          "amountPx": 48,
+          "squircleExponent": 2
+        },
+        "expect": {
+          "displacement": 7.651517996335972
+        }
+      },
+      {
+        "input": {
+          "sd": -11,
+          "heightPx": 24,
+          "amountPx": 48,
+          "squircleExponent": 4
+        },
+        "expect": {
+          "displacement": 1.0681508413594667
+        }
+      },
+      {
+        "input": {
+          "sd": -12,
+          "heightPx": 24,
+          "amountPx": 48,
+          "squircleExponent": 2
+        },
+        "expect": {
+          "displacement": 6.430780618346947
+        }
+      },
+      {
+        "input": {
+          "sd": -12,
+          "heightPx": 24,
+          "amountPx": 48,
+          "squircleExponent": 4
+        },
+        "expect": {
+          "displacement": 0.7682478896296718
+        }
+      },
+      {
+        "input": {
+          "sd": -13,
+          "heightPx": 24,
+          "amountPx": 48,
+          "squircleExponent": 2
+        },
+        "expect": {
+          "displacement": 5.338541984596915
+        }
+      },
+      {
+        "input": {
+          "sd": -13,
+          "heightPx": 24,
+          "amountPx": 48,
+          "squircleExponent": 4
+        },
+        "expect": {
+          "displacement": 0.5385459466460905
+        }
+      },
+      {
+        "input": {
+          "sd": -14,
+          "heightPx": 24,
+          "amountPx": 48,
+          "squircleExponent": 2
+        },
+        "expect": {
+          "displacement": 4.365151541457143
+        }
+      },
+      {
+        "input": {
+          "sd": -14,
+          "heightPx": 24,
+          "amountPx": 48,
+          "squircleExponent": 4
+        },
+        "expect": {
+          "displacement": 0.3658513265511516
+        }
+      },
+      {
+        "input": {
+          "sd": -15,
+          "heightPx": 24,
+          "amountPx": 48,
+          "squircleExponent": 2
+        },
+        "expect": {
+          "displacement": 3.502809077426022
+        }
+      },
+      {
+        "input": {
+          "sd": -15,
+          "heightPx": 24,
+          "amountPx": 48,
+          "squircleExponent": 4
+        },
+        "expect": {
+          "displacement": 0.23908506538544394
+        }
+      },
+      {
+        "input": {
+          "sd": -16,
+          "heightPx": 24,
+          "amountPx": 48,
+          "squircleExponent": 2
+        },
+        "expect": {
+          "displacement": 2.745166004060959
+        }
+      },
+      {
+        "input": {
+          "sd": -16,
+          "heightPx": 24,
+          "amountPx": 48,
+          "squircleExponent": 4
+        },
+        "expect": {
+          "displacement": 0.1488390009209457
+        }
+      },
+      {
+        "input": {
+          "sd": -17,
+          "heightPx": 24,
+          "amountPx": 48,
+          "squircleExponent": 2
+        },
+        "expect": {
+          "displacement": 2.087038867004013
+        }
+      },
+      {
+        "input": {
+          "sd": -17,
+          "heightPx": 24,
+          "amountPx": 48,
+          "squircleExponent": 4
+        },
+        "expect": {
+          "displacement": 0.08707839580433863
+        }
+      },
+      {
+        "input": {
+          "sd": -18,
+          "heightPx": 24,
+          "amountPx": 48,
+          "squircleExponent": 2
+        },
+        "expect": {
+          "displacement": 1.5241998455109957
+        }
+      },
+      {
+        "input": {
+          "sd": -18,
+          "heightPx": 24,
+          "amountPx": 48,
+          "squircleExponent": 4
+        },
+        "expect": {
+          "displacement": 0.04694382143439668
+        }
+      },
+      {
+        "input": {
+          "sd": -19,
+          "heightPx": 24,
+          "amountPx": 48,
+          "squircleExponent": 2
+        },
+        "expect": {
+          "displacement": 1.0532216227779934
+        }
+      },
+      {
+        "input": {
+          "sd": -19,
+          "heightPx": 24,
+          "amountPx": 48,
+          "squircleExponent": 4
+        },
+        "expect": {
+          "displacement": 0.02262160017690995
+        }
+      },
+      {
+        "input": {
+          "sd": -20,
+          "heightPx": 24,
+          "amountPx": 48,
+          "squircleExponent": 2
+        },
+        "expect": {
+          "displacement": 0.671361735203071
+        }
+      },
+      {
+        "input": {
+          "sd": -20,
+          "heightPx": 24,
+          "amountPx": 48,
+          "squircleExponent": 4
+        },
+        "expect": {
+          "displacement": 0.009261939649618967
+        }
+      },
+      {
+        "input": {
+          "sd": -21,
+          "heightPx": 24,
+          "amountPx": 48,
+          "squircleExponent": 2
+        },
+        "expect": {
+          "displacement": 0.3764764008373671
+        }
+      },
+      {
+        "input": {
+          "sd": -21,
+          "heightPx": 24,
+          "amountPx": 48,
+          "squircleExponent": 4
+        },
+        "expect": {
+          "displacement": 0.002929955759105596
+        }
+      },
+      {
+        "input": {
+          "sd": -22,
+          "heightPx": 24,
+          "amountPx": 48,
+          "squircleExponent": 2
+        },
+        "expect": {
+          "displacement": 0.166957027594405
+        }
+      },
+      {
+        "input": {
+          "sd": -22,
+          "heightPx": 24,
+          "amountPx": 48,
+          "squircleExponent": 4
+        },
+        "expect": {
+          "displacement": 0.0005787141695616782
+        }
+      },
+      {
+        "input": {
+          "sd": -23,
+          "heightPx": 24,
+          "amountPx": 48,
+          "squircleExponent": 2
+        },
+        "expect": {
+          "displacement": 0.04168476687280709
+        }
+      },
+      {
+        "input": {
+          "sd": -23,
+          "heightPx": 24,
+          "amountPx": 48,
+          "squircleExponent": 4
+        },
+        "expect": {
+          "displacement": 0.00003616902236380781
+        }
+      },
+      {
+        "input": {
+          "sd": -24,
+          "heightPx": 24,
+          "amountPx": 48,
+          "squircleExponent": 2
+        },
+        "expect": {
+          "displacement": 0
+        }
+      },
+      {
+        "input": {
+          "sd": -24,
+          "heightPx": 24,
+          "amountPx": 48,
+          "squircleExponent": 4
+        },
+        "expect": {
+          "displacement": 0
+        }
+      },
+      {
+        "input": {
+          "sd": -25,
+          "heightPx": 24,
+          "amountPx": 48,
+          "squircleExponent": 2
+        },
+        "expect": {
+          "displacement": 0
+        }
+      },
+      {
+        "input": {
+          "sd": -25,
+          "heightPx": 24,
+          "amountPx": 48,
+          "squircleExponent": 4
+        },
+        "expect": {
+          "displacement": 0
+        }
+      },
+      {
+        "input": {
+          "sd": -26,
+          "heightPx": 24,
+          "amountPx": 48,
+          "squircleExponent": 2
+        },
+        "expect": {
+          "displacement": 0
+        }
+      },
+      {
+        "input": {
+          "sd": -26,
+          "heightPx": 24,
+          "amountPx": 48,
+          "squircleExponent": 4
+        },
+        "expect": {
+          "displacement": 0
+        }
+      },
+      {
+        "input": {
+          "sd": -27,
+          "heightPx": 24,
+          "amountPx": 48,
+          "squircleExponent": 2
+        },
+        "expect": {
+          "displacement": 0
+        }
+      },
+      {
+        "input": {
+          "sd": -27,
+          "heightPx": 24,
+          "amountPx": 48,
+          "squircleExponent": 4
+        },
+        "expect": {
+          "displacement": 0
+        }
+      },
+      {
+        "input": {
+          "sd": -28,
+          "heightPx": 24,
+          "amountPx": 48,
+          "squircleExponent": 2
+        },
+        "expect": {
+          "displacement": 0
+        }
+      },
+      {
+        "input": {
+          "sd": -28,
+          "heightPx": 24,
+          "amountPx": 48,
+          "squircleExponent": 4
+        },
+        "expect": {
+          "displacement": 0
+        }
+      },
+      {
+        "input": {
+          "sd": -29,
+          "heightPx": 24,
+          "amountPx": 48,
+          "squircleExponent": 2
+        },
+        "expect": {
+          "displacement": 0
+        }
+      },
+      {
+        "input": {
+          "sd": -29,
+          "heightPx": 24,
+          "amountPx": 48,
+          "squircleExponent": 4
+        },
+        "expect": {
+          "displacement": 0
+        }
+      },
+      {
+        "input": {
+          "sd": -30,
+          "heightPx": 24,
+          "amountPx": 48,
+          "squircleExponent": 2
+        },
+        "expect": {
+          "displacement": 0
+        }
+      },
+      {
+        "input": {
+          "sd": -30,
+          "heightPx": 24,
+          "amountPx": 48,
+          "squircleExponent": 4
+        },
+        "expect": {
+          "displacement": 0
+        }
+      },
+      {
+        "input": {
+          "sd": -31,
+          "heightPx": 24,
+          "amountPx": 48,
+          "squircleExponent": 2
+        },
+        "expect": {
+          "displacement": 0
+        }
+      },
+      {
+        "input": {
+          "sd": -31,
+          "heightPx": 24,
+          "amountPx": 48,
+          "squircleExponent": 4
+        },
+        "expect": {
+          "displacement": 0
+        }
+      },
+      {
+        "input": {
+          "sd": -32,
+          "heightPx": 24,
+          "amountPx": 48,
+          "squircleExponent": 2
+        },
+        "expect": {
+          "displacement": 0
+        }
+      },
+      {
+        "input": {
+          "sd": -32,
+          "heightPx": 24,
+          "amountPx": 48,
+          "squircleExponent": 4
+        },
+        "expect": {
+          "displacement": 0
+        }
+      },
+      {
+        "input": {
+          "x": 0
+        },
+        "expect": {
+          "circleMap": 0,
+          "squircle2": 0,
+          "squircle4": 0
+        }
+      },
+      {
+        "input": {
+          "x": 0.05
+        },
+        "expect": {
+          "circleMap": 0.0012507822280910519,
+          "squircle2": 0.0012507822280910519,
+          "squircle4": 0.0000015625036621225163
+        }
+      },
+      {
+        "input": {
+          "x": 0.1
+        },
+        "expect": {
+          "circleMap": 0.005012562893380035,
+          "squircle2": 0.005012562893380035,
+          "squircle4": 0.000025000937554642277
+        }
+      },
+      {
+        "input": {
+          "x": 0.15
+        },
+        "expect": {
+          "circleMap": 0.011314003335740508,
+          "squircle2": 0.011314003335740508,
+          "squircle4": 0.00012658653419761468
+        }
+      },
+      {
+        "input": {
+          "x": 0.2
+        },
+        "expect": {
+          "circleMap": 0.020204102886728803,
+          "squircle2": 0.020204102886728803,
+          "squircle4": 0.00040024022424667294
+        }
+      },
+      {
+        "input": {
+          "x": 0.25
+        },
+        "expect": {
+          "circleMap": 0.031754163448145745,
+          "squircle2": 0.031754163448145745,
+          "squircle4": 0.0009779962798832642
+        }
+      },
+      {
+        "input": {
+          "x": 0.3
+        },
+        "expect": {
+          "circleMap": 0.04606079858305434,
+          "squircle2": 0.04606079858305434,
+          "squircle4": 0.0020311801635147786
+        }
+      },
+      {
+        "input": {
+          "x": 0.35
+        },
+        "expect": {
+          "circleMap": 0.06325030024024025,
+          "squircle2": 0.06325030024024025,
+          "squircle4": 0.0037728605611800914
+        }
+      },
+      {
+        "input": {
+          "x": 0.4
+        },
+        "expect": {
+          "circleMap": 0.08348486100883201,
+          "squircle2": 0.08348486100883201,
+          "squircle4": 0.006462373968531887
+        }
+      },
+      {
+        "input": {
+          "x": 0.45
+        },
+        "expect": {
+          "circleMap": 0.10697144502541245,
+          "squircle2": 0.10697144502541245,
+          "squircle4": 0.01041308482772807
+        }
+      },
+      {
+        "input": {
+          "x": 0.5
+        },
+        "expect": {
+          "circleMap": 0.1339745962155614,
+          "squircle2": 0.1339745962155614,
+          "squircle4": 0.01600516436728483
+        }
+      },
+      {
+        "input": {
+          "x": 0.55
+        },
+        "expect": {
+          "circleMap": 0.16483534557549673,
+          "squircle2": 0.16483534557549673,
+          "squircle4": 0.023706301908095306
+        }
+      },
+      {
+        "input": {
+          "x": 0.6
+        },
+        "expect": {
+          "circleMap": 0.19999999999999996,
+          "squircle2": 0.19999999999999996,
+          "squircle4": 0.03410543889343276
+        }
+      },
+      {
+        "input": {
+          "x": 0.65
+        },
+        "expect": {
+          "circleMap": 0.24006579232146685,
+          "squircle2": 0.24006579232146685,
+          "squircle4": 0.04796905302454035
+        }
+      },
+      {
+        "input": {
+          "x": 0.7
+        },
+        "expect": {
+          "circleMap": 0.285857157145715,
+          "squircle2": 0.285857157145715,
+          "squircle4": 0.06633923029405353
+        }
+      },
+      {
+        "input": {
+          "x": 0.75
+        },
+        "expect": {
+          "circleMap": 0.3385621722338523,
+          "squircle2": 0.3385621722338523,
+          "squircle4": 0.09071605935896754
+        }
+      },
+      {
+        "input": {
+          "x": 0.8
+        },
+        "expect": {
+          "circleMap": 0.40000000000000013,
+          "squircle2": 0.40000000000000013,
+          "squircle4": 0.12343003217544479
+        }
+      },
+      {
+        "input": {
+          "x": 0.85
+        },
+        "expect": {
+          "circleMap": 0.473217312357363,
+          "squircle2": 0.473217312357363,
+          "squircle4": 0.16851282589113492
+        }
+      },
+      {
+        "input": {
+          "x": 0.9
+        },
+        "expect": {
+          "circleMap": 0.5641101056459328,
+          "squircle2": 0.5641101056459328,
+          "squircle4": 0.23421290396362127
+        }
+      },
+      {
+        "input": {
+          "x": 0.95
+        },
+        "expect": {
+          "circleMap": 0.6877501000800801,
+          "squircle2": 0.6877501000800801,
+          "squircle4": 0.3437303499269695
+        }
+      },
+      {
+        "input": {
+          "x": 1
+        },
+        "expect": {
+          "circleMap": 1,
+          "squircle2": 1,
+          "squircle4": 1
+        }
+      }
+    ],
+    "cornerRadii": [
+      {
+        "input": {
+          "centered": [
+            -50,
+            -30
+          ],
+          "radii": [
+            8,
+            16,
+            24,
+            32
+          ]
+        },
+        "expect": {
+          "radius": 8
+        }
+      },
+      {
+        "input": {
+          "centered": [
+            50,
+            -30
+          ],
+          "radii": [
+            8,
+            16,
+            24,
+            32
+          ]
+        },
+        "expect": {
+          "radius": 16
+        }
+      },
+      {
+        "input": {
+          "centered": [
+            50,
+            30
+          ],
+          "radii": [
+            8,
+            16,
+            24,
+            32
+          ]
+        },
+        "expect": {
+          "radius": 24
+        }
+      },
+      {
+        "input": {
+          "centered": [
+            -50,
+            30
+          ],
+          "radii": [
+            8,
+            16,
+            24,
+            32
+          ]
+        },
+        "expect": {
+          "radius": 32
+        }
+      },
+      {
+        "input": {
+          "centered": [
+            0,
+            0
+          ],
+          "radii": [
+            8,
+            16,
+            24,
+            32
+          ]
+        },
+        "expect": {
+          "radius": 16
+        }
+      },
+      {
+        "input": {
+          "radii": [
+            200,
+            5,
+            -3,
+            999
+          ],
+          "size": [
+            200,
+            120
+          ]
+        },
+        "expect": {
+          "clamped": [
+            60,
+            5,
+            0,
+            60
+          ]
+        }
+      }
+    ],
+    "smoothMerge": [
+      {
+        "input": {
+          "a": -20,
+          "b": 10,
+          "k": 12
+        },
+        "expect": {
+          "value": -20,
+          "h": 1,
+          "gradient": [
+            1,
+            0
+          ]
+        }
+      },
+      {
+        "input": {
+          "a": -17.5,
+          "b": 8.5,
+          "k": 12
+        },
+        "expect": {
+          "value": -17.5,
+          "h": 1,
+          "gradient": [
+            1,
+            0
+          ]
+        }
+      },
+      {
+        "input": {
+          "a": -15,
+          "b": 7,
+          "k": 12
+        },
+        "expect": {
+          "value": -15,
+          "h": 1,
+          "gradient": [
+            1,
+            0
+          ]
+        }
+      },
+      {
+        "input": {
+          "a": -12.5,
+          "b": 5.5,
+          "k": 12
+        },
+        "expect": {
+          "value": -12.5,
+          "h": 1,
+          "gradient": [
+            1,
+            0
+          ]
+        }
+      },
+      {
+        "input": {
+          "a": -10,
+          "b": 4,
+          "k": 12
+        },
+        "expect": {
+          "value": -10,
+          "h": 1,
+          "gradient": [
+            1,
+            0
+          ]
+        }
+      },
+      {
+        "input": {
+          "a": -7.5,
+          "b": 2.5,
+          "k": 12
+        },
+        "expect": {
+          "value": -7.583333333333334,
+          "h": 0.9166666666666667,
+          "gradient": [
+            0.9166666666666667,
+            0.08333333333333326
+          ]
+        }
+      },
+      {
+        "input": {
+          "a": -5,
+          "b": 1,
+          "k": 12
+        },
+        "expect": {
+          "value": -5.75,
+          "h": 0.75,
+          "gradient": [
+            0.75,
+            0.25
+          ]
+        }
+      },
+      {
+        "input": {
+          "a": -2.5,
+          "b": -0.5,
+          "k": 12
+        },
+        "expect": {
+          "value": -4.583333333333333,
+          "h": 0.5833333333333334,
+          "gradient": [
+            0.5833333333333334,
+            0.41666666666666663
+          ]
+        }
+      },
+      {
+        "input": {
+          "a": 0,
+          "b": -2,
+          "k": 12
+        },
+        "expect": {
+          "value": -4.083333333333332,
+          "h": 0.4166666666666667,
+          "gradient": [
+            0.4166666666666667,
+            0.5833333333333333
+          ]
+        }
+      },
+      {
+        "input": {
+          "a": 2.5,
+          "b": -3.5,
+          "k": 12
+        },
+        "expect": {
+          "value": -4.25,
+          "h": 0.25,
+          "gradient": [
+            0.25,
+            0.75
+          ]
+        }
+      },
+      {
+        "input": {
+          "a": 5,
+          "b": -5,
+          "k": 12
+        },
+        "expect": {
+          "value": -5.083333333333334,
+          "h": 0.08333333333333331,
+          "gradient": [
+            0.08333333333333331,
+            0.9166666666666667
+          ]
+        }
+      },
+      {
+        "input": {
+          "a": 7.5,
+          "b": -6.5,
+          "k": 12
+        },
+        "expect": {
+          "value": -6.5,
+          "h": 0,
+          "gradient": [
+            0,
+            1
+          ]
+        }
+      },
+      {
+        "input": {
+          "a": 10,
+          "b": -8,
+          "k": 12
+        },
+        "expect": {
+          "value": -8,
+          "h": 0,
+          "gradient": [
+            0,
+            1
+          ]
+        }
+      },
+      {
+        "input": {
+          "a": 12.5,
+          "b": -9.5,
+          "k": 12
+        },
+        "expect": {
+          "value": -9.5,
+          "h": 0,
+          "gradient": [
+            0,
+            1
+          ]
+        }
+      },
+      {
+        "input": {
+          "a": 15,
+          "b": -11,
+          "k": 12
+        },
+        "expect": {
+          "value": -11,
+          "h": 0,
+          "gradient": [
+            0,
+            1
+          ]
+        }
+      },
+      {
+        "input": {
+          "a": 17.5,
+          "b": -12.5,
+          "k": 12
+        },
+        "expect": {
+          "value": -12.5,
+          "h": 0,
+          "gradient": [
+            0,
+            1
+          ]
+        }
+      },
+      {
+        "input": {
+          "a": 20,
+          "b": -14,
+          "k": 12
+        },
+        "expect": {
+          "value": -14,
+          "h": 0,
+          "gradient": [
+            0,
+            1
+          ]
+        }
+      }
+    ],
+    "dispersion": [
+      {
+        "input": {
+          "k": 0
+        },
+        "expect": {
+          "weights": {
+            "r": 1,
+            "g": 1,
+            "b": 1
+          }
+        }
+      },
+      {
+        "input": {
+          "k": 0.25
+        },
+        "expect": {
+          "weights": {
+            "r": 0.75,
+            "g": 1,
+            "b": 1.25
+          }
+        }
+      },
+      {
+        "input": {
+          "k": 0.5
+        },
+        "expect": {
+          "weights": {
+            "r": 0.5,
+            "g": 1,
+            "b": 1.5
+          }
+        }
+      },
+      {
+        "input": {
+          "k": 1
+        },
+        "expect": {
+          "weights": {
+            "r": 0,
+            "g": 1,
+            "b": 2
+          }
+        }
+      }
+    ]
+  }
+}
