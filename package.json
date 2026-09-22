@@ -10,7 +10,8 @@
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
     "test": "node --test",
-    "gen:conformance": "node scripts/gen-conformance.ts"
+    "gen:conformance": "node scripts/gen-conformance.ts",
+    "gen:glsl": "node scripts/gen-glsl.ts"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",

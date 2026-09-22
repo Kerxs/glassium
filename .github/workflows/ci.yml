@@ -34,8 +34,13 @@ jobs:
           npm run gen:conformance
           git diff --exit-code -- spec/conformance/
 
-      # T4 会在这里加一步同构的「GLSL 重生成同一性」。现在不加 ——
-      # 引用一个还不存在的脚本只会让 CI 恒红，而一个恒红的 CI 等于没有 CI。
+      # 同理：改了 WGSL 却没跑 gen:glsl 的话，签入的 GLSL 就和真源漂了。
+      # WGSL 是唯一真源，GLSL 是机械生成物 —— 两边手动各改一次迟早会分叉，
+      # 而分叉的表现是「WebGPU 下好的、WebGL2 下微妙地不对」，最难查的那一类。
+      - name: GLSL 重生成同一性
+        run: |
+          npm run gen:glsl
+          git diff --exit-code -- src/shaders/generated/
 
       # 这个 job 不覆盖 GPU 输出。绿色徽章只代表数学和类型是对的，
       # 不代表像素是对的 —— 像素由 playground/verify.html 手工验证。

@@ -53,9 +53,17 @@ GPU 输出由 `playground/verify.html` 手工验证。绿色徽章不等于像�
 
 - [x] **T1** 仓库骨架、许可、类型与测试门禁
 - [x] **T2** 光学核心的 CPU 参考实现（`src/core/optics.ts`）与单位/分辨率策略
-      （`src/core/units.ts`），31 条测试，178 条平台中立符合性向量
+      （`src/core/units.ts`），178 条平台中立符合性向量
       （`spec/conformance/optics.json`）。实测数字见
       [docs/calibration.md](docs/calibration.md)
+- [x] **T3** 有序效果管线（`src/core/pipeline.ts`）与声明式材质立面
+      （`src/core/material.ts`）。内核是 `colorFilter → blur → lens` 的有序链并
+      协商采样余量，立面保留了 `blur/refraction/distortion/...` 那组参数名
+- [x] **T4** WGSL 唯一真源（`src/shaders/optics.wgsl.ts`）与 WGSL→GLSL ES 3.0
+      重写器（`src/shaders/translate-glsl.ts`）。生成物签入、CI 校验重生成同一性；
+      重写器**看不懂就抛**，不产出「能跑但微妙不对」的着色器
+
+**72 条测试全绿。** 现在可以用这个包算出「该画什么」，但还画不出来——渲染器从 T5 开始。
 
 （其余任务完成后逐条勾上。没勾的就是没有。）
 
