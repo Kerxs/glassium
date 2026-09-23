@@ -77,13 +77,20 @@ fn palette(t: f32) -> vec3f {
  *
  * 布局：左上半是棋盘格（处处高频），右下半是黑白竖直阶跃（一条硬边），
  * 两者之间的 45° 对角线本身又是一条硬边。
+ *
+ * 对角线与竖直阶跃都挪开了 1/4 像素，让硬边**永远不经过像素中心**。不挪的话：
+ * 宽 + 高为偶数时对角线正好穿过一整排像素中心，宽为奇数时竖直阶跃也是 —— 那些像素上
+ * step() 比较的两边在数学上相等，结果取决于 uv 插值的最后一位，两个后端（甚至两个驱动）
+ * 会各判各的，整条线黑白互换。verify.html 的跨后端比对就是这样抓到它的：820×1200 的
+ * 视口下对角线上 500 个像素差 250/255，而这与渲染器毫无关系。挪 1/4 像素对「不经过
+ * 像素中心」的那些尺寸结果完全不变。
  */
 fn calibration(uv: vec2f, res: vec2f) -> vec3f {
   let p = uv * res;
   let cell = 24.0;
   let checker = step(0.5, fract((floor(p.x / cell) + floor(p.y / cell)) * 0.5));
-  let halfPlane = step(0.0, p.x + p.y - (res.x + res.y) * 0.5);
-  let vstep = step(res.x * 0.5, p.x);
+  let halfPlane = step(0.0, p.x + p.y - (res.x + res.y) * 0.5 + 0.25);
+  let vstep = step(res.x * 0.5 - 0.25, p.x);
   let right = mix(vec3f(0.04, 0.04, 0.05), vec3f(0.96, 0.96, 0.98), vstep);
   return mix(vec3f(checker, checker, checker), right, halfPlane);
 }

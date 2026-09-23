@@ -19,6 +19,13 @@ export default defineConfig({
   },
   build: {
     outDir: '../playground/dist',
-    emptyOutDir: true
+    emptyOutDir: true,
+    rollupOptions: {
+      // 两页：playground 本身，和把验证固化下来的 verify.html
+      input: {
+        main: fileURLToPath(new URL('./playground/index.html', import.meta.url)),
+        verify: fileURLToPath(new URL('./playground/verify.html', import.meta.url))
+      }
+    }
   }
 })

@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>verifying…</title>
+    <style>
+      /*
+        验证页。布局全部是绝对定位的固定像素，结果不随视口宽度变 ——
+        视口至少要 820×560，面板才都在屏上。
+        R1：html / body 背景透明，页面背景属于场景。
+      */
+      html,
+      body {
+        margin: 0;
+        background: transparent;
+      }
+
+      body {
+        font: 13px/1.6 system-ui, -apple-system, 'Segoe UI', sans-serif;
+        color: #fff;
+        min-height: 100vh;
+      }
+
+      glass-card,
+      glass-button {
+        position: absolute;
+        box-sizing: border-box;
+        color: #fff;
+      }
+
+      #v-card {
+        left: 40px;
+        top: 40px;
+        width: 360px;
+        height: 220px;
+        padding: 20px;
+      }
+
+      #v-pill {
+        left: 40px;
+        top: 300px;
+        width: 180px;
+        height: 64px;
+      }
+
+      #v-asym {
+        left: 240px;
+        top: 300px;
+        width: 180px;
+        height: 64px;
+        border-radius: 4px 32px 8px 28px;
+      }
+
+      #v-duo {
+        position: absolute;
+        left: 40px;
+        top: 400px;
+      }
+
+      .duo-btn {
+        position: absolute;
+        top: 0;
+        width: 120px;
+        height: 56px;
+      }
+
+      /* 报告面板：刻意不用玻璃，也不和任何玻璃面板重叠 */
+      #report {
+        position: fixed;
+        right: 12px;
+        top: 12px;
+        bottom: 12px;
+        width: min(360px, calc(100vw - 480px));
+        margin: 0;
+        padding: 12px;
+        overflow: auto;
+        border-radius: 10px;
+        background: rgba(6, 14, 26, 0.9);
+        border: 1px solid rgba(255, 255, 255, 0.16);
+        font: 11px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace;
+        white-space: pre-wrap;
+      }
+
+      #report .pass {
+        color: #8fe3a2;
+      }
+
+      #report .fail {
+        color: #ff8f8f;
+      }
+
+      #report .skip {
+        color: #c9c9c9;
+      }
+    </style>
+  </head>
+  <body>
+    <glass-card id="v-card" preset="regular" corner-radius="0.5frac" dispersion="0.3" highlight="0.7">
+      <strong>verify.html</strong><br />逐项检查，结果写进标题栏。
+    </glass-card>
+    <glass-button id="v-pill" preset="thick" dispersion="0.3" highlight="0.7">pill</glass-button>
+    <glass-card id="v-asym" preset="regular" corner-radius="4 32 8 28" dispersion="0.3" highlight="0.7">asym</glass-card>
+    <glass-container id="v-duo" smoothing="24">
+      <glass-button class="duo-btn" style="left: 0" dispersion="0.3" highlight="0.7">L</glass-button>
+      <glass-button class="duo-btn" style="left: 130px" dispersion="0.3" highlight="0.7">R</glass-button>
+    </glass-container>
+    <pre id="report">初始化中…</pre>
+    <script type="module" src="./verify.ts"></script>
+  </body>
+</html>

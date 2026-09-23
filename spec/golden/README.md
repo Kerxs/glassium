@@ -31,14 +31,15 @@ Dawn/SwiftShader 的软件 WebGPU，而软件光栅化与真实驱动（开发�
 `createGlassStage({ backend: 'webgl2' })` 重建、给同样的参数再回读，逐像素比。T11 实测
 96.6 万个像素里只有 1 个差 1/255（见 docs/calibration.md）。
 
-`playground/verify.html` 是 T12 的事：把上面这套手工步骤固化成一个页面，并且两个后端各跑一遍：
+这套手工步骤已经固化成 `playground/verify.html`（T12），两个后端各跑一遍：
 
 ```
-/verify.html
-/verify.html?glassium.backend=webgl2
+/verify.html                           → 标题栏 PASS 14/14
+/verify.html?glassium.backend=webgl2   → 标题栏 PASS 13/13（跨后端那项跳过）
 ```
 
-两个后端之间差异超过 1e-4 就是 WGSL→GLSL 重写器错了。套件里没有别的东西能抓到这个。
+每一项的判据与实测数字见 docs/calibration.md 的「verify.html」一节。
+两个后端之间的光学差异超过判据，就是 WGSL→GLSL 重写器错了 —— 套件里没有别的东西能抓到这个。
 
 ## CI 实际覆盖什么
 

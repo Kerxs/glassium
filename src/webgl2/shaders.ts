@@ -62,8 +62,9 @@ vec3 calibration(vec2 uv, vec2 res) {
   vec2 p = uv * res;
   float cell = 24.0;
   float checker = step(0.5, fract((floor(p.x / cell) + floor(p.y / cell)) * 0.5));
-  float halfPlane = step(0.0, p.x + p.y - (res.x + res.y) * 0.5);
-  float vstep = step(res.x * 0.5, p.x);
+  // 两条硬边都挪开 1/4 像素，永远不经过像素中心 —— 理由见 scene.wgsl.ts
+  float halfPlane = step(0.0, p.x + p.y - (res.x + res.y) * 0.5 + 0.25);
+  float vstep = step(res.x * 0.5 - 0.25, p.x);
   vec3 right = mix(vec3(0.04, 0.04, 0.05), vec3(0.96, 0.96, 0.98), vstep);
   return mix(vec3(checker, checker, checker), right, halfPlane);
 }
