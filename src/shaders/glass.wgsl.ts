@@ -30,7 +30,14 @@ export const PANEL_STRIDE_FLOATS = PANEL_STRIDE / 4
 export const DEBUG_MODES = ['off', 'sdf', 'mask', 'grad', 'displacement'] as const
 export type PanelDebugMode = (typeof DEBUG_MODES)[number]
 
-export const GLASS_WGSL = /* wgsl */ `
+/**
+ * 单块面板与合并组（glass-group.wgsl.ts）共用的部分：结构体、常量、顶点着色器、
+ * 调色，以及从「采样偏移 + 材质」到最终颜色的那一段。
+ *
+ * 引用了 chain / samp / stage 三个绑定 —— 它们在各自的模块里声明（WGSL 的模块级声明
+ * 与顺序无关）。两个模块的绑定号相同，只有 binding 0 的结构体不同。
+ */
+export const GLASS_COMMON_WGSL = /* wgsl */ `
 ${OPTICS_WGSL}
 
 struct Stage {
@@ -67,11 +74,6 @@ const GLOSS: f32 = 2.0;
 // 暗边相对亮边的强度。Apple 的那道暗边很淡，所以远小于 1。
 const DARK_RIM: f32 = 0.35;
 
-@group(0) @binding(0) var<uniform> panel: Panel;
-@group(0) @binding(1) var samp: sampler;
-@group(0) @binding(2) var chain: texture_2d<f32>;
-@group(0) @binding(3) var<uniform> stage: Stage;
-
 struct VsOut {
   @builtin(position) pos: vec4f,
 }
@@ -98,6 +100,96 @@ fn applyColorFilter(rgb: vec3f, saturation: f32, tint: vec4f) -> vec3f {
   let saturated = mix(vec3f(g, g, g), rgb, saturation);
   return mix(saturated, tint.rgb, tint.a);
 }
+
+// 着色需要的全部输入：几何（已经算好的方向、位移、法线、sd）加材质。
+struct Shading {
+  sd: f32,
+  coverage: f32,
+  dir: vec2f,
+  displacement: f32,
+  normal: vec2f,
+  tint: vec4f,
+  blurLevel: f32,
+  saturation: f32,
+  dispersion: f32,
+  highlight: f32,
+  opacity: f32,
+  rimPx: f32,
+}
+
+fn shade(px: vec2f, s: Shading) -> vec4f {
+  // —— 折射与色散 ——
+  // 往里采样：dir 指向外侧，减掉它。
+  let base = px - s.dir * s.displacement;
+  var sampled: vec3f;
+  if (s.dispersion > 0.0) {
+    // 三个通道沿同一方向往里采，长度按 spectralWeights 缩放：蓝最长、红最短。
+    // 所以边缘每一点上蓝都比红采得更靠里 —— 四个角的关系完全一致。
+    // 上游用 (x·y)/(hx·hy) 调制色散，这个关系逐象限翻转。
+    let w = spectralWeights(s.dispersion);
+    let sR = px - s.dir * (s.displacement * w.x);
+    let sB = px - s.dir * (s.displacement * w.z);
+    sampled = vec3f(
+      textureSampleLevel(chain, samp, sR / stage.canvasSize, s.blurLevel).r,
+      textureSampleLevel(chain, samp, base / stage.canvasSize, s.blurLevel).g,
+      textureSampleLevel(chain, samp, sB / stage.canvasSize, s.blurLevel).b
+    );
+  } else {
+    // dispersion = 0 走单次采样。这一支与 T7 的代码逐字相同，
+    // 所以关掉色散时的输出与 T7 逐位一致（有整帧哈希比对为证）。
+    sampled = textureSampleLevel(chain, samp, base / stage.canvasSize, s.blurLevel).rgb;
+  }
+  let rgb = applyColorFilter(sampled, s.saturation, s.tint);
+
+  // —— 高光 ——
+  // 法线用纯 SDF 梯度（放大后的角半径），不混 depthEffect —— 与上游一致，
+  // 高光描述的是面板轮廓的朝向，不是折射方向。
+  let terms = highlightTerms(s.normal, LIGHT_DIR, GLOSS) * rimMask(s.sd, s.rimPx) * s.highlight;
+  let lit = terms.x;
+  let dark = terms.y * DARK_RIM;
+
+  let a = s.coverage * s.opacity;
+  // 暗边按比例压暗玻璃本身；亮边是加性光。
+  //
+  // **不钳 rgb ≤ a。** 原计划要钳，理由是预乘画布下 rgb > a 的合成结果未定义。
+  // 但整个画布的 alpha 恒为 1（背景写 1，预乘混合保持 1 —— 实测全画布 alpha 皆为 255），
+  // 所以画布边界上那条约束天然成立；而 pass 内部 rgb > a 就是加性光，混合方程处理得
+  // 完全正确。钳制只会在低 opacity 时把高光压平，别无作用。
+  return vec4f((rgb * (1.0 - dark) + vec3f(lit, lit, lit)) * a, a);
+}
+
+// 调试视图，两个模块共用。mode 与 DEBUG_MODES 的下标一致；返回 alpha < 0 表示「不是调试模式」。
+fn debugView(mode: u32, sd: f32, coverage: f32, dir: vec2f, displacement: f32, amountPx: f32) -> vec4f {
+  if (mode == 1u) {
+    // SDF：内部蓝、外部橙，等值线每 ~10px 一条，边界处一道白线。
+    // 这个视图该是一圈干净的圆角矩形等距线 —— 不是的话，下游都不值得查。
+    let bands = 0.5 + 0.5 * cos(sd * 0.6);
+    let side = select(vec3f(0.95, 0.55, 0.25), vec3f(0.25, 0.55, 0.95), sd < 0.0);
+    let edge = 1.0 - smoothstep(0.0, 1.5, abs(sd));
+    return vec4f(mix(side * (0.55 + 0.45 * bands), vec3f(1.0, 1.0, 1.0), edge), 1.0);
+  }
+  if (mode == 2u) {
+    return vec4f(coverage, coverage, coverage, 1.0);
+  }
+  if (mode == 3u) {
+    // 折射方向当法线图看：R = x，G = y。角上的方向场应当连续旋转，不该有折痕。
+    return vec4f(dir * 0.5 + 0.5, 0.0, 1.0);
+  }
+  if (mode == 4u) {
+    let m = displacement / max(amountPx, 1e-6);
+    return vec4f(m, m, m, 1.0);
+  }
+  return vec4f(0.0, 0.0, 0.0, -1.0);
+}
+`
+
+export const GLASS_WGSL = /* wgsl */ `
+${GLASS_COMMON_WGSL}
+
+@group(0) @binding(0) var<uniform> panel: Panel;
+@group(0) @binding(1) var samp: sampler;
+@group(0) @binding(2) var chain: texture_2d<f32>;
+@group(0) @binding(3) var<uniform> stage: Stage;
 
 struct Optics {
   centered: vec2f,
@@ -128,70 +220,29 @@ fn evalOptics(px: vec2f) -> Optics {
   // 1px 抗锯齿：sd 以像素为单位，所以 0.5 - sd 在边界两侧各半个像素内从 1 过渡到 0。
   let coverage = clamp(0.5 - o.sd, 0.0, 1.0);
 
-  let mode = u32(panel.debugMode + 0.5);
-  if (mode == 1u) {
-    // SDF：内部蓝、外部橙，等值线每 ~10px 一条，边界处一道白线。
-    // 这个视图该是一圈干净的圆角矩形等距线 —— 不是的话，下游都不值得查。
-    let bands = 0.5 + 0.5 * cos(o.sd * 0.6);
-    let side = select(vec3f(0.95, 0.55, 0.25), vec3f(0.25, 0.55, 0.95), o.sd < 0.0);
-    let edge = 1.0 - smoothstep(0.0, 1.5, abs(o.sd));
-    return vec4f(mix(side * (0.55 + 0.45 * bands), vec3f(1.0, 1.0, 1.0), edge), 1.0);
-  }
-  if (mode == 2u) {
-    return vec4f(coverage, coverage, coverage, 1.0);
-  }
-  if (mode == 3u) {
-    // 折射方向当法线图看：R = x，G = y。角上的方向场应当连续旋转，不该有折痕。
-    return vec4f(o.dir * 0.5 + 0.5, 0.0, 1.0);
-  }
-  if (mode == 4u) {
-    let m = o.displacement / max(panel.amountPx, 1e-6);
-    return vec4f(m, m, m, 1.0);
+  let debug = debugView(u32(panel.debugMode + 0.5), o.sd, coverage, o.dir, o.displacement, panel.amountPx);
+  if (debug.a >= 0.0) {
+    return debug;
   }
 
   if (coverage <= 0.0) {
     discard;
   }
 
-  // —— 折射与色散 ——
-  // 往里采样：dir 指向外侧，减掉它。
-  let base = px - o.dir * o.displacement;
-  var sampled: vec3f;
-  if (panel.dispersion > 0.0) {
-    // 三个通道沿同一方向往里采，长度按 spectralWeights 缩放：蓝最长、红最短。
-    // 所以边缘每一点上蓝都比红采得更靠里 —— 四个角的关系完全一致。
-    // 上游用 (x·y)/(hx·hy) 调制色散，这个关系逐象限翻转。
-    let w = spectralWeights(panel.dispersion);
-    let sR = px - o.dir * (o.displacement * w.x);
-    let sB = px - o.dir * (o.displacement * w.z);
-    sampled = vec3f(
-      textureSampleLevel(chain, samp, sR / stage.canvasSize, panel.blurLevel).r,
-      textureSampleLevel(chain, samp, base / stage.canvasSize, panel.blurLevel).g,
-      textureSampleLevel(chain, samp, sB / stage.canvasSize, panel.blurLevel).b
-    );
-  } else {
-    // dispersion = 0 走单次采样。这一支与 T7 的代码逐字相同，
-    // 所以关掉色散时的输出与 T7 逐位一致（有整帧哈希比对为证）。
-    sampled = textureSampleLevel(chain, samp, base / stage.canvasSize, panel.blurLevel).rgb;
-  }
-  let rgb = applyColorFilter(sampled, panel.saturation, panel.tint);
-
-  // —— 高光 ——
-  // 法线用纯 SDF 梯度（放大后的角半径），不混 depthEffect —— 与上游一致，
-  // 高光描述的是面板轮廓的朝向，不是折射方向。
-  let n = safeNormalize(gradSdRoundedRect(o.centered, o.halfSize, gradRadiusOf(o.radius, o.halfSize)));
-  let terms = highlightTerms(n, LIGHT_DIR, GLOSS) * rimMask(o.sd, panel.rimPx) * panel.highlight;
-  let lit = terms.x;
-  let dark = terms.y * DARK_RIM;
-
-  let a = coverage * panel.opacity;
-  // 暗边按比例压暗玻璃本身；亮边是加性光。
-  //
-  // **不钳 rgb ≤ a。** 原计划要钳，理由是预乘画布下 rgb > a 的合成结果未定义。
-  // 但整个画布的 alpha 恒为 1（背景写 1，预乘混合保持 1 —— 实测全画布 alpha 皆为 255），
-  // 所以画布边界上那条约束天然成立；而 pass 内部 rgb > a 就是加性光，混合方程处理得
-  // 完全正确。钳制只会在低 opacity 时把高光压平，别无作用。
-  return vec4f((rgb * (1.0 - dark) + vec3f(lit, lit, lit)) * a, a);
+  var s: Shading;
+  s.sd = o.sd;
+  s.coverage = coverage;
+  s.dir = o.dir;
+  s.displacement = o.displacement;
+  s.normal = safeNormalize(gradSdRoundedRect(o.centered, o.halfSize, gradRadiusOf(o.radius, o.halfSize)));
+  s.tint = panel.tint;
+  s.blurLevel = panel.blurLevel;
+  s.saturation = panel.saturation;
+  s.dispersion = panel.dispersion;
+  s.highlight = panel.highlight;
+  s.opacity = panel.opacity;
+  s.rimPx = panel.rimPx;
+  return shade(px, s);
 }
 
 /**

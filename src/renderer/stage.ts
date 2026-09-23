@@ -44,14 +44,15 @@ import type { ProbeReport } from '../webgpu/probe.ts'
 import {
   GpuRenderer,
   type BackdropState,
+  type GroupProbeRequest,
   type ProbeRequest,
   type ReadbackRegion,
   type ReadbackRequest,
   type ReadbackResult
 } from './gpu.ts'
 import { LayerWatcher, type LayerProblem } from './layering.ts'
-import { PanelRegistry, type GlassPanel } from './panels.ts'
-import type { OpticsProbe } from './verify.ts'
+import { PanelRegistry, type GlassGroup, type GlassPanel } from './panels.ts'
+import type { GroupOpticsProbe, OpticsProbe } from './verify.ts'
 
 export { READBACK_SIZE, type ReadbackRegion, type ReadbackResult } from './gpu.ts'
 
@@ -69,8 +70,10 @@ export interface GlassStats {
   readonly blurPasses: number
   /** 模糊链的级数 K。 */
   readonly blurLevels: number
-  /** 本帧实际画了的面板数（屏外的不算）。 */
+  /** 本帧实际画了的面板数，含合并组里的成员（屏外的不算）。 */
   readonly panels: number
+  /** 本帧画了几个合并组。每组一次 draw call，与成员数无关。 */
+  readonly groups: number
   /** 这个 stage 经历过的意外设备丢失次数（主动 dispose 不算）。 */
   readonly deviceLosses: number
   /**
@@ -158,6 +161,11 @@ export interface GlassStage {
    * 材质写错（比如 tint 解析不了）在这里就抛，而不是等到帧循环里。
    */
   register(element: HTMLElement, material?: GlassMaterial): GlassPanel
+  /**
+   * 建一个合并组：成员（按元素指定）的玻璃用 smin 连成一个连续形状，一次 draw 画完。
+   * `<glass-container>` 背后就是它。最多 4 块，多出来的单独绘制并警告一次。
+   */
+  group(options?: { readonly smoothing?: number }): GlassGroup
   readonly debug: {
     stats(): GlassStats
     /**
@@ -198,6 +206,8 @@ export interface GlassStage {
      * evalOptics，所以验的就是实际渲染的那条路径。
      */
     probeOptics(index?: number): Promise<OpticsProbe>
+    /** 第 index 个合并组的光学量探针，交给 compareGroupOptics() 与 CPU 实现逐像素比对。 */
+    probeGroup(index?: number): Promise<GroupOpticsProbe>
   }
   /** 请求重绘一帧。reduced-motion 下由 resize 等事件驱动。 */
   requestRender(): void
@@ -377,7 +387,9 @@ async function buildStage(options: GlassStageOptions): Promise<GlassStage> {
   const startTime = performance.now()
 
   let pendingProbe: ProbeRequest | null = null
+  let pendingGroupProbe: GroupProbeRequest | null = null
   let pendingReadback: ReadbackRequest | null = null
+  let groupsLastFrame = 0
 
   // 背景调试参数（实验用，非正式 API）
   let backdrop: BackdropState = {
@@ -421,8 +433,10 @@ async function buildStage(options: GlassStageOptions): Promise<GlassStage> {
   /** 在途的回读与探针全部作废。设备丢失或 stage 销毁时调用，免得调用方的 Promise 永远挂着。 */
   const rejectPending = (why: string): void => {
     pendingProbe?.reject(new Error(`[Glassium] ${why}，探针作废`))
+    pendingGroupProbe?.reject(new Error(`[Glassium] ${why}，探针作废`))
     pendingReadback?.reject(new Error(`[Glassium] ${why}，回读作废`))
     pendingProbe = null
+    pendingGroupProbe = null
     pendingReadback = null
   }
 
@@ -474,8 +488,10 @@ async function buildStage(options: GlassStageOptions): Promise<GlassStage> {
     const measured = panels.measure(viewport, canvasBox.left, canvasBox.top)
 
     const probe = pendingProbe
+    const groupProbe = pendingGroupProbe
     const readback = pendingReadback
     pendingProbe = null
+    pendingGroupProbe = null
     pendingReadback = null
 
     const result = gpu.render({
@@ -484,14 +500,17 @@ async function buildStage(options: GlassStageOptions): Promise<GlassStage> {
       time: reducedMotion ? 0 : (now - startTime) / 1000,
       viewport,
       backdrop,
-      panels: measured,
+      panels: measured.panels,
+      groups: measured.groups,
       panelDebugMode,
       probe,
+      groupProbe,
       readback
     })
     if (!result) {
       // 这一帧没画成（比如资源还没就绪）：请求放回去，下一帧再服务
       pendingProbe ??= probe
+      pendingGroupProbe ??= groupProbe
       pendingReadback ??= readback
       return
     }
@@ -499,7 +518,10 @@ async function buildStage(options: GlassStageOptions): Promise<GlassStage> {
     frames++
     drawCalls = result.drawCalls
     blurPasses = result.blurPasses
-    panelsLastFrame = measured.length
+    let grouped = 0
+    for (const g of measured.groups) grouped += g.members.length
+    panelsLastFrame = measured.panels.length + grouped
+    groupsLastFrame = measured.groups.length
 
     if (fpsWindowStart === 0) fpsWindowStart = now
     fpsWindowFrames++
@@ -705,6 +727,7 @@ async function buildStage(options: GlassStageOptions): Promise<GlassStage> {
           blurPasses,
           blurLevels: gpu?.blurLevels ?? 0,
           panels: panelsLastFrame,
+          groups: groupsLastFrame,
           deviceLosses,
           pipelineCreations: created.pipelines,
           bindGroupCreations: created.bindGroups,
@@ -753,6 +776,21 @@ async function buildStage(options: GlassStageOptions): Promise<GlassStage> {
           requestRender()
         })
       },
+      probeGroup(index = 0): Promise<GroupOpticsProbe> {
+        return new Promise<GroupOpticsProbe>((resolve, reject) => {
+          const why = inactiveReason()
+          if (why) {
+            reject(new Error(`[Glassium] ${why}，无法探针`))
+            return
+          }
+          if (pendingGroupProbe) {
+            reject(new Error('[Glassium] 上一次合并组探针还没完成'))
+            return
+          }
+          pendingGroupProbe = { index, resolve, reject }
+          requestRender()
+        })
+      },
       setBackdrop(params: BackdropDebugParams): void {
         backdrop = {
           blurDp: params.blurDp ?? backdrop.blurDp,
@@ -779,6 +817,9 @@ async function buildStage(options: GlassStageOptions): Promise<GlassStage> {
           layers.unwatch(element)
         }
       }
+    },
+    group(options: { readonly smoothing?: number } = {}): GlassGroup {
+      return panels.group(options)
     },
     requestRender,
     dispose(): void {
@@ -841,6 +882,8 @@ function makeInertStage(
       setPanelDebug(): void {},
       probeOptics: (): Promise<OpticsProbe> =>
         Promise.reject(new Error('[Glassium] 没有 GPU 后端，无法探针')),
+      probeGroup: (): Promise<GroupOpticsProbe> =>
+        Promise.reject(new Error('[Glassium] 没有 GPU 后端，无法探针')),
       checkLayers: (): LayerProblem<Element>[] => [],
       renderNow(): void {},
       stats: (): GlassStats => ({
@@ -852,6 +895,7 @@ function makeInertStage(
         blurPasses: 0,
         blurLevels: 0,
         panels: 0,
+        groups: 0,
         deviceLosses: 0,
         pipelineCreations: 0,
         bindGroupCreations: 0,
@@ -864,6 +908,9 @@ function makeInertStage(
     // 返回一个什么都不做的句柄，而不是抛：页面不该因为拿不到 GPU 就挂掉。
     register(element: HTMLElement): GlassPanel {
       return { element, setMaterial(): void {}, unregister(): void {} }
+    },
+    group(): GlassGroup {
+      return { setMembers(): void {}, setSmoothing(): void {}, dissolve(): void {} }
     },
     requestRender(): void {},
     dispose(): void {

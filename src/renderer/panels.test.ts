@@ -164,7 +164,7 @@ test('measure 按画布自身尺寸换算，并减去画布原点', () => {
   const viewport = resolveViewport(1008.6666870117188, 768, 1.5)
   const registry = new PanelRegistry(() => {})
   registry.register(fakeElement(110, 60, 200, 100), {})
-  const [m] = registry.measure(viewport, 10, 20)
+  const [m] = registry.measure(viewport, 10, 20).panels
   assert.ok(m)
   const s = viewport.compositeWidth / viewport.cssWidth
   assert.ok(Math.abs(m.x - 100 * s) < 1e-9, '应减去画布原点 x=10')
@@ -176,7 +176,7 @@ test('measure 的裁剪矩形外扩 2px 抗锯齿余量，并与画布求交', (
   const viewport = resolveViewport(800, 600, 1)
   const registry = new PanelRegistry(() => {})
   registry.register(fakeElement(-50, 580, 200, 100), {}) // 左边与下边都越出画布
-  const [m] = registry.measure(viewport)
+  const [m] = registry.measure(viewport).panels
   assert.ok(m)
   const [x, y, w, h] = m.scissor
   assert.equal(x, 0, '左侧被画布钳住')
@@ -191,7 +191,7 @@ test('完全在屏外的面板被剔除，不占 draw call', () => {
   registry.register(fakeElement(-500, 100, 200, 100), {})
   registry.register(fakeElement(100, 900, 200, 100), {})
   registry.register(fakeElement(100, 100, 200, 100), {})
-  assert.equal(registry.measure(viewport).length, 1)
+  assert.equal(registry.measure(viewport).panels.length, 1)
 })
 
 test('尺寸为 0 的面板与已脱离文档的面板都被跳过', () => {
@@ -201,15 +201,15 @@ test('尺寸为 0 的面板与已脱离文档的面板都被跳过', () => {
   const detached = fakeElement(10, 10, 100, 50)
   ;(detached as unknown as { isConnected: boolean }).isConnected = false
   registry.register(detached, {})
-  assert.equal(registry.measure(viewport).length, 0)
+  assert.equal(registry.measure(viewport).panels.length, 0)
 })
 
 test('降级结果按尺寸缓存，尺寸不变就不重算', () => {
   const viewport = resolveViewport(800, 600, 1)
   const registry = new PanelRegistry(() => {})
   registry.register(fakeElement(10, 10, 200, 100), { blur: 4 })
-  const a = registry.measure(viewport)[0]!.chain
-  const b = registry.measure(viewport)[0]!.chain
+  const a = registry.measure(viewport).panels[0]!.chain
+  const b = registry.measure(viewport).panels[0]!.chain
   assert.equal(a, b, '同尺寸两帧应复用同一个 chain 对象')
 })
 
@@ -225,7 +225,7 @@ test('重复注册同一个元素会更新材质而不是多出一块面板', ()
   } finally {
     console.warn = warn
   }
-  const measured = registry.measure(viewport)
+  const measured = registry.measure(viewport).panels
   assert.equal(measured.length, 1)
   const blur = measured[0]!.chain.effects.find((e) => e.kind === 'blur')
   assert.ok(blur && blur.kind === 'blur' && blur.sigmaDp === 12, '材质应被更新')

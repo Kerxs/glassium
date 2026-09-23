@@ -58,7 +58,7 @@ function render(stage: GlassStage): void {
     `<b>draws</b>    ${s.drawCalls}`,
     `<b>allocs</b>   ${s.targetAllocations}`,
     `<b>blur</b>     ${s.blurPasses} 趟 / ${s.blurLevels} 级`,
-    `<b>panels</b>   ${s.panels}`,
+    `<b>panels</b>   ${s.panels}  <b>groups</b> ${s.groups}`,
     `<b>pipelines</b> ${s.pipelineCreations}  <b>bindGroups</b> ${s.bindGroupCreations}`,
     `<b>clicks</b>   ${clicks}${s.forcedColors ? '  (forced-colors：stage 停用)' : ''}`
   ]
@@ -169,6 +169,15 @@ ${r.detail}`
   })
   const disable = document.getElementById('disable') as HTMLInputElement
   disable.addEventListener('change', () => pill.toggleAttribute('disabled', disable.checked))
+
+  // 合并：smoothing 滑杆改的是 <glass-container> 的属性
+  const duo = document.getElementById('duo')!
+  const smooth = document.getElementById('smooth') as HTMLInputElement
+  const smoothOut = document.getElementById('smoothOut') as HTMLOutputElement
+  smooth.addEventListener('input', () => {
+    smoothOut.textContent = smooth.value
+    duo.setAttribute('smoothing', smooth.value)
+  })
 
   wireControls(stage)
   render(stage)

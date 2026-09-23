@@ -90,11 +90,17 @@ GPU 输出靠 `stage.debug.probeOptics()` + `compareOptics()` 与 CPU 实现逐�
       顺带撤回了一条错误的规划结论：画布从 `z-index: 0` 改回 `-1`，内容不再需要包进
       `z-index: 1` 的容器，见 [docs/limitations.md](docs/limitations.md)
 
+- [x] **T10** `<glass-container>`：几块玻璃用 smin 连成一个连续形状（`src/core/merge.ts`、
+      `src/shaders/glass-group.wgsl.ts`）。**一组一次 draw call**，与成员数无关；
+      GPU 与 CPU 逐像素比对 1.9 万个纹素，零个非有限值，采样偏移最大误差 1.4e-5 像素。
+      相距足够远的成员画出来与各自单独绘制**逐位相同**；颈部两侧方向相对处位移按一致度衰减，
+      不会在中线上翻出接缝。这是 backdrop-filter 结构上做不到的事（上游 issue #104）
+
 GPU 设备丢失时会在新设备上整套重建（实测约 30 ms，恢复后画面逐位相同），第二次丢失则降级。
 T5 到 T8 期间这一点是坏的：日志说会重新初始化，实际上画布会冻住 —— 现已修复，
 见 [docs/limitations.md](docs/limitations.md)。
 
-**136 条测试全绿**，playground 可跑（`npm run dev`）。
+**153 条测试全绿**，playground 可跑（`npm run dev`）。
 
 T5 顺带把两个计划阶段悬着的硬件问题测掉了，结果记在
 [docs/calibration.md](docs/calibration.md)：`minUniformBufferOffsetAlignment` 实测 256
@@ -119,6 +125,12 @@ T5 顺带把两个计划阶段悬着的硬件问题测掉了，结果记在
   <p>正文照常选中、聚焦、输入 —— 内容全在 DOM 里。</p>
 </glass-card>
 <glass-button preset="thick" dispersion="0.3">确定</glass-button>
+
+<!-- 缝隙小于 smoothing 的一半时，两块玻璃连成一片（一次 draw） -->
+<glass-container smoothing="24" style="display: flex; gap: 10px">
+  <glass-button>左</glass-button>
+  <glass-button>右</glass-button>
+</glass-container>
 
 <script type="module">
   import { createGlassStage, defineGlassElements } from 'glassium'

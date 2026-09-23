@@ -22,6 +22,7 @@ import {
   type Radii4,
   type Vec2
 } from './optics.ts'
+import { evalMergedOptics, type MemberGeometry } from './merge.ts'
 
 /**
  * 消费 spec/conformance/optics.json。
@@ -164,4 +165,22 @@ test('符合性向量：色散的逐通道偏移', () => {
     closeVec(got.g, want.g, `#${i} g`)
     closeVec(got.b, want.b, `#${i} b`)
   }
+})
+
+test('符合性向量：多块玻璃合并', () => {
+  const cases = doc.groups.mergedGroup
+  assert.ok(cases && cases.length > 0, '向量里缺 mergedGroup 组')
+  let blendedCount = 0
+  for (const [i, c] of cases.entries()) {
+    const input = c.input as unknown as { px: Vec2; k: number; members: MemberGeometry[] }
+    const m = evalMergedOptics(input.px, input.members, input.k)
+    close(m.sd, c.expect.sd as number, `#${i} sd`)
+    closeVec(m.dir, c.expect.dir as number[], `#${i} dir`)
+    closeVec(m.normal, c.expect.normal as number[], `#${i} normal`)
+    close(m.displacement, c.expect.displacement as number, `#${i} displacement`)
+    assert.equal(m.blended, c.expect.blended, `#${i} blended`)
+    if (m.blended) blendedCount++
+  }
+  // 向量必须同时覆盖「混合了」与「没混合」两种像素，否则 blended 开关没被契约钉住
+  assert.ok(blendedCount > 0 && blendedCount < cases.length)
 })

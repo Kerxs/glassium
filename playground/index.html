@@ -171,6 +171,19 @@
         border-radius: 4px 32px 8px 28px;
       }
 
+      /* 合并：两个按钮之间留 10px 的缝。smoothing 超过 20（缝宽的两倍）时颈部闭合。 */
+      #duo {
+        display: flex;
+        gap: 10px;
+        margin: 4px 0 20px;
+      }
+
+      .duo-btn {
+        width: 120px;
+        height: 56px;
+        font-weight: 600;
+      }
+
       /* R1 反例：内容层加上不透明背景，玻璃被整块挡住。控制台会点名 main.content。 */
       .content.r1-demo {
         background: #0e1a2b;
@@ -226,6 +239,10 @@
       </glass-card>
       <glass-button class="panel-pill" id="pill" preset="thick" dispersion="0.3" highlight="0.7">胶囊按钮</glass-button>
       <glass-card class="panel-pill" id="pill2" preset="regular" corner-radius="4 32 8 28" dispersion="0.3" highlight="0.7">四角不同</glass-card>
+      <glass-container id="duo" smoothing="24">
+        <glass-button class="duo-btn" preset="regular" dispersion="0.3" highlight="0.7">左</glass-button>
+        <glass-button class="duo-btn" preset="regular" dispersion="0.3" highlight="0.7">右</glass-button>
+      </glass-container>
       <p>
         几个开关（本机平时走不到这些路径）：<code>?glassium.simulate=no-webgpu</code>
         强制走降级阶梯，组件换成 CSS 兜底表面；<code>?glassium.forcedColors=1</code>
@@ -279,6 +296,11 @@
         tint α
         <input id="tint" type="range" min="0" max="1" step="0.02" value="0" />
         <output id="tintOut">0.00</output>
+      </label>
+      <label>
+        smoothing
+        <input id="smooth" type="range" min="0" max="48" step="1" value="24" />
+        <output id="smoothOut">24</output>
       </label>
       <label>
         R1 反例

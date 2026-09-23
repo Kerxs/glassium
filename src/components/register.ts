@@ -1,16 +1,18 @@
 /**
- * 注册 `<glass-card>` / `<glass-button>`。
+ * 注册 `<glass-card>` / `<glass-button>` / `<glass-container>`。
  *
  * 显式调用，不在 import 时自动注册：自动注册是 import 的副作用，会让「只想用光学数学」的
- * 使用方也注册上两个元素名，而且在 SSR 里根本没有 customElements。
+ * 使用方也注册上这几个元素名，而且在 SSR 里根本没有 customElements。
  */
 
 import { GlassButton } from './glass-button.ts'
 import { GlassCard } from './glass-card.ts'
+import { GlassContainer } from './glass-container.ts'
 
 const ELEMENTS = [
   ['glass-card', GlassCard],
-  ['glass-button', GlassButton]
+  ['glass-button', GlassButton],
+  ['glass-container', GlassContainer]
 ] as const
 
 /**
@@ -42,5 +44,6 @@ declare global {
   interface HTMLElementTagNameMap {
     'glass-card': GlassCard
     'glass-button': GlassButton
+    'glass-container': GlassContainer
   }
 }

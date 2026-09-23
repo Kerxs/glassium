@@ -5,9 +5,8 @@
  * 空壳 export 会让 playground 编译通过却在运行时崩，比缺失更难查。
  *
  * 现在有的：光学核心、有序效果管线与材质立面（T1–T4），WebGPU 渲染器（T5–T8），
- * `<glass-card>` / `<glass-button>` 组件与层级诊断（T9）。
- * 还没有的：`<glass-container>` 的合并（T10）与 WebGL2 后端（T11）——
- * 没有 WebGPU 的浏览器现在直接退到 CSS 兜底。
+ * `<glass-card>` / `<glass-button>` 组件与层级诊断（T9），`<glass-container>` 的合并（T10）。
+ * 还没有的：WebGL2 后端（T11）—— 没有 WebGPU 的浏览器现在直接退到 CSS 兜底。
  *
  * 在 Node 里 import 整个包是安全的（SSR）：模块顶层不碰任何浏览器全局，
  * defineGlassElements() 在没有 customElements 时什么都不做。
@@ -50,6 +49,16 @@ export {
   uvToTexelCoord,
   type ResolvedViewport
 } from './core/units.ts'
+
+// —— 多块玻璃的合并（T10 起）——
+export {
+  MAX_GROUP_MEMBERS,
+  evalMergedOptics,
+  memberOptics,
+  mergeBleed,
+  type MemberGeometry,
+  type MergedOptics
+} from './core/merge.ts'
 
 // —— 有序效果管线（内核）——
 export {
@@ -114,17 +123,20 @@ export { defineGlassElements } from './components/register.ts'
 export { GlassElement } from './components/base.ts'
 export { GlassCard } from './components/glass-card.ts'
 export { GlassButton } from './components/glass-button.ts'
+export { GlassContainer } from './components/glass-container.ts'
 export { MATERIAL_ATTRIBUTES, parseMaterialAttributes } from './components/attributes.ts'
 
-// —— 玻璃面板（T7 起）——
-export type { GlassPanel } from './renderer/panels.ts'
+// —— 玻璃面板（T7 起）与合并组（T10 起）——
+export { DEFAULT_SMOOTHING_DP, type GlassGroup, type GlassPanel } from './renderer/panels.ts'
 export { DEBUG_MODES, type PanelDebugMode } from './shaders/glass.wgsl.ts'
 export {
   SECTORS,
+  compareGroupOptics,
   compareOptics,
   joinProbeAndColors,
   sectorOf,
   summarizeBySector,
+  type GroupOpticsProbe,
   type JoinedPixel,
   type OpticsComparison,
   type OpticsProbe,

@@ -21,6 +21,11 @@
   border-radius: 999px;
 }
 
+/* 容器自己没有玻璃，只是分组；排版交给作者（常见的是 display: flex）。 */
+:where(glass-container) {
+  display: block;
+}
+
 /*
  * 没有玻璃的时候，给一层可读的表面。
  *

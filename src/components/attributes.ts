@@ -63,7 +63,7 @@ function presetFrom(name: string): GlassMaterial | null {
 }
 
 /** 严格的数字：整个字符串必须是一个有限数，`8px`、`1e`、空串都不算。 */
-function strictNumber(raw: string): number | null {
+export function strictNumber(raw: string): number | null {
   const t = raw.trim()
   if (t === '' || !/^[+-]?(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?$/.test(t)) return null
   const n = Number(t)

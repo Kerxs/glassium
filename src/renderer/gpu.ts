@@ -10,8 +10,15 @@
  * 结果一致（见 docs/calibration.md）。
  */
 
+import type { MemberGeometry } from '../core/merge.ts'
 import type { ResolvedViewport } from '../core/units.ts'
 import { BACKDROP_WGSL, BLUR_WGSL } from '../shaders/blur.wgsl.ts'
+import {
+  GLASS_GROUP_WGSL,
+  GROUP_STRIDE,
+  GROUP_STRIDE_FLOATS,
+  GROUP_STRUCT_BYTES
+} from '../shaders/glass-group.wgsl.ts'
 import {
   GLASS_WGSL,
   PANEL_STRIDE,
@@ -22,8 +29,14 @@ import {
 import { SCENE_WGSL } from '../shaders/scene.wgsl.ts'
 import { probeCapabilities, type ProbeReport } from '../webgpu/probe.ts'
 import { BACKDROP_FORMAT, BlurChain, levelForSigma } from './blur.ts'
-import { packPanel, type MeasuredPanel } from './panels.ts'
-import type { OpticsProbe } from './verify.ts'
+import {
+  PANEL_STRUCT_FLOATS,
+  packGroup,
+  packPanel,
+  type MeasuredGroup,
+  type MeasuredPanel
+} from './panels.ts'
+import type { GroupOpticsProbe, OpticsProbe } from './verify.ts'
 
 /**
  * 回读区域的边长（不给 region 时的默认值）。
@@ -62,6 +75,12 @@ export interface ProbeRequest {
   readonly reject: (err: Error) => void
 }
 
+export interface GroupProbeRequest {
+  readonly index: number
+  readonly resolve: (probe: GroupOpticsProbe) => void
+  readonly reject: (err: Error) => void
+}
+
 /** 背景调试参数的当前值。由 stage 持有，跨设备存活。 */
 export interface BackdropState {
   readonly blurDp: number
@@ -79,8 +98,10 @@ export interface FrameInput {
   readonly viewport: ResolvedViewport
   readonly backdrop: BackdropState
   readonly panels: readonly MeasuredPanel[]
+  readonly groups: readonly MeasuredGroup[]
   readonly panelDebugMode: PanelDebugMode
   readonly probe: ProbeRequest | null
+  readonly groupProbe: GroupProbeRequest | null
   readonly readback: ReadbackRequest | null
 }
 
@@ -103,6 +124,9 @@ export class GpuRenderer {
   readonly #glassPipeline: GPURenderPipeline
   readonly #probePipeline: GPURenderPipeline
   readonly #glassLayout: GPUBindGroupLayout
+  readonly #groupPipeline: GPURenderPipeline
+  readonly #groupProbePipeline: GPURenderPipeline
+  readonly #groupLayout: GPUBindGroupLayout
 
   readonly #sceneUniforms: GPUBuffer
   readonly #sceneUniformData = new Float32Array(8)
@@ -120,6 +144,11 @@ export class GpuRenderer {
   #panelCapacity = 0
   #panelBuffer: GPUBuffer | null = null
   #panelData = new Float32Array(0)
+  #groupBindGroup: GPUBindGroup | null = null
+  #groupProbeBindGroup: GPUBindGroup | null = null
+  #groupCapacity = 0
+  #groupBuffer: GPUBuffer | null = null
+  #groupData = new Float32Array(0)
   #destroyed = false
 
   /** 构造函数不跑能力探测（那是异步的），请用 GpuRenderer.create。 */
@@ -251,6 +280,53 @@ export class GpuRenderer {
       primitive: { topology: 'triangle-list' }
     })
 
+    // 合并组：同一套绑定号，只有 binding 0 的结构体不同（一组 4 块面板，400B）。
+    // 单独一条管线而不是在单块面板的着色器里加分支 —— 单块面板的输出因此一个字节都不变。
+    this.#groupLayout = device.createBindGroupLayout({
+      label: 'glassium:glass-group',
+      entries: [
+        {
+          binding: 0,
+          visibility: GPUShaderStage.FRAGMENT,
+          buffer: { type: 'uniform', hasDynamicOffset: true, minBindingSize: GROUP_STRUCT_BYTES }
+        },
+        { binding: 1, visibility: GPUShaderStage.FRAGMENT, sampler: { type: 'filtering' } },
+        { binding: 2, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: 'float' } },
+        { binding: 3, visibility: GPUShaderStage.FRAGMENT, buffer: { type: 'uniform' } }
+      ]
+    })
+    const groupPipelineLayout = device.createPipelineLayout({
+      label: 'glassium:glass-group',
+      bindGroupLayouts: [this.#groupLayout]
+    })
+    const groupModule = device.createShaderModule({ label: 'glassium:glass-group', code: GLASS_GROUP_WGSL })
+    this.#groupPipeline = device.createRenderPipeline({
+      label: 'glassium:glass-group',
+      layout: groupPipelineLayout,
+      vertex: { module: groupModule, entryPoint: 'vs' },
+      fragment: {
+        module: groupModule,
+        entryPoint: 'fs',
+        targets: [
+          {
+            format,
+            blend: {
+              color: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha', operation: 'add' },
+              alpha: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha', operation: 'add' }
+            }
+          }
+        ]
+      },
+      primitive: { topology: 'triangle-list' }
+    })
+    this.#groupProbePipeline = device.createRenderPipeline({
+      label: 'glassium:glass-group-probe',
+      layout: groupPipelineLayout,
+      vertex: { module: groupModule, entryPoint: 'vs' },
+      fragment: { module: groupModule, entryPoint: 'fsProbe', targets: [{ format: 'rgba32float' }] },
+      primitive: { topology: 'triangle-list' }
+    })
+
     this.#stageUniforms = device.createBuffer({
       label: 'glassium:stage-uniforms',
       size: 16,
@@ -263,6 +339,7 @@ export class GpuRenderer {
     })
 
     this.#ensurePanelCapacity(16)
+    this.#ensureGroupCapacity(4)
   }
 
   static async create(
@@ -323,6 +400,45 @@ export class GpuRenderer {
       layout: this.#glassLayout,
       entries: entries(this.#probeStageUniforms)
     })
+    this.#rebuildGroupBindGroups()
+  }
+
+  #rebuildGroupBindGroups(): void {
+    const textures = this.#blurChain.textures
+    const groupBuffer = this.#groupBuffer
+    if (!textures || !groupBuffer) return
+    const entries = (stageBuffer: GPUBuffer): GPUBindGroupEntry[] => [
+      { binding: 0, resource: { buffer: groupBuffer, size: GROUP_STRUCT_BYTES } },
+      { binding: 1, resource: this.#sampler },
+      { binding: 2, resource: textures.chainView },
+      { binding: 3, resource: { buffer: stageBuffer } }
+    ]
+    this.#groupBindGroup = this.device.createBindGroup({
+      label: 'glassium:glass-group',
+      layout: this.#groupLayout,
+      entries: entries(this.#stageUniforms)
+    })
+    this.#groupProbeBindGroup = this.device.createBindGroup({
+      label: 'glassium:glass-group-probe',
+      layout: this.#groupLayout,
+      entries: entries(this.#probeStageUniforms)
+    })
+  }
+
+  /** 按需扩容合并组的 uniform buffer（翻倍），扩容后重建组的 bind group。 */
+  #ensureGroupCapacity(count: number): void {
+    if (count <= this.#groupCapacity && this.#groupBuffer) return
+    let next = Math.max(4, this.#groupCapacity)
+    while (next < count) next *= 2
+    this.#groupBuffer?.destroy()
+    this.#groupBuffer = this.device.createBuffer({
+      label: 'glassium:groups',
+      size: next * GROUP_STRIDE,
+      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
+    })
+    this.#groupData = new Float32Array(next * GROUP_STRIDE_FLOATS)
+    this.#groupCapacity = next
+    this.#rebuildGroupBindGroups()
   }
 
   /** 按需扩容面板 uniform buffer（翻倍），扩容后要重建 bind group。 */
@@ -384,6 +500,15 @@ export class GpuRenderer {
       )
     }
 
+    const groups = input.groups
+    this.#ensureGroupCapacity(groups.length)
+    for (let i = 0; i < groups.length; i++) {
+      packGroup(this.#groupData, i, groups[i]!, viewport, textures.levels, input.panelDebugMode)
+    }
+    if (groups.length > 0 && this.#groupBuffer) {
+      device.queue.writeBuffer(this.#groupBuffer, 0, this.#groupData, 0, groups.length * GROUP_STRIDE_FLOATS)
+    }
+
     const encoder = device.createCommandEncoder({ label: 'glassium:frame' })
 
     // 1) 场景 -> 模糊链的 mip 0（锐利背景就是这一级，不需要额外拷贝）
@@ -434,9 +559,22 @@ export class GpuRenderer {
         presentPass.draw(3)
       }
     }
+    // 5) 合并组：每组一次 draw，与成员数无关。画在单块面板之后。
+    if (groups.length > 0 && this.#groupBindGroup) {
+      presentPass.setPipeline(this.#groupPipeline)
+      for (let i = 0; i < groups.length; i++) {
+        const [sx, sy, sw, sh] = groups[i]!.scissor
+        presentPass.setScissorRect(sx, sy, sw, sh)
+        presentPass.setBindGroup(0, this.#groupBindGroup, [i * GROUP_STRIDE])
+        presentPass.draw(3)
+      }
+    }
     presentPass.end()
 
     const finishProbe = input.probe ? this.#encodeProbe(encoder, input.probe, panels, viewport) : null
+    const finishGroupProbe = input.groupProbe
+      ? this.#encodeGroupProbe(encoder, input.groupProbe, groups, viewport)
+      : null
     const finishReadback = input.readback
       ? this.#encodeReadback(encoder, input.readback, canvasTexture)
       : null
@@ -444,11 +582,91 @@ export class GpuRenderer {
     device.queue.submit([encoder.finish()])
 
     finishProbe?.()
+    finishGroupProbe?.()
     finishReadback?.()
 
     return {
-      drawCalls: 2 + this.#blurChain.passesLastFrame + panels.length,
+      drawCalls: 2 + this.#blurChain.passesLastFrame + panels.length + groups.length,
       blurPasses: this.#blurChain.passesLastFrame
+    }
+  }
+
+  /** 合并组的探针：把合并后的 sd、方向、位移渲进 rgba32float，覆盖整组的裁剪矩形。 */
+  #encodeGroupProbe(
+    encoder: GPUCommandEncoder,
+    probe: GroupProbeRequest,
+    groups: readonly MeasuredGroup[],
+    viewport: ResolvedViewport
+  ): (() => void) | null {
+    const target = groups[probe.index]
+    if (!target || !this.#groupProbeBindGroup) {
+      probe.reject(new Error(`[Glassium] 第 ${probe.index} 个合并组不存在或不在屏上`))
+      return null
+    }
+    const device = this.device
+    const [ox, oy, w, h] = target.scissor
+    const tex = device.createTexture({
+      label: 'glassium:group-probe',
+      size: { width: w, height: h },
+      format: 'rgba32float',
+      usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC
+    })
+    device.queue.writeBuffer(
+      this.#probeStageUniforms,
+      0,
+      new Float32Array([viewport.compositeWidth, viewport.compositeHeight, ox, oy])
+    )
+    const pass = encoder.beginRenderPass({
+      label: 'glassium:group-probe',
+      colorAttachments: [
+        { view: tex.createView(), clearValue: { r: 0, g: 0, b: 0, a: 0 }, loadOp: 'clear', storeOp: 'store' }
+      ]
+    })
+    pass.setPipeline(this.#groupProbePipeline)
+    pass.setBindGroup(0, this.#groupProbeBindGroup, [probe.index * GROUP_STRIDE])
+    pass.draw(3)
+    pass.end()
+
+    const rowBytes = Math.ceil((w * 16) / 256) * 256
+    const staging = device.createBuffer({
+      label: 'glassium:group-probe-staging',
+      size: rowBytes * h,
+      usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ
+    })
+    encoder.copyTextureToBuffer({ texture: tex }, { buffer: staging, bytesPerRow: rowBytes }, { width: w, height: h })
+
+    // CPU 侧要用 GPU 实际拿到的 f32 参数，不用 f64 的原值 —— 否则比的是舍入差而不是实现差。
+    const d = this.#groupData
+    const o = probe.index * GROUP_STRIDE_FLOATS
+    const members: MemberGeometry[] = []
+    for (let i = 0; i < target.members.length; i++) {
+      const m = o + 4 + i * PANEL_STRUCT_FLOATS
+      members.push({
+        rect: [d[m]!, d[m + 1]!, d[m + 2]!, d[m + 3]!],
+        radii: [d[m + 4]!, d[m + 5]!, d[m + 6]!, d[m + 7]!],
+        heightPx: d[m + 12]!,
+        amountPx: d[m + 13]!,
+        squircle: d[m + 16]!,
+        depthEffect: d[m + 17]!
+      })
+    }
+    const smoothingPx = d[o + 1]!
+    return (): void => {
+      staging.mapAsync(GPUMapMode.READ).then(
+        () => {
+          const raw = new Float32Array(staging.getMappedRange())
+          const rowFloats = rowBytes / 4
+          const data = new Float32Array(w * h * 4)
+          for (let j = 0; j < h; j++) {
+            data.set(raw.subarray(j * rowFloats, j * rowFloats + w * 4), j * w * 4)
+          }
+          staging.unmap()
+          staging.destroy()
+          tex.destroy()
+          probe.resolve({ width: w, height: h, origin: [ox, oy], data, members, smoothingPx })
+        },
+        (err: unknown) => probe.reject(new Error(`[Glassium] 合并组探针回读失败：${String(err)}`))
+      )
     }
   }
 
@@ -603,6 +821,7 @@ export class GpuRenderer {
     this.#stageUniforms.destroy()
     this.#probeStageUniforms.destroy()
     this.#panelBuffer?.destroy()
+    this.#groupBuffer?.destroy()
     this.#blurChain.destroy()
     try {
       this.#context.unconfigure()

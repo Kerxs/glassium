@@ -7,15 +7,61 @@
  */
 
 import { lowerMaterial, type GlassMaterial } from '../core/material.ts'
+import { MAX_GROUP_MEMBERS, mergeBleed } from '../core/merge.ts'
 import type { EffectChain } from '../core/pipeline.ts'
 import type { ResolvedViewport } from '../core/units.ts'
-import { DEBUG_MODES, PANEL_STRIDE_FLOATS, type PanelDebugMode } from '../shaders/glass.wgsl.ts'
+import { GROUP_STRIDE_FLOATS } from '../shaders/glass-group.wgsl.ts'
+import {
+  DEBUG_MODES,
+  PANEL_STRIDE_FLOATS,
+  PANEL_STRUCT_BYTES,
+  type PanelDebugMode
+} from '../shaders/glass.wgsl.ts'
 import { levelForSigma } from './blur.ts'
 
 export interface GlassPanel {
   readonly element: HTMLElement
   setMaterial(material: GlassMaterial): void
   unregister(): void
+}
+
+/**
+ * 一组合并绘制的面板（`<glass-container>` 背后就是它）。
+ *
+ * 成员按**元素**指定，不按注册句柄：元素什么时候注册成面板、注册了几次、stage 换没换，
+ * 都不影响分组 —— 每帧测量时才把元素解析成面板。还没注册的元素先忽略，注册之后自动加入。
+ */
+export interface GlassGroup {
+  /** 成员元素，按顺序。前 4 个参与合并，其余单独绘制（并警告一次）。 */
+  setMembers(elements: readonly HTMLElement[]): void
+  /** smin 的平滑半径，dp。缝隙小于它的一半时两块玻璃连成一片。0 是硬并集。 */
+  setSmoothing(dp: number): void
+  /** 解散：成员回到各自单独绘制。 */
+  dissolve(): void
+}
+
+/** 平滑半径的默认值，dp。并排两个按钮留 8dp 左右的缝时，默认就会连起来。 */
+export const DEFAULT_SMOOTHING_DP = 20
+
+interface GroupRecord {
+  elements: readonly HTMLElement[]
+  smoothingDp: number
+  warnedOverflow: boolean
+}
+
+/** 一帧里量到的合并组。 */
+export interface MeasuredGroup {
+  readonly members: readonly MeasuredPanel[]
+  /** smin 的 k，画布设备像素。 */
+  readonly smoothingPx: number
+  /** 成员并集外扩 k/4 再加抗锯齿余量，已与画布求交。 */
+  readonly scissor: readonly [number, number, number, number]
+}
+
+export interface MeasureResult {
+  /** 单独绘制的面板（不在任何组里、且至少有一部分在屏上）。 */
+  readonly panels: readonly MeasuredPanel[]
+  readonly groups: readonly MeasuredGroup[]
 }
 
 /** 一帧里量到的面板，已换算到画布设备像素。 */
@@ -73,6 +119,7 @@ export const RIM_WIDTH_DP = 1.5
 
 export class PanelRegistry {
   readonly #records: PanelRecord[] = []
+  readonly #groups: GroupRecord[] = []
   readonly #onChange: () => void
 
   constructor(onChange: () => void) {
@@ -99,6 +146,35 @@ export class PanelRegistry {
     return this.#handle(record)
   }
 
+  group(options: { readonly smoothing?: number } = {}): GlassGroup {
+    const record: GroupRecord = {
+      elements: [],
+      smoothingDp: Math.max(options.smoothing ?? DEFAULT_SMOOTHING_DP, 0),
+      warnedOverflow: false
+    }
+    this.#groups.push(record)
+    this.#onChange()
+    return {
+      setMembers: (elements: readonly HTMLElement[]): void => {
+        record.elements = [...elements]
+        this.#onChange()
+      },
+      setSmoothing: (dp: number): void => {
+        record.smoothingDp = Math.max(Number.isFinite(dp) ? dp : 0, 0)
+        this.#onChange()
+      },
+      dissolve: (): void => {
+        const i = this.#groups.indexOf(record)
+        if (i >= 0) this.#groups.splice(i, 1)
+        this.#onChange()
+      }
+    }
+  }
+
+  get groupCount(): number {
+    return this.#groups.length
+  }
+
   #handle(record: PanelRecord): GlassPanel {
     return {
       element: record.element,
@@ -117,20 +193,29 @@ export class PanelRegistry {
   }
 
   /**
-   * 量出本帧所有可见面板。
+   * 量出本帧所有可见面板与合并组。
    *
    * **所有 getBoundingClientRect 在这里一次读完，帧内之后不再碰布局。**
    * 读写交错会触发强制同步布局（layout thrash），面板一多就是实打实的掉帧。
    */
-  measure(viewport: ResolvedViewport, originX = 0, originY = 0): MeasuredPanel[] {
+  measure(viewport: ResolvedViewport, originX = 0, originY = 0): MeasureResult {
     // CSS px → 画布设备像素。用合成目标尺寸除以 CSS 尺寸，而不是直接乘 dpr ——
     // 画布的像素数是取整过的，差那一点在 DPR 1.5 这类非整数倍率下会累积成可见的错位。
     const sx = viewport.compositeWidth / viewport.cssWidth
     const sy = viewport.compositeHeight / viewport.cssHeight
     const W = viewport.compositeWidth
     const H = viewport.compositeHeight
+    const clip = (x0: number, y0: number, x1: number, y1: number): [number, number, number, number] => {
+      const cx0 = Math.max(0, Math.floor(x0))
+      const cy0 = Math.max(0, Math.floor(y0))
+      const cx1 = Math.min(W, Math.ceil(x1))
+      const cy1 = Math.min(H, Math.ceil(y1))
+      return [cx0, cy0, Math.max(0, cx1 - cx0), Math.max(0, cy1 - cy0)]
+    }
 
-    const out: MeasuredPanel[] = []
+    // 1) 每块画出来了的面板都量一遍。屏外的也量 —— 它可能是某个组的成员，
+    //    自己不在屏上，与邻居连起来的颈部却在。
+    const measured = new Map<PanelRecord, MeasuredPanel>()
     for (const record of this.#records) {
       if (!record.element.isConnected) continue
       if (!isRendered(record.element)) continue
@@ -143,12 +228,6 @@ export class PanelRegistry {
       const w = r.width * sx
       const h = r.height * sy
 
-      const x0 = Math.max(0, Math.floor(x - AA_MARGIN_PX))
-      const y0 = Math.max(0, Math.floor(y - AA_MARGIN_PX))
-      const x1 = Math.min(W, Math.ceil(x + w + AA_MARGIN_PX))
-      const y1 = Math.min(H, Math.ceil(y + h + AA_MARGIN_PX))
-      if (x1 <= x0 || y1 <= y0) continue // 完全在屏外
-
       // 降级按 CSS 尺寸缓存：材质的分数参数（refraction / distortion / 'frac' 圆角）
       // 是按短边算的，尺寸不变就不必重算。
       const cached = record.cached
@@ -160,9 +239,65 @@ export class PanelRegistry {
         record.cached = { w: r.width, h: r.height, chain }
       }
 
-      out.push({ record, x, y, w, h, scissor: [x0, y0, x1 - x0, y1 - y0], chain })
+      const scissor = clip(x - AA_MARGIN_PX, y - AA_MARGIN_PX, x + w + AA_MARGIN_PX, y + h + AA_MARGIN_PX)
+      measured.set(record, { record, x, y, w, h, scissor, chain })
     }
-    return out
+
+    // 2) 合并组。一块面板只能属于一个组（先到先得），一组最多 MAX_GROUP_MEMBERS 块。
+    const grouped = new Set<PanelRecord>()
+    const groups: MeasuredGroup[] = []
+    if (this.#groups.length > 0) {
+      const byElement = new Map<HTMLElement, PanelRecord>()
+      for (const record of this.#records) byElement.set(record.element, record)
+      for (const g of this.#groups) {
+        const members: MeasuredPanel[] = []
+        let overflow = 0
+        for (const element of g.elements) {
+          const record = byElement.get(element)
+          const m = record ? measured.get(record) : undefined
+          if (!record || !m || grouped.has(record)) continue
+          if (members.length >= MAX_GROUP_MEMBERS) {
+            overflow++
+            continue
+          }
+          members.push(m)
+          grouped.add(record)
+        }
+        if (overflow > 0 && !g.warnedOverflow) {
+          g.warnedOverflow = true
+          console.warn(
+            `[Glassium] 一组最多合并 ${MAX_GROUP_MEMBERS} 块玻璃，这一组有 ${members.length + overflow} 块。` +
+              `第 ${MAX_GROUP_MEMBERS + 1} 块起单独绘制，不参与合并。`
+          )
+        }
+        if (members.length === 0) continue
+
+        const k = g.smoothingDp * sx
+        const bleed = mergeBleed(k) + AA_MARGIN_PX
+        let x0 = Infinity
+        let y0 = Infinity
+        let x1 = -Infinity
+        let y1 = -Infinity
+        for (const m of members) {
+          x0 = Math.min(x0, m.x)
+          y0 = Math.min(y0, m.y)
+          x1 = Math.max(x1, m.x + m.w)
+          y1 = Math.max(y1, m.y + m.h)
+        }
+        const scissor = clip(x0 - bleed, y0 - bleed, x1 + bleed, y1 + bleed)
+        if (scissor[2] === 0 || scissor[3] === 0) continue // 整组都在屏外
+        groups.push({ members, smoothingPx: k, scissor })
+      }
+    }
+
+    // 3) 单独绘制的面板：不在组里、且裁剪矩形不为空（完全在屏外的不占 draw call）
+    const panels: MeasuredPanel[] = []
+    for (const m of measured.values()) {
+      if (grouped.has(m.record)) continue
+      if (m.scissor[2] === 0 || m.scissor[3] === 0) continue
+      panels.push(m)
+    }
+    return { panels, groups }
   }
 }
 
@@ -181,7 +316,47 @@ export function packPanel(
   blurLevels: number,
   debugMode: PanelDebugMode
 ): void {
-  const o = index * PANEL_STRIDE_FLOATS
+  writePanel(data, index * PANEL_STRIDE_FLOATS, panel, viewport, blurLevels, debugMode)
+}
+
+/** Panel 结构体占几个 float（96B / 4）。合并组里的成员按这个步长紧挨着排。 */
+export const PANEL_STRUCT_FLOATS = PANEL_STRUCT_BYTES / 4
+
+/**
+ * 把一个合并组写进 uniform 数组的第 index 个组槽位（每槽 512B）。
+ *
+ * 布局必须与 glass-group.wgsl.ts 的 `struct Group` 一致：16B 的头
+ * （成员数、k、调试模式、空）之后是 4 个紧挨着的 Panel。
+ */
+export function packGroup(
+  data: Float32Array,
+  index: number,
+  group: MeasuredGroup,
+  viewport: ResolvedViewport,
+  blurLevels: number,
+  debugMode: PanelDebugMode
+): void {
+  const o = index * GROUP_STRIDE_FLOATS
+  data[o + 0] = group.members.length
+  data[o + 1] = group.smoothingPx
+  data[o + 2] = DEBUG_MODES.indexOf(debugMode)
+  data[o + 3] = 0
+  for (let i = 0; i < MAX_GROUP_MEMBERS; i++) {
+    const at = o + 4 + i * PANEL_STRUCT_FLOATS
+    const member = group.members[i]
+    if (member) writePanel(data, at, member, viewport, blurLevels, debugMode)
+    else data.fill(0, at, at + PANEL_STRUCT_FLOATS) // 不用的槽位清零，免得留着上一帧别的组的数
+  }
+}
+
+function writePanel(
+  data: Float32Array,
+  o: number,
+  panel: MeasuredPanel,
+  viewport: ResolvedViewport,
+  blurLevels: number,
+  debugMode: PanelDebugMode
+): void {
   // dp（= CSS px）→ 画布设备像素
   const scale = viewport.compositeWidth / viewport.cssWidth
   const chain = panel.chain

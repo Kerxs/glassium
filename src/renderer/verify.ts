@@ -14,6 +14,7 @@
  * 比偏移则不会。偏移才是真正移动像素的那个量。
  */
 
+import { evalMergedOptics, type MemberGeometry } from '../core/merge.ts'
 import {
   gradRadiusOf,
   gradSdRoundedRect,
@@ -59,12 +60,32 @@ export interface OpticsComparison {
   readonly worstOffsetAtSd: number
 }
 
-export function compareOptics(probe: OpticsProbe): OpticsComparison {
-  const { width, height, origin, data, panel } = probe
-  const [rx, ry, rw, rh] = panel.rect
-  const halfSize: Vec2 = [rw / 2, rh / 2]
-  const center: Vec2 = [rx + halfSize[0], ry + halfSize[1]]
+/** 合并组的探针回读。格式与 OpticsProbe 相同，附带的是全部成员的几何与 k。 */
+export interface GroupOpticsProbe {
+  readonly width: number
+  readonly height: number
+  readonly origin: Vec2
+  readonly data: Float32Array
+  readonly members: readonly MemberGeometry[]
+  /** smin 的 k，画布设备像素。 */
+  readonly smoothingPx: number
+}
 
+/** CPU 侧在一个像素中心上算出的光学量。 */
+interface CpuOptics {
+  readonly sd: number
+  readonly dir: Vec2
+  readonly displacement: number
+}
+
+/** 逐纹素比对 GPU 探针与一个 CPU 实现。单块面板与合并组共用。 */
+function compareAgainst(
+  width: number,
+  height: number,
+  origin: Vec2,
+  data: Float32Array,
+  cpu: (px: Vec2) => CpuOptics
+): OpticsComparison {
   let nonFinite = 0
   let maxSd = 0
   let maxDisp = 0
@@ -91,26 +112,17 @@ export function compareOptics(probe: OpticsProbe): OpticsComparison {
 
       // 片元位置取像素中心，与 @builtin(position) 的约定一致。
       const px: Vec2 = [origin[0] + i + 0.5, origin[1] + j + 0.5]
-      const centered: Vec2 = [px[0] - center[0], px[1] - center[1]]
-      const radius = radiusAt(centered, panel.radii)
-      const sd = sdRoundedRect(centered, halfSize, radius)
-      const dir = refractionDirection(
-        centered,
-        halfSize,
-        gradRadiusOf(radius, halfSize),
-        panel.depthEffect
-      )
-      const disp = refractionProfile(sd, panel.heightPx, panel.amountPx, panel.squircle)
+      const c = cpu(px)
 
-      const eSd = Math.abs(gSd - sd)
-      const eDisp = Math.abs(gDisp - disp)
-      const eOffset = Math.hypot(gDx * gDisp - dir[0] * disp, gDy * gDisp - dir[1] * disp)
+      const eSd = Math.abs(gSd - c.sd)
+      const eDisp = Math.abs(gDisp - c.displacement)
+      const eOffset = Math.hypot(gDx * gDisp - c.dir[0] * c.displacement, gDy * gDisp - c.dir[1] * c.displacement)
 
       if (eSd > maxSd) maxSd = eSd
       if (eDisp > maxDisp) maxDisp = eDisp
       if (eOffset > maxOffset) {
         maxOffset = eOffset
-        worstSd = sd
+        worstSd = c.sd
       }
       offsetErrs.push(eOffset)
     }
@@ -126,6 +138,33 @@ export function compareOptics(probe: OpticsProbe): OpticsComparison {
     p99OffsetErr: p99,
     worstOffsetAtSd: worstSd
   }
+}
+
+export function compareOptics(probe: OpticsProbe): OpticsComparison {
+  const { panel } = probe
+  const [rx, ry, rw, rh] = panel.rect
+  const halfSize: Vec2 = [rw / 2, rh / 2]
+  const center: Vec2 = [rx + halfSize[0], ry + halfSize[1]]
+  return compareAgainst(probe.width, probe.height, probe.origin, probe.data, (px) => {
+    const centered: Vec2 = [px[0] - center[0], px[1] - center[1]]
+    const radius = radiusAt(centered, panel.radii)
+    const sd = sdRoundedRect(centered, halfSize, radius)
+    return {
+      sd,
+      dir: refractionDirection(centered, halfSize, gradRadiusOf(radius, halfSize), panel.depthEffect),
+      displacement: refractionProfile(sd, panel.heightPx, panel.amountPx, panel.squircle)
+    }
+  })
+}
+
+/**
+ * 合并组的 GPU 探针与 core/merge.ts 的 CPU 实现逐像素比对。判据与单块面板相同：
+ * 零个非有限值、采样偏移 p99 在 1e-4 像素以下。
+ */
+export function compareGroupOptics(probe: GroupOpticsProbe): OpticsComparison {
+  return compareAgainst(probe.width, probe.height, probe.origin, probe.data, (px) =>
+    evalMergedOptics(px, probe.members, probe.smoothingPx)
+  )
 }
 
 /* ------------------------------------------------------------------ *

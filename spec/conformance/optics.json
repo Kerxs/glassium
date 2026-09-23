@@ -2909,6 +2909,1316 @@
         }
       }
     ],
+    "mergedGroup": [
+      {
+        "input": {
+          "px": [
+            105,
+            25
+          ],
+          "k": 0,
+          "members": [
+            {
+              "rect": [
+                0,
+                0,
+                100,
+                50
+              ],
+              "radii": [
+                25,
+                25,
+                25,
+                25
+              ],
+              "heightPx": 12,
+              "amountPx": 18,
+              "squircle": 2,
+              "depthEffect": 1
+            },
+            {
+              "rect": [
+                110,
+                0,
+                100,
+                50
+              ],
+              "radii": [
+                25,
+                25,
+                25,
+                25
+              ],
+              "heightPx": 12,
+              "amountPx": 18,
+              "squircle": 2,
+              "depthEffect": 1
+            }
+          ]
+        },
+        "expect": {
+          "sd": 5,
+          "dir": [
+            -1,
+            0
+          ],
+          "normal": [
+            -1,
+            0
+          ],
+          "displacement": 18,
+          "blended": false
+        }
+      },
+      {
+        "input": {
+          "px": [
+            98.5,
+            12.5
+          ],
+          "k": 0,
+          "members": [
+            {
+              "rect": [
+                0,
+                0,
+                100,
+                50
+              ],
+              "radii": [
+                25,
+                25,
+                25,
+                25
+              ],
+              "heightPx": 12,
+              "amountPx": 18,
+              "squircle": 2,
+              "depthEffect": 1
+            },
+            {
+              "rect": [
+                110,
+                0,
+                100,
+                50
+              ],
+              "radii": [
+                25,
+                25,
+                25,
+                25
+              ],
+              "heightPx": 12,
+              "amountPx": 18,
+              "squircle": 2,
+              "depthEffect": 1
+            }
+          ]
+        },
+        "expect": {
+          "sd": 1.6176633084123324,
+          "dir": [
+            0.9321292554318844,
+            -0.3621257394441895
+          ],
+          "normal": [
+            0.8828723891992798,
+            -0.4696129729783403
+          ],
+          "displacement": 18,
+          "blended": false
+        }
+      },
+      {
+        "input": {
+          "px": [
+            50.5,
+            25.5
+          ],
+          "k": 0,
+          "members": [
+            {
+              "rect": [
+                0,
+                0,
+                100,
+                50
+              ],
+              "radii": [
+                25,
+                25,
+                25,
+                25
+              ],
+              "heightPx": 12,
+              "amountPx": 18,
+              "squircle": 2,
+              "depthEffect": 1
+            },
+            {
+              "rect": [
+                110,
+                0,
+                100,
+                50
+              ],
+              "radii": [
+                25,
+                25,
+                25,
+                25
+              ],
+              "heightPx": 12,
+              "amountPx": 18,
+              "squircle": 2,
+              "depthEffect": 1
+            }
+          ]
+        },
+        "expect": {
+          "sd": -24.5,
+          "dir": [
+            0.3826834323650897,
+            0.9238795325112867
+          ],
+          "normal": [
+            0,
+            1
+          ],
+          "displacement": 0,
+          "blended": false
+        }
+      },
+      {
+        "input": {
+          "px": [
+            105,
+            25
+          ],
+          "k": 16,
+          "members": [
+            {
+              "rect": [
+                0,
+                0,
+                100,
+                50
+              ],
+              "radii": [
+                25,
+                25,
+                25,
+                25
+              ],
+              "heightPx": 12,
+              "amountPx": 18,
+              "squircle": 2,
+              "depthEffect": 1
+            },
+            {
+              "rect": [
+                110,
+                0,
+                100,
+                50
+              ],
+              "radii": [
+                25,
+                25,
+                25,
+                25
+              ],
+              "heightPx": 12,
+              "amountPx": 18,
+              "squircle": 2,
+              "depthEffect": 1
+            }
+          ]
+        },
+        "expect": {
+          "sd": 1,
+          "dir": [
+            0,
+            -1
+          ],
+          "normal": [
+            0,
+            -1
+          ],
+          "displacement": 0,
+          "blended": true
+        }
+      },
+      {
+        "input": {
+          "px": [
+            101.5,
+            20.5
+          ],
+          "k": 16,
+          "members": [
+            {
+              "rect": [
+                0,
+                0,
+                100,
+                50
+              ],
+              "radii": [
+                25,
+                25,
+                25,
+                25
+              ],
+              "heightPx": 12,
+              "amountPx": 18,
+              "squircle": 2,
+              "depthEffect": 1
+            },
+            {
+              "rect": [
+                110,
+                0,
+                100,
+                50
+              ],
+              "radii": [
+                25,
+                25,
+                25,
+                25
+              ],
+              "heightPx": 12,
+              "amountPx": 18,
+              "squircle": 2,
+              "depthEffect": 1
+            }
+          ]
+        },
+        "expect": {
+          "sd": 0.5915684891636159,
+          "dir": [
+            0.9623468443979873,
+            -0.2718244857941161
+          ],
+          "normal": [
+            0.9375495032394537,
+            -0.34785187792428773
+          ],
+          "displacement": 8.011631096637712,
+          "blended": true
+        }
+      },
+      {
+        "input": {
+          "px": [
+            96.5,
+            8.5
+          ],
+          "k": 16,
+          "members": [
+            {
+              "rect": [
+                0,
+                0,
+                100,
+                50
+              ],
+              "radii": [
+                25,
+                25,
+                25,
+                25
+              ],
+              "heightPx": 12,
+              "amountPx": 18,
+              "squircle": 2,
+              "depthEffect": 1
+            },
+            {
+              "rect": [
+                110,
+                0,
+                100,
+                50
+              ],
+              "radii": [
+                25,
+                25,
+                25,
+                25
+              ],
+              "heightPx": 12,
+              "amountPx": 18,
+              "squircle": 2,
+              "depthEffect": 1
+            }
+          ]
+        },
+        "expect": {
+          "sd": 2.0785979285437564,
+          "dir": [
+            0.8640108463400417,
+            -0.5034731943279251
+          ],
+          "normal": [
+            0.7714684323229916,
+            -0.6362675993079528
+          ],
+          "displacement": 16.86157508207728,
+          "blended": true
+        }
+      },
+      {
+        "input": {
+          "px": [
+            50.5,
+            3.5
+          ],
+          "k": 16,
+          "members": [
+            {
+              "rect": [
+                0,
+                0,
+                100,
+                50
+              ],
+              "radii": [
+                25,
+                25,
+                25,
+                25
+              ],
+              "heightPx": 12,
+              "amountPx": 18,
+              "squircle": 2,
+              "depthEffect": 1
+            },
+            {
+              "rect": [
+                110,
+                0,
+                100,
+                50
+              ],
+              "radii": [
+                25,
+                25,
+                25,
+                25
+              ],
+              "heightPx": 12,
+              "amountPx": 18,
+              "squircle": 2,
+              "depthEffect": 1
+            }
+          ]
+        },
+        "expect": {
+          "sd": -3.5,
+          "dir": [
+            0.011625549517209626,
+            -0.999932421015752
+          ],
+          "normal": [
+            0,
+            -1
+          ],
+          "displacement": 5.294194240426936,
+          "blended": false
+        }
+      },
+      {
+        "input": {
+          "px": [
+            105,
+            25
+          ],
+          "k": 24,
+          "members": [
+            {
+              "rect": [
+                0,
+                0,
+                100,
+                50
+              ],
+              "radii": [
+                25,
+                25,
+                25,
+                25
+              ],
+              "heightPx": 12,
+              "amountPx": 18,
+              "squircle": 2,
+              "depthEffect": 1
+            },
+            {
+              "rect": [
+                110,
+                0,
+                100,
+                50
+              ],
+              "radii": [
+                25,
+                25,
+                25,
+                25
+              ],
+              "heightPx": 12,
+              "amountPx": 18,
+              "squircle": 2,
+              "depthEffect": 1
+            }
+          ]
+        },
+        "expect": {
+          "sd": -1,
+          "dir": [
+            0,
+            -1
+          ],
+          "normal": [
+            0,
+            -1
+          ],
+          "displacement": 0,
+          "blended": true
+        }
+      },
+      {
+        "input": {
+          "px": [
+            105,
+            12
+          ],
+          "k": 24,
+          "members": [
+            {
+              "rect": [
+                0,
+                0,
+                100,
+                50
+              ],
+              "radii": [
+                25,
+                25,
+                25,
+                25
+              ],
+              "heightPx": 12,
+              "amountPx": 18,
+              "squircle": 2,
+              "depthEffect": 1
+            },
+            {
+              "rect": [
+                110,
+                0,
+                100,
+                50
+              ],
+              "radii": [
+                25,
+                25,
+                25,
+                25
+              ],
+              "heightPx": 12,
+              "amountPx": 18,
+              "squircle": 2,
+              "depthEffect": 1
+            }
+          ]
+        },
+        "expect": {
+          "sd": 1.6955654485436327,
+          "dir": [
+            0,
+            -1
+          ],
+          "normal": [
+            0,
+            -1
+          ],
+          "displacement": 5.670840157887372,
+          "blended": true
+        }
+      },
+      {
+        "input": {
+          "px": [
+            103.5,
+            30.5
+          ],
+          "k": 24,
+          "members": [
+            {
+              "rect": [
+                0,
+                0,
+                100,
+                50
+              ],
+              "radii": [
+                25,
+                25,
+                25,
+                25
+              ],
+              "heightPx": 12,
+              "amountPx": 18,
+              "squircle": 2,
+              "depthEffect": 1
+            },
+            {
+              "rect": [
+                110,
+                0,
+                100,
+                50
+              ],
+              "radii": [
+                25,
+                25,
+                25,
+                25
+              ],
+              "heightPx": 12,
+              "amountPx": 18,
+              "squircle": 2,
+              "depthEffect": 1
+            }
+          ]
+        },
+        "expect": {
+          "sd": -0.5894920453329222,
+          "dir": [
+            0.6510123799623931,
+            0.7590671124055506
+          ],
+          "normal": [
+            0.5486276576346915,
+            0.8360667995311569
+          ],
+          "displacement": 2.3082444468010146,
+          "blended": true
+        }
+      },
+      {
+        "input": {
+          "px": [
+            96.5,
+            8.5
+          ],
+          "k": 24,
+          "members": [
+            {
+              "rect": [
+                0,
+                0,
+                100,
+                50
+              ],
+              "radii": [
+                25,
+                25,
+                25,
+                25
+              ],
+              "heightPx": 12,
+              "amountPx": 18,
+              "squircle": 2,
+              "depthEffect": 1
+            },
+            {
+              "rect": [
+                110,
+                0,
+                100,
+                50
+              ],
+              "radii": [
+                25,
+                25,
+                25,
+                25
+              ],
+              "heightPx": 12,
+              "amountPx": 18,
+              "squircle": 2,
+              "depthEffect": 1
+            }
+          ]
+        },
+        "expect": {
+          "sd": 1.217134043693639,
+          "dir": [
+            0.7627483251235553,
+            -0.6466954403126801
+          ],
+          "normal": [
+            0.6333907724516067,
+            -0.773832106708656
+          ],
+          "displacement": 12.467772362328645,
+          "blended": true
+        }
+      },
+      {
+        "input": {
+          "px": [
+            92.5,
+            9.5
+          ],
+          "k": 24,
+          "members": [
+            {
+              "rect": [
+                0,
+                0,
+                100,
+                50
+              ],
+              "radii": [
+                25,
+                25,
+                25,
+                25
+              ],
+              "heightPx": 12,
+              "amountPx": 18,
+              "squircle": 2,
+              "depthEffect": 1
+            },
+            {
+              "rect": [
+                110,
+                0,
+                100,
+                50
+              ],
+              "radii": [
+                25,
+                25,
+                25,
+                25
+              ],
+              "heightPx": 12,
+              "amountPx": 18,
+              "squircle": 2,
+              "depthEffect": 1
+            }
+          ]
+        },
+        "expect": {
+          "sd": -1.670323762076133,
+          "dir": [
+            0.8404640186420539,
+            -0.5418673577251626
+          ],
+          "normal": [
+            0.7201413146106245,
+            -0.6938274187367357
+          ],
+          "displacement": 8.183127383980397,
+          "blended": true
+        }
+      },
+      {
+        "input": {
+          "px": [
+            5.5,
+            25.5
+          ],
+          "k": 24,
+          "members": [
+            {
+              "rect": [
+                0,
+                0,
+                100,
+                50
+              ],
+              "radii": [
+                25,
+                25,
+                25,
+                25
+              ],
+              "heightPx": 12,
+              "amountPx": 18,
+              "squircle": 2,
+              "depthEffect": 1
+            },
+            {
+              "rect": [
+                110,
+                0,
+                100,
+                50
+              ],
+              "radii": [
+                25,
+                25,
+                25,
+                25
+              ],
+              "heightPx": 12,
+              "amountPx": 18,
+              "squircle": 2,
+              "depthEffect": 1
+            }
+          ]
+        },
+        "expect": {
+          "sd": -5.49359079686884,
+          "dir": [
+            -0.9998300719894458,
+            0.018434401145137076
+          ],
+          "normal": [
+            -0.9996714309094813,
+            0.0256326007925508
+          ],
+          "displacement": 2.875518574735435,
+          "blended": false
+        }
+      },
+      {
+        "input": {
+          "px": [
+            150.5,
+            1.5
+          ],
+          "k": 24,
+          "members": [
+            {
+              "rect": [
+                0,
+                0,
+                100,
+                50
+              ],
+              "radii": [
+                25,
+                25,
+                25,
+                25
+              ],
+              "heightPx": 12,
+              "amountPx": 18,
+              "squircle": 2,
+              "depthEffect": 1
+            },
+            {
+              "rect": [
+                110,
+                0,
+                100,
+                50
+              ],
+              "radii": [
+                25,
+                25,
+                25,
+                25
+              ],
+              "heightPx": 12,
+              "amountPx": 18,
+              "squircle": 2,
+              "depthEffect": 1
+            }
+          ]
+        },
+        "expect": {
+          "sd": -1.5,
+          "dir": [
+            -0.19090564985856992,
+            -0.9816083907812101
+          ],
+          "normal": [
+            0,
+            -1
+          ],
+          "displacement": 9.285787471033311,
+          "blended": false
+        }
+      },
+      {
+        "input": {
+          "px": [
+            103,
+            25
+          ],
+          "k": 20,
+          "members": [
+            {
+              "rect": [
+                0,
+                0,
+                100,
+                50
+              ],
+              "radii": [
+                25,
+                25,
+                25,
+                25
+              ],
+              "heightPx": 12,
+              "amountPx": 18,
+              "squircle": 2,
+              "depthEffect": 1
+            },
+            {
+              "rect": [
+                106,
+                0,
+                80,
+                50
+              ],
+              "radii": [
+                25,
+                25,
+                25,
+                25
+              ],
+              "heightPx": 9,
+              "amountPx": 22,
+              "squircle": 3,
+              "depthEffect": 0.5
+            },
+            {
+              "rect": [
+                40,
+                58,
+                90,
+                40
+              ],
+              "radii": [
+                6,
+                18,
+                12,
+                20
+              ],
+              "heightPx": 12,
+              "amountPx": 18,
+              "squircle": 2,
+              "depthEffect": 1
+            }
+          ]
+        },
+        "expect": {
+          "sd": -2,
+          "dir": [
+            0,
+            -1
+          ],
+          "normal": [
+            0,
+            -1
+          ],
+          "displacement": 0,
+          "blended": true
+        }
+      },
+      {
+        "input": {
+          "px": [
+            95.5,
+            52.5
+          ],
+          "k": 20,
+          "members": [
+            {
+              "rect": [
+                0,
+                0,
+                100,
+                50
+              ],
+              "radii": [
+                25,
+                25,
+                25,
+                25
+              ],
+              "heightPx": 12,
+              "amountPx": 18,
+              "squircle": 2,
+              "depthEffect": 1
+            },
+            {
+              "rect": [
+                106,
+                0,
+                80,
+                50
+              ],
+              "radii": [
+                25,
+                25,
+                25,
+                25
+              ],
+              "heightPx": 9,
+              "amountPx": 22,
+              "squircle": 3,
+              "depthEffect": 0.5
+            },
+            {
+              "rect": [
+                40,
+                58,
+                90,
+                40
+              ],
+              "radii": [
+                6,
+                18,
+                12,
+                20
+              ],
+              "heightPx": 12,
+              "amountPx": 18,
+              "squircle": 2,
+              "depthEffect": 1
+            }
+          ]
+        },
+        "expect": {
+          "sd": 1.7575312659363602,
+          "dir": [
+            0.701044716046546,
+            -0.7131173158066053
+          ],
+          "normal": [
+            0.43993516310631203,
+            -0.8980295386359085
+          ],
+          "displacement": 7.133457108479058,
+          "blended": true
+        }
+      },
+      {
+        "input": {
+          "px": [
+            60.5,
+            54.5
+          ],
+          "k": 20,
+          "members": [
+            {
+              "rect": [
+                0,
+                0,
+                100,
+                50
+              ],
+              "radii": [
+                25,
+                25,
+                25,
+                25
+              ],
+              "heightPx": 12,
+              "amountPx": 18,
+              "squircle": 2,
+              "depthEffect": 1
+            },
+            {
+              "rect": [
+                106,
+                0,
+                80,
+                50
+              ],
+              "radii": [
+                25,
+                25,
+                25,
+                25
+              ],
+              "heightPx": 9,
+              "amountPx": 22,
+              "squircle": 3,
+              "depthEffect": 0.5
+            },
+            {
+              "rect": [
+                40,
+                58,
+                90,
+                40
+              ],
+              "radii": [
+                6,
+                18,
+                12,
+                20
+              ],
+              "heightPx": 12,
+              "amountPx": 18,
+              "squircle": 2,
+              "depthEffect": 1
+            }
+          ]
+        },
+        "expect": {
+          "sd": -1.0125000000000002,
+          "dir": [
+            -0.9930373954881714,
+            -0.1177995380384385
+          ],
+          "normal": [
+            0,
+            -1
+          ],
+          "displacement": 1.3562841759248194,
+          "blended": true
+        }
+      },
+      {
+        "input": {
+          "px": [
+            120.5,
+            56.5
+          ],
+          "k": 20,
+          "members": [
+            {
+              "rect": [
+                0,
+                0,
+                100,
+                50
+              ],
+              "radii": [
+                25,
+                25,
+                25,
+                25
+              ],
+              "heightPx": 12,
+              "amountPx": 18,
+              "squircle": 2,
+              "depthEffect": 1
+            },
+            {
+              "rect": [
+                106,
+                0,
+                80,
+                50
+              ],
+              "radii": [
+                25,
+                25,
+                25,
+                25
+              ],
+              "heightPx": 9,
+              "amountPx": 22,
+              "squircle": 3,
+              "depthEffect": 0.5
+            },
+            {
+              "rect": [
+                40,
+                58,
+                90,
+                40
+              ],
+              "radii": [
+                6,
+                18,
+                12,
+                20
+              ],
+              "heightPx": 12,
+              "amountPx": 18,
+              "squircle": 2,
+              "depthEffect": 1
+            }
+          ]
+        },
+        "expect": {
+          "sd": 0.4339398787369948,
+          "dir": [
+            0.9084761956049322,
+            -0.4179366004780975
+          ],
+          "normal": [
+            0.6059461255759374,
+            -0.7955056837631709
+          ],
+          "displacement": 5.576151542246841,
+          "blended": true
+        }
+      },
+      {
+        "input": {
+          "px": [
+            150.5,
+            3.5
+          ],
+          "k": 20,
+          "members": [
+            {
+              "rect": [
+                0,
+                0,
+                100,
+                50
+              ],
+              "radii": [
+                25,
+                25,
+                25,
+                25
+              ],
+              "heightPx": 12,
+              "amountPx": 18,
+              "squircle": 2,
+              "depthEffect": 1
+            },
+            {
+              "rect": [
+                106,
+                0,
+                80,
+                50
+              ],
+              "radii": [
+                25,
+                25,
+                25,
+                25
+              ],
+              "heightPx": 9,
+              "amountPx": 22,
+              "squircle": 3,
+              "depthEffect": 0.5
+            },
+            {
+              "rect": [
+                40,
+                58,
+                90,
+                40
+              ],
+              "radii": [
+                6,
+                18,
+                12,
+                20
+              ],
+              "heightPx": 12,
+              "amountPx": 18,
+              "squircle": 2,
+              "depthEffect": 1
+            }
+          ]
+        },
+        "expect": {
+          "sd": -3.5,
+          "dir": [
+            0.06861186478900602,
+            -0.9976434292923374
+          ],
+          "normal": [
+            0,
+            -1
+          ],
+          "displacement": 1.8200611123266348,
+          "blended": false
+        }
+      },
+      {
+        "input": {
+          "px": [
+            20.5,
+            30.5
+          ],
+          "k": 20,
+          "members": [
+            {
+              "rect": [
+                0,
+                0,
+                100,
+                50
+              ],
+              "radii": [
+                25,
+                25,
+                25,
+                25
+              ],
+              "heightPx": 12,
+              "amountPx": 18,
+              "squircle": 2,
+              "depthEffect": 1
+            },
+            {
+              "rect": [
+                106,
+                0,
+                80,
+                50
+              ],
+              "radii": [
+                25,
+                25,
+                25,
+                25
+              ],
+              "heightPx": 9,
+              "amountPx": 22,
+              "squircle": 3,
+              "depthEffect": 0.5
+            },
+            {
+              "rect": [
+                40,
+                58,
+                90,
+                40
+              ],
+              "radii": [
+                6,
+                18,
+                12,
+                20
+              ],
+              "heightPx": 12,
+              "amountPx": 18,
+              "squircle": 2,
+              "depthEffect": 1
+            }
+          ]
+        },
+        "expect": {
+          "sd": -17.89366479822405,
+          "dir": [
+            -0.8604237787129883,
+            0.5095791607054421
+          ],
+          "normal": [
+            -0.6332377902572627,
+            0.7739572992033211
+          ],
+          "displacement": 0,
+          "blended": false
+        }
+      }
+    ],
     "dispersion": [
       {
         "input": {
