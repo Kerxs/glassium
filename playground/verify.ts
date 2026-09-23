@@ -561,7 +561,16 @@ async function run(): Promise<void> {
   })
 
   await check('layering', async () => {
+    // 藏起来的面板（opacity: 0、visibility: hidden）不画，也就不该被报 —— 渐隐收起的提示条常这样
+    const hidden = ['opacity: 0', 'visibility: hidden'].map((css) => {
+      const el = document.createElement('glass-card')
+      el.setAttribute('style', `position: absolute; left: 440px; top: 40px; width: 120px; height: 60px; ${css}`)
+      document.body.append(el)
+      return el
+    })
+    await sleep(0)
     const clean = stage.debug.checkLayers()
+    for (const el of hidden) el.remove()
     const wrap = document.createElement('div')
     wrap.className = 'opaque-wrap'
     Object.assign(wrap.style, {

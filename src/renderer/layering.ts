@@ -26,8 +26,11 @@
  * ## 查不到的
  *
  * 只在面板内的五个采样点上查。只挡住面板一角的元素、`pointer-events: none` 的遮挡层都查不到。
- * 裁剪不在这里管 —— 矩形裁剪由 clipping.ts 直接施加到玻璃上，不需要警告。
+ * 裁剪不在这里管 —— 裁剪由 clipping.ts 直接施加到玻璃上，不需要警告。
+ * 藏起来的面板（opacity: 0、visibility: hidden）也不查 —— 它们根本不画。
  */
+
+import { isRendered } from './panels.ts'
 
 /** 计算值里与本检查有关的几项。拆出来是为了让分析逻辑能在 Node 里测。 */
 export interface LayerStyle {
@@ -325,12 +328,15 @@ function composedContains(outer: Element, inner: Element): boolean {
 }
 
 /**
- * 查一块面板。面板不在视口里时返回 null（命中测试只对视口内的点有效）。
+ * 查一块面板。面板不在视口里、或者根本没画（完全透明、visibility: hidden）时返回 null。
  */
 export function inspectPanel(
   panel: HTMLElement,
   canvas: HTMLCanvasElement
 ): LayerProblem<Element>[] | null {
+  // opacity: 0 / visibility: hidden（自身或祖先）的面板根本不画（panels.ts 的 isRendered），
+  // 它上面的 opacity 当然也就不是问题 —— 渐隐收起的提示条、菜单常这样藏着
+  if (!isRendered(panel)) return null
   const rect = panel.getBoundingClientRect()
   if (rect.width <= 0 || rect.height <= 0) return null
   const vw = document.documentElement.clientWidth

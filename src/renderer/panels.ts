@@ -153,7 +153,7 @@ function assertLowerable(material: GlassMaterial): void {
  * getBoundingClientRect 量得到 —— 不跳过的话，DOM 已经看不见了，玻璃还留在原地。
  * 渐隐收起的菜单就是这样。部分透明（0 < opacity < 1）玻璃跟不上，那由 layering.ts 警告。
  */
-function isRendered(element: HTMLElement): boolean {
+export function isRendered(element: HTMLElement): boolean {
   if (typeof element.checkVisibility !== 'function') return true
   return element.checkVisibility({ visibilityProperty: true, opacityProperty: true })
 }
