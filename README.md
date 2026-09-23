@@ -124,6 +124,9 @@ GPU 输出靠 `stage.debug.probeOptics()` + `compareOptics()` 与 CPU 实现逐�
 - [x] **静止时不画**（`src/renderer/idle.ts`）。每帧照样量面板，但这一帧画出来与上一帧逐像素相同时
       就不提交，浏览器继续显示上一帧。静态背景加不动的卡片：实测 1.5 秒 **0 帧**；滚动一下画 2 帧，
       按钮悬停只在补间期间画；视频场景只在出新帧时画
+- [x] **投影**：材质文档一直写着「玻璃越厚，投下的阴影越深」，渲染器却没有。现在玻璃往下投一圈柔和的影子
+      （`shadow`，预设从 ultraThin 0.15 到 thick 0.45，clear 为 0），跟着裁剪与不透明度走。实测纯白背景上
+      卡片正下方 255 → 220、正上方 255 → 236；`shadow="0"` 时与之前逐位相同
 - [x] **自适应**：Apple 的 Regular 玻璃会随背后内容调整、保证上面的内容可读，Glassium 之前只在文档里提过
       「clear 没有自适应」，实际上谁都没有。现在默认守住与文字至少 3:1 的对比度：浅色字下背后太亮时整块玻璃压暗，
       深色字下太暗时提亮（`adaptive`，clear 预设为 0）。实测白底白字 1.000 → 0.292、黑底深色字 0.027 → 0.095
@@ -144,9 +147,9 @@ GPU 设备丢失时会在新设备上整套重建（实测约 30 ms，恢复后�
 WebGL2（WebGL2 的上下文丢失同理，第二次降到 CSS 兜底）。T5 到 T8 期间这一点是坏的：
 日志说会重新初始化，实际上画布会冻住 —— 现已修复，见 [docs/limitations.md](docs/limitations.md)。
 
-**191 条测试全绿**，playground 可跑（`npm run dev`），只用公开 API 搭的示例页在 `/demo.html`，
+**193 条测试全绿**，playground 可跑（`npm run dev`），只用公开 API 搭的示例页在 `/demo.html`，
 逐项自动验证在 `/verify.html`
-（现在 WebGPU 上 **PASS 23/23**、WebGL2 上 **PASS 22/22**）。
+（现在 WebGPU 上 **PASS 24/24**、WebGL2 上 **PASS 23/23**）。
 
 T5 顺带把两个计划阶段悬着的硬件问题测掉了，结果记在
 [docs/calibration.md](docs/calibration.md)：`minUniformBufferOffsetAlignment` 实测 256
@@ -191,7 +194,7 @@ T5 顺带把两个计划阶段悬着的硬件问题测掉了，结果记在
 属性与 `GlassMaterial` 一一对应：`preset`（ultraThin / thin / regular / thick / clear）、
 `blur`（dp）、`refraction`、`distortion`、`highlight`、`dispersion`、`saturation`、`tint`
 （hex 或 rgb()/rgba()）、`opacity`、`corner-radius`（`16`、`0.5frac` 或四个数 `4 32 8 28`）、
-`squircle`、`depth-effect`、`adaptive`。写错的属性会在控制台报出来并被忽略，不会让整块面板失效。
+`squircle`、`depth-effect`、`adaptive`、`shadow`。写错的属性会在控制台报出来并被忽略，不会让整块面板失效。
 
 不用组件也行：`stage.register(element, material)` 可以把任意元素注册成玻璃面板。
 全部公开接口见 [docs/api.md](docs/api.md)。

@@ -67,6 +67,8 @@ export interface EffectChain {
   readonly opacity: number
   /** 自适应强度，0–1（见 GlassMaterial.adaptive）。也不是效果：它看的是整块玻璃最后的样子。 */
   readonly adaptive: number
+  /** 投影深浅，0–1（见 GlassMaterial.shadow）。画在玻璃外面，不是采样背景的效果。 */
+  readonly shadow: number
 }
 
 /**

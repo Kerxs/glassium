@@ -61,6 +61,11 @@ export interface GlassMaterial {
    * 文字深浅按面板元素的计算颜色判断（与减少透明度时选磨砂是同一个规则）。
    */
   readonly adaptive?: number
+  /**
+   * 投影，0–1：玻璃往下投一圈柔和的影子（高斯衰减），把它从背景上托起来。
+   * 形状（σ、偏移）由渲染器定，这里只管深浅。玻璃越厚，影子越深。
+   */
+  readonly shadow?: number
 }
 
 /**
@@ -85,25 +90,26 @@ export const MATERIAL_DEFAULTS: Readonly<Required<GlassMaterial>> = Object.freez
   cornerRadius: '0.5frac',
   squircle: 2,
   depthEffect: 1,
-  adaptive: 1
+  adaptive: 1,
+  shadow: 0.3
 })
 
 /**
  * 预设。
  *
  * 厚度梯度照 Apple 的说法走：玻璃变厚时「投下更深更浓的阴影、透镜与折射更明显、
- * 光的散射更柔」。所以 thick 不只是模糊更大，折射和 depthEffect 也一起上去。
+ * 光的散射更柔」。所以 thick 不只是模糊更大，折射、depthEffect 与投影也一起上去。
  *
  * clear 对应 Apple 的 Clear 变体：**没有自适应行为**（adaptive: 0）、更透，只该用在媒体内容上，
  * 而且需要调用方自己压一层遮罩来保证上面的内容可读。它不是「更淡的 regular」。
  * 其余预设都自适应（默认 adaptive: 1）：背后太亮或太暗时玻璃自己蒙一层纱。
  */
 export const GlassPresets = {
-  ultraThin: { blur: 2, refraction: 0.1, distortion: 0.1, saturation: 1.15, tint: 'rgba(255,255,255,0.1)', highlight: 0.4, depthEffect: 0.3 },
-  thin: { blur: 4, refraction: 0.14, distortion: 0.14, saturation: 1.25, tint: 'rgba(255,255,255,0.14)', highlight: 0.5, depthEffect: 0.6 },
-  regular: { blur: 8, refraction: 0.2, distortion: 0.2, saturation: 1.4, tint: 'rgba(255,255,255,0.18)', highlight: 0.6, depthEffect: 1 },
-  thick: { blur: 16, refraction: 0.3, distortion: 0.28, saturation: 1.5, tint: 'rgba(255,255,255,0.22)', highlight: 0.7, depthEffect: 1 },
-  clear: { blur: 0, refraction: 0.2, distortion: 0.22, saturation: 1.1, tint: 'rgba(255,255,255,0)', highlight: 0.8, depthEffect: 1, adaptive: 0 }
+  ultraThin: { blur: 2, refraction: 0.1, distortion: 0.1, saturation: 1.15, tint: 'rgba(255,255,255,0.1)', highlight: 0.4, depthEffect: 0.3, shadow: 0.15 },
+  thin: { blur: 4, refraction: 0.14, distortion: 0.14, saturation: 1.25, tint: 'rgba(255,255,255,0.14)', highlight: 0.5, depthEffect: 0.6, shadow: 0.2 },
+  regular: { blur: 8, refraction: 0.2, distortion: 0.2, saturation: 1.4, tint: 'rgba(255,255,255,0.18)', highlight: 0.6, depthEffect: 1, shadow: 0.3 },
+  thick: { blur: 16, refraction: 0.3, distortion: 0.28, saturation: 1.5, tint: 'rgba(255,255,255,0.22)', highlight: 0.7, depthEffect: 1, shadow: 0.45 },
+  clear: { blur: 0, refraction: 0.2, distortion: 0.22, saturation: 1.1, tint: 'rgba(255,255,255,0)', highlight: 0.8, depthEffect: 1, adaptive: 0, shadow: 0 }
 } as const satisfies Record<string, GlassMaterial>
 
 export type GlassPresetName = keyof typeof GlassPresets
@@ -218,7 +224,8 @@ export function lowerMaterial(material: GlassMaterial, size: Vec2): EffectChain 
     effects,
     paddingDp: resolveMargins(effects),
     opacity: Math.min(Math.max(m.opacity, 0), 1),
-    adaptive: Math.min(Math.max(m.adaptive, 0), 1)
+    adaptive: Math.min(Math.max(m.adaptive, 0), 1),
+    shadow: Math.min(Math.max(m.shadow, 0), 1)
   }
 }
 

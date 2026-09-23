@@ -49,6 +49,14 @@ export interface PanelLight {
   readonly strength: number
 }
 
+/** 投影的形状：高斯 σ 与向下的偏移，dp。深浅由材质的 shadow 定。 */
+export const SHADOW_SIGMA_DP = 10
+export const SHADOW_OFFSET_DP = 4
+/** shadow = 1 时影子最深处的不透明度。 */
+export const SHADOW_OPACITY = 0.5
+/** 影子伸出去多远还要画：2.5σ 之外不到峰值的 5%。 */
+const SHADOW_REACH_DP = 2.5 * SHADOW_SIGMA_DP + SHADOW_OFFSET_DP
+
 /** 光斑的高斯 σ 占面板短边的比例。 */
 export const LIGHT_SIGMA_FRAC = 0.4
 /** strength = 1 时光斑中心加上的亮度（0–1，加性）。 */
@@ -399,10 +407,9 @@ export class PanelRegistry {
       const visible = record.clips.length > 0 ? roundClipOf(record.clips, clipRects) : NO_CLIP
       const clipBox = visible === NO_CLIP ? UNBOUNDED : toDevice(visible.box)
       const clipRadii = visible.radii.map((r) => r * sx) as [number, number, number, number]
-      const own = intersect(
-        { x0: x - AA_MARGIN_PX, y0: y - AA_MARGIN_PX, x1: x + w + AA_MARGIN_PX, y1: y + h + AA_MARGIN_PX },
-        roundBox(clipBox)
-      )
+      // 有投影时 scissor 往外扩到影子够得着的地方
+      const reach = AA_MARGIN_PX + (chain.shadow > 0 ? SHADOW_REACH_DP * sx : 0)
+      const own = intersect({ x0: x - reach, y0: y - reach, x1: x + w + reach, y1: y + h + reach }, roundBox(clipBox))
       const scissor = clip(own.x0, own.y0, own.x1, own.y1)
       if (record.tone === undefined || record.toneGeneration !== this.#styleGeneration) {
         record.tone = toneOf(record.element)
@@ -456,7 +463,8 @@ export class PanelRegistry {
         if (members.length === 0) continue
 
         const k = g.smoothingDp * sx
-        const bleed = mergeBleed(k) + AA_MARGIN_PX
+        const shadowReach = members.some((m) => m.chain.shadow > 0) ? SHADOW_REACH_DP * sx : 0
+        const bleed = mergeBleed(k) + AA_MARGIN_PX + shadowReach
         let x0 = Infinity
         let y0 = Infinity
         let x1 = -Infinity
@@ -509,7 +517,7 @@ export function packPanel(
   writePanel(data, index * PANEL_STRIDE_FLOATS, panel, viewport, blurLevels, debugMode)
 }
 
-/** Panel 结构体占几个 float（144B / 4）。合并组里的成员按这个步长紧挨着排。 */
+/** Panel 结构体占几个 float（160B / 4）。合并组里的成员按这个步长紧挨着排。 */
 export const PANEL_STRUCT_FLOATS = PANEL_STRUCT_BYTES / 4
 
 /**
@@ -628,4 +636,9 @@ function writePanel(
   data[o + 33] = panel.light[1]
   data[o + 34] = panel.light[2]
   data[o + 35] = panel.light[3]
+  // shadow: vec4f @ 144 —— 峰值 alpha、σ、向下的偏移（画布设备像素）、空
+  data[o + 36] = chain.shadow * SHADOW_OPACITY
+  data[o + 37] = SHADOW_SIGMA_DP * scale
+  data[o + 38] = SHADOW_OFFSET_DP * scale
+  data[o + 39] = 0
 }

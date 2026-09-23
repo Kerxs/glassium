@@ -339,12 +339,14 @@ async function run(): Promise<void> {
     // 亮度起伏大幅下降，整体变暗（卡片文字是白的 → 深色磨砂）；关掉之后逐位回到原样
     const probe = probes.get('v-card')
     if (!probe) return fail('没有探到卡片')
+    // 按面板自己的矩形往里收，不按探针区域（探针覆盖整个 scissor，有投影时还包着外面那一圈影子）
     const inset = Math.ceil(probe.panel.heightPx) + 8
+    const [rx, ry, rw, rh] = probe.panel.rect
     const region: ReadbackRegion = {
-      x: probe.origin[0] + inset,
-      y: probe.origin[1] + inset,
-      width: probe.width - 2 * inset,
-      height: probe.height - 2 * inset
+      x: Math.ceil(rx) + inset,
+      y: Math.ceil(ry) + inset,
+      width: Math.floor(rw) - 2 * inset,
+      height: Math.floor(rh) - 2 * inset
     }
     const lumaStats = (rgba: Uint8Array): { mean: number; std: number } => {
       let sum = 0
@@ -449,6 +451,8 @@ async function run(): Promise<void> {
     // 浓的 tint 让改变量处处都大：8 位取整之后，平坦区域里每个像素的改变量相同，
     // 改变量小时 round(d/2)/round(d) 会系统性地偏开 0.5（d≈22.6 时是 11/23 = 0.478）
     card.setAttribute('tint', 'rgba(255, 0, 0, 0.6)')
+    // 不要投影：玻璃与它的影子都随不透明度变淡，叠起来会多出一个乘积项 —— 这里只验淡入淡出本身
+    card.setAttribute('shadow', '0')
     Object.assign(card.style, { left: '0', top: '0', width: '200px', height: '100px' })
     wrap.append(card)
     document.body.append(wrap)
@@ -525,6 +529,55 @@ async function run(): Promise<void> {
         `黑底深色字：${blackOff.toFixed(3)} → ${blackOn.toFixed(3)}（目标 0.10）`
       const ok =
         whiteOff > 0.9 && Math.abs(whiteOn - 0.3) < 0.03 && blackOff < 0.05 && Math.abs(blackOn - 0.1) < 0.02
+      return ok ? pass(detail) : fail(detail)
+    } finally {
+      card.remove()
+      await stage.setScene(null)
+      stage.debug.renderNow()
+    }
+  })
+
+  await check('shadow', async () => {
+    // 投影：纯白场景上，卡片正下方那一条比正上方那一条暗（影子往下偏）；shadow="0" 时两条都是纯白
+    const white = new ImageData(4, 4)
+    white.data.fill(255)
+    const card = document.createElement('glass-card')
+    card.setAttribute('corner-radius', '16')
+    Object.assign(card.style, { left: '440px', top: '480px', width: '200px', height: '100px' })
+    document.body.append(card)
+    const v = stage.debug.stats().viewport!
+    const s = v.compositeWidth / v.cssWidth
+    const canvas = stage.canvas.getBoundingClientRect()
+    const strip = (dy0: number, dy1: number, fromBottom: boolean): ReadbackRegion => {
+      const r = card.getBoundingClientRect()
+      const edge = fromBottom ? r.bottom : r.top
+      return {
+        x: Math.floor((r.left - canvas.left + r.width * 0.3) * s),
+        y: Math.floor((edge - canvas.top + dy0) * s),
+        width: Math.floor(r.width * 0.4 * s),
+        height: Math.floor((dy1 - dy0) * s)
+      }
+    }
+    const mean = (rgba: Uint8Array): number => {
+      let sum = 0
+      for (let i = 0; i < rgba.length; i += 4) sum += (rgba[i]! + rgba[i + 1]! + rgba[i + 2]!) / 3
+      return sum / (rgba.length / 4)
+    }
+    try {
+      await stage.setScene(white, { fit: 'fill' })
+      await sleep(0)
+      const below = strip(4, 12, true)
+      const above = strip(-12, -4, false)
+      const belowOn = mean(await readback(below))
+      const aboveOn = mean(await readback(above))
+      card.setAttribute('shadow', '0')
+      await sleep(0)
+      const belowOff = mean(await readback(below))
+      const aboveOff = mean(await readback(above))
+      const detail =
+        `正下方 4–12px：${belowOff.toFixed(1)} → ${belowOn.toFixed(1)}；正上方：${aboveOff.toFixed(1)} → ${aboveOn.toFixed(1)}` +
+        '（shadow="0" → 默认，/255）'
+      const ok = belowOff >= 254.5 && aboveOff >= 254.5 && belowOn < 250 && aboveOn > belowOn + 3
       return ok ? pass(detail) : fail(detail)
     } finally {
       card.remove()

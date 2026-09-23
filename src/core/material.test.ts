@@ -299,3 +299,14 @@ test('adaptive 钳到 [0, 1]，没写时是 1', () => {
   assert.equal(lowerMaterial({ adaptive: -1 }, [100, 100]).adaptive, 0)
   assert.equal(lowerMaterial({ adaptive: 3 }, [100, 100]).adaptive, 1)
 })
+
+test('投影：钳到 [0, 1]，没写时 0.3；预设越厚越深，clear 没有', () => {
+  assert.equal(lowerMaterial({}, [100, 100]).shadow, 0.3)
+  assert.equal(lowerMaterial({ shadow: 2 }, [100, 100]).shadow, 1)
+  assert.equal(lowerMaterial({ shadow: -1 }, [100, 100]).shadow, 0)
+  const order = ['ultraThin', 'thin', 'regular', 'thick'] as const
+  for (let i = 1; i < order.length; i++) {
+    assert.ok(GlassPresets[order[i]!].shadow! > GlassPresets[order[i - 1]!].shadow!, `${order[i]} 比 ${order[i - 1]} 深`)
+  }
+  assert.equal(GlassPresets.clear.shadow, 0)
+})

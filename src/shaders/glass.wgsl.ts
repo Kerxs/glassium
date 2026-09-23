@@ -20,7 +20,7 @@
 import { OPTICS_WGSL } from './optics.wgsl.ts'
 
 /** Panel 结构体的字节数。按 256B 步长排进一条 buffer，用动态偏移切换。 */
-export const PANEL_STRUCT_BYTES = 144
+export const PANEL_STRUCT_BYTES = 160
 /** 每块面板在 uniform buffer 里占的步长。T5 实测 minUniformBufferOffsetAlignment = 256。 */
 export const PANEL_STRIDE = 256
 /** Float32 视角下的步长。 */
@@ -66,6 +66,7 @@ struct Panel {
   clip: vec4f,          // 裁剪祖先围出的可见区域 x0, y0, x1, y1 —— 画布设备像素；没有裁剪的方向是 ±65536
   clipRadii: vec4f,     // 可见区域四角的圆角 TL, TR, BR, BL
   light: vec4f,         // 按压处的光：中心 x、y，σ（画布设备像素），强度（0 = 没有）
+  shadow: vec4f,        // 投影：峰值 alpha、σ、向下的偏移（画布设备像素）、空
 }
 
 // 光源方向：指向光源的单位向量，屏幕坐标（y 向下）。左上 45°。
@@ -93,6 +94,16 @@ fn lightAt(px: vec2f, light: vec4f) -> f32 {
   }
   let d = px - light.xy;
   return light.w * exp(-dot(d, d) / (2.0 * light.z * light.z));
+}
+
+// 投影：形状往下挪 offset 之后的 SDF，外面按高斯衰减，里面是峰值（被玻璃盖住的那部分看不见）。
+// 强度 0 时恰好是 0 —— 该丢弃的片元照样丢弃，其余加上去逐位不变。
+fn shadowAlpha(sdShifted: f32, strength: f32, sigma: f32) -> f32 {
+  if (strength <= 0.0) {
+    return 0.0;
+  }
+  let d = max(sdShifted, 0.0);
+  return strength * exp(-d * d / (2.0 * sigma * sigma));
 }
 
 fn clipCoverage(px: vec2f, box: vec4f, radii: vec4f) -> f32 {
@@ -297,15 +308,24 @@ fn evalOptics(px: vec2f) -> Optics {
   let o = evalOptics(px);
   // 1px 抗锯齿：sd 以像素为单位，所以 0.5 - sd 在边界两侧各半个像素内从 1 过渡到 0。
   // 再乘上裁剪区域的覆盖率（祖先的圆角）。探针不乘 —— 它验的是光学，不是裁剪。
-  let coverage = clamp(0.5 - o.sd, 0.0, 1.0) * clipCoverage(px, panel.clip, panel.clipRadii);
+  let clip = clipCoverage(px, panel.clip, panel.clipRadii);
+  let coverage = clamp(0.5 - o.sd, 0.0, 1.0) * clip;
 
   let debug = debugView(u32(panel.debugMode + 0.5), o.sd, coverage, o.dir, o.displacement, panel.amountPx);
   if (debug.a >= 0.0) {
     return debug;
   }
 
+  // 投影：往下挪 offset 的同一个形状。与玻璃一样受裁剪、跟着不透明度
+  let shifted = o.centered - vec2f(0.0, panel.shadow.z);
+  let sdShadow = sdRoundedRect(shifted, o.halfSize, radiusAt(shifted, panel.radii));
+  let shade0 = shadowAlpha(sdShadow, panel.shadow.x, panel.shadow.y) * clip * panel.opacity;
+
   if (coverage <= 0.0) {
-    discard;
+    if (shade0 <= 0.0) {
+      discard;
+    }
+    return vec4f(0.0, 0.0, 0.0, shade0); // 玻璃外面只有影子：预乘的黑
   }
 
   var s: Shading;
@@ -323,7 +343,9 @@ fn evalOptics(px: vec2f) -> Optics {
   s.rimPx = panel.rimPx;
   s.glow = lightAt(px, panel.light);
   s.veil = adaptVeil(panelAverage(panel.rect), panel.adapt, panel.saturation, panel.tint);
-  return shade(px, s);
+  // 抗锯齿的那一圈边上，影子垫在玻璃下面
+  let glass = shade(px, s);
+  return vec4f(glass.rgb, glass.a + shade0 * (1.0 - glass.a));
 }
 
 /**

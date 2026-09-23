@@ -21,7 +21,7 @@ import { GLASS_COMMON_WGSL, PANEL_STRUCT_BYTES } from './glass.wgsl.ts'
 
 /** 一组最多几块。与 core/merge.ts 的 MAX_GROUP_MEMBERS 一致（有测试核对）。 */
 export const GROUP_CAPACITY = 4
-/** Group 结构体的字节数：16B 的头 + 4 × 144B 的成员 = 592B。 */
+/** Group 结构体的字节数：16B 的头 + 4 × 160B 的成员 = 656B。 */
 export const GROUP_STRUCT_BYTES = 16 + GROUP_CAPACITY * PANEL_STRUCT_BYTES
 /** 每组在 uniform buffer 里占的步长：三个 256B 槽位（动态偏移仍按 256 对齐）。 */
 export const GROUP_STRIDE = 768
@@ -159,6 +159,32 @@ fn groupGlow(px: vec2f) -> f32 {
   return g;
 }
 
+// 合并组的投影：各成员往下挪之后的 SDF 用同一个 smin 折叠，深浅与 σ 按 h 混合 ——
+// 相距足够远（h 恰为 0 或 1）时与各自单独绘制逐位相同。
+fn memberSd(p: Panel, pos: vec2f) -> f32 {
+  let halfSize = p.rect.zw * 0.5;
+  let centered = pos - (p.rect.xy + halfSize);
+  return sdRoundedRect(centered, halfSize, radiusAt(centered, p.radii));
+}
+
+fn groupShadow(px: vec2f) -> f32 {
+  let count = min(u32(group.header.x + 0.5), ${GROUP_CAPACITY}u);
+  let k = group.header.y;
+  let first = group.members[0];
+  let at = px - vec2f(0.0, first.shadow.z);
+  var sd = memberSd(first, at);
+  var strength = first.shadow.x;
+  var sigma = first.shadow.y;
+  for (var i = 1u; i < count; i++) {
+    let p = group.members[i];
+    let s = smin(memberSd(p, at), sd, k);
+    sd = s.x;
+    strength = blend1(strength, p.shadow.x, s.y);
+    sigma = blend1(sigma, p.shadow.y, s.y);
+  }
+  return shadowAlpha(sd, strength, sigma);
+}
+
 fn groupClip(px: vec2f) -> f32 {
   let count = min(u32(group.header.x + 0.5), ${GROUP_CAPACITY}u);
   var c = clipCoverage(px, group.members[0].clip, group.members[0].clipRadii);
@@ -171,15 +197,20 @@ fn groupClip(px: vec2f) -> f32 {
 @fragment fn fs(in: VsOut) -> @location(0) vec4f {
   let px = in.pos.xy;
   let m = evalGroup(px);
-  let coverage = clamp(0.5 - m.sd, 0.0, 1.0) * groupClip(px);
+  let clip = groupClip(px);
+  let coverage = clamp(0.5 - m.sd, 0.0, 1.0) * clip;
 
   let debug = debugView(u32(group.header.z + 0.5), m.sd, coverage, m.dir, m.displacement, m.amountPx);
   if (debug.a >= 0.0) {
     return debug;
   }
 
+  let shade0 = groupShadow(px) * clip * m.opacity;
   if (coverage <= 0.0) {
-    discard;
+    if (shade0 <= 0.0) {
+      discard;
+    }
+    return vec4f(0.0, 0.0, 0.0, shade0);
   }
 
   var s: Shading;
@@ -197,7 +228,8 @@ fn groupClip(px: vec2f) -> f32 {
   s.rimPx = m.rimPx;
   s.glow = groupGlow(px);
   s.veil = m.veil;
-  return shade(px, s);
+  let glass = shade(px, s);
+  return vec4f(glass.rgb, glass.a + shade0 * (1.0 - glass.a));
 }
 
 // 探针：r = sd, g = dir.x, b = dir.y, a = displacement（已乘一致度）。

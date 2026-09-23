@@ -70,9 +70,10 @@ test('组里的面板不再单独绘制；一组一个裁剪矩形 = 并集外�
   const a = fakeElement(100, 100, 120, 56)
   const b = fakeElement(232, 100, 120, 56)
   const c = fakeElement(100, 300, 200, 100)
-  registry.register(a, {})
-  registry.register(b, {})
-  registry.register(c, {})
+  // 没有投影：这里验的是合并的外扩；投影的外扩在 panels.test.ts 里单独验
+  registry.register(a, { shadow: 0 })
+  registry.register(b, { shadow: 0 })
+  registry.register(c, { shadow: 0 })
   registry.group({ smoothing: 24 }).setMembers([a, b])
 
   const { panels, groups } = registry.measure(viewport)

@@ -188,6 +188,7 @@ struct Panel {
   vec4 clip;
   vec4 clipRadii;
   vec4 light;
+  vec4 shadow;
 };
 
 const vec2 LIGHT_DIR = vec2(-0.70710678, -0.70710678);
@@ -297,6 +298,15 @@ float lightAt(vec2 px, vec4 light) {
   return light.w * exp(-dot(d, d) / (2.0 * light.z * light.z));
 }
 
+// 与 glass.wgsl.ts 的 shadowAlpha 对应。
+float shadowAlpha(float sdShifted, float strength, float sigma) {
+  if (strength <= 0.0) {
+    return 0.0;
+  }
+  float d = max(sdShifted, 0.0);
+  return strength * exp(-d * d / (2.0 * sigma * sigma));
+}
+
 // 与 glass.wgsl.ts 的 clipCoverage 对应。
 float clipCoverage(vec2 px, vec4 box, vec4 radii) {
   vec2 c = (box.xy + box.zw) * 0.5;
@@ -368,14 +378,22 @@ void main() {
     outColor = vec4(o.sd, o.dir.x, o.dir.y, o.displacement);
     return;
   }
-  float coverage = clamp(0.5 - o.sd, 0.0, 1.0) * clipCoverage(px, panel.clip, panel.clipRadii);
+  float clip = clipCoverage(px, panel.clip, panel.clipRadii);
+  float coverage = clamp(0.5 - o.sd, 0.0, 1.0) * clip;
   vec4 debug = debugView(int(panel.debugMode + 0.5), o.sd, coverage, o.dir, o.displacement, panel.amountPx);
   if (debug.a >= 0.0) {
     outColor = debug;
     return;
   }
+  vec2 shifted = o.centered - vec2(0.0, panel.shadow.z);
+  float sdShadow = sdRoundedRect(shifted, o.halfSize, radiusAt(shifted, panel.radii));
+  float shade0 = shadowAlpha(sdShadow, panel.shadow.x, panel.shadow.y) * clip * panel.opacity;
   if (coverage <= 0.0) {
-    discard;
+    if (shade0 <= 0.0) {
+      discard;
+    }
+    outColor = vec4(0.0, 0.0, 0.0, shade0);
+    return;
   }
   Shading s;
   s.sd = o.sd;
@@ -392,7 +410,8 @@ void main() {
   s.rimPx = panel.rimPx;
   s.glow = lightAt(px, panel.light);
   s.veil = adaptVeil(panelAverage(panel.rect), panel.adapt, panel.saturation, panel.tint);
-  outColor = shade(px, s);
+  vec4 glass = shade(px, s);
+  outColor = vec4(glass.rgb, glass.a + shade0 * (1.0 - glass.a));
 }
 `
 
@@ -524,6 +543,31 @@ float groupGlow(vec2 px) {
   return g;
 }
 
+float memberSd(Panel p, vec2 pos) {
+  vec2 halfSize = p.rect.zw * 0.5;
+  vec2 centered = pos - (p.rect.xy + halfSize);
+  return sdRoundedRect(centered, halfSize, radiusAt(centered, p.radii));
+}
+
+float groupShadow(vec2 px) {
+  int count = min(int(grp.header.x + 0.5), ${capacity});
+  float k = grp.header.y;
+  Panel first = grp.members[0];
+  vec2 at = px - vec2(0.0, first.shadow.z);
+  float sd = memberSd(first, at);
+  float strength = first.shadow.x;
+  float sigma = first.shadow.y;
+  for (int i = 1; i < ${capacity}; i++) {
+    if (i >= count) break;
+    Panel p = grp.members[i];
+    vec2 s = smin(memberSd(p, at), sd, k);
+    sd = s.x;
+    strength = blend1(strength, p.shadow.x, s.y);
+    sigma = blend1(sigma, p.shadow.y, s.y);
+  }
+  return shadowAlpha(sd, strength, sigma);
+}
+
 float groupClip(vec2 px) {
   int count = min(int(grp.header.x + 0.5), ${capacity});
   float c = clipCoverage(px, grp.members[0].clip, grp.members[0].clipRadii);
@@ -541,14 +585,20 @@ void main() {
     outColor = vec4(m.sd, m.dir.x, m.dir.y, m.displacement);
     return;
   }
-  float coverage = clamp(0.5 - m.sd, 0.0, 1.0) * groupClip(px);
+  float clip = groupClip(px);
+  float coverage = clamp(0.5 - m.sd, 0.0, 1.0) * clip;
   vec4 debug = debugView(int(grp.header.z + 0.5), m.sd, coverage, m.dir, m.displacement, m.amountPx);
   if (debug.a >= 0.0) {
     outColor = debug;
     return;
   }
+  float shade0 = groupShadow(px) * clip * m.opacity;
   if (coverage <= 0.0) {
-    discard;
+    if (shade0 <= 0.0) {
+      discard;
+    }
+    outColor = vec4(0.0, 0.0, 0.0, shade0);
+    return;
   }
   Shading s;
   s.sd = m.sd;
@@ -565,7 +615,8 @@ void main() {
   s.rimPx = m.rimPx;
   s.glow = groupGlow(px);
   s.veil = m.veil;
-  outColor = shade(px, s);
+  vec4 glass = shade(px, s);
+  outColor = vec4(glass.rgb, glass.a + shade0 * (1.0 - glass.a));
 }
 `
 }

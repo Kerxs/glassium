@@ -54,7 +54,7 @@ Glassium 的背景是整个视口共享的一张纹理，模糊链按整个视�
 
 ```
 GlassMaterial = { blur?, refraction?, distortion?, highlight?, dispersion?, saturation?,
-                  tint?, opacity?, cornerRadius?, squircle?, depthEffect?, adaptive? }
+                  tint?, opacity?, cornerRadius?, squircle?, depthEffect?, adaptive?, shadow? }
 ```
 
 | 字段 | 单位 / 取值 | 默认 | 降级到 |
@@ -71,6 +71,7 @@ GlassMaterial = { blur?, refraction?, distortion?, highlight?, dispersion?, satu
 | `squircle` | 剖面指数，2 = 圆 | 2 | `lens.squircle`，钳到 ≥ 1 |
 | `depthEffect` | 0 薄板 – 1 厚透镜 | 1 | `lens.depthEffect` |
 | `adaptive` | 0–1 | 1（clear 预设是 0） | `chain.adaptive`，钳到 [0, 1]。见下面「自适应」 |
+| `shadow` | 0–1 | 0.3 | `chain.shadow`，钳到 [0, 1]。见下面「投影」 |
 
 - 两条缩放规则照抄上游 playground（`refractionHeight = frac · minDim · 0.5`、`refractionAmount = frac · minDim`），
   默认值也取上游 playground 的 0.2 —— 在上游 playground 的默认配置上，两边的采样偏移场逐点相同
@@ -86,13 +87,13 @@ GlassMaterial = { blur?, refraction?, distortion?, highlight?, dispersion?, satu
 
 ### 预设
 
-| 预设 | blur | refraction | distortion | saturation | tint α | highlight | depthEffect |
-|---|---|---|---|---|---|---|---|
-| ultraThin | 2 | 0.10 | 0.10 | 1.15 | 0.10 | 0.4 | 0.3 |
-| thin | 4 | 0.14 | 0.14 | 1.25 | 0.14 | 0.5 | 0.6 |
-| regular | 8 | 0.20 | 0.20 | 1.40 | 0.18 | 0.6 | 1 |
-| thick | 16 | 0.30 | 0.28 | 1.50 | 0.22 | 0.7 | 1 |
-| clear | 0 | 0.20 | 0.22 | 1.10 | 0 | 0.8 | 1 |
+| 预设 | blur | refraction | distortion | saturation | tint α | highlight | depthEffect | shadow |
+|---|---|---|---|---|---|---|---|---|
+| ultraThin | 2 | 0.10 | 0.10 | 1.15 | 0.10 | 0.4 | 0.3 | 0.15 |
+| thin | 4 | 0.14 | 0.14 | 1.25 | 0.14 | 0.5 | 0.6 | 0.20 |
+| regular | 8 | 0.20 | 0.20 | 1.40 | 0.18 | 0.6 | 1 | 0.30 |
+| thick | 16 | 0.30 | 0.28 | 1.50 | 0.22 | 0.7 | 1 | 0.45 |
+| clear | 0 | 0.20 | 0.22 | 1.10 | 0 | 0.8 | 1 | 0 |
 
 tint 的颜色都是白色。clear 对应 Apple 的 Clear 变体：更透、没有自适应（adaptive 0），只该用在媒体内容上。
 其余预设都自适应。
@@ -109,6 +110,14 @@ tint 的颜色都是白色。clear 对应 Apple 的 Clear 变体：更透、没�
   按 smin 的 h 混合 —— 没有发生混合的像素与单独绘制逐位相同。
 - 亮边（高光）加在纱之后，不被压暗。
 
+### 投影
+
+形状由渲染器定：同一个圆角矩形往下挪 4 dp，在它外面按 σ = 10 dp 的高斯衰减（里面是峰值），峰值 alpha =
+`shadow × 0.5`，再乘裁剪覆盖率与不透明度。玻璃外面的像素输出预乘的黑；抗锯齿那一圈边上影子垫在玻璃下面
+（`alpha = 玻璃 alpha + 影子 × (1 − 玻璃 alpha)`）。有投影时 scissor 往外扩 2.5σ + 偏移。
+shadow = 0 时该丢弃的片元照样丢弃、其余加 0，逐位不变。合并组把各成员挪过之后的 SDF 用同一个 smin 折叠，
+深浅与 σ 按 h 混合。
+
 ## 4. 单位
 
 **1 dp = 1 CSS 像素**，不设换算系数。density 1.0 下的 Android dp 按定义就是一个 CSS 像素；
@@ -117,8 +126,8 @@ tint 的颜色都是白色。clear 对应 Apple 的 Clear 变体：更透、没�
 
 ## 5. uniform 布局
 
-一块面板一个 `Panel` 结构体（144 字节），按 **256 字节**的步长排进一条 uniform buffer，
-每次 draw 只换动态偏移。一个合并组一个 `Group`（592 字节），按 **768 字节**步长排。
+一块面板一个 `Panel` 结构体（160 字节），按 **256 字节**的步长排进一条 uniform buffer，
+每次 draw 只换动态偏移。一个合并组一个 `Group`（656 字节），按 **768 字节**步长排。
 WGSL 的 uniform 布局与 GLSL 的 std140 在这两个结构体上逐字节相同，两个后端用同一份打包字节。
 
 | 偏移 | Panel 字段 | 内容 |
@@ -141,6 +150,7 @@ WGSL 的 uniform 布局与 GLSL 的 std140 在这两个结构体上逐字节相�
 | 96 | `clip: vec4` | 裁剪祖先围出的可见区域 x0, y0, x1, y1（画布设备像素）；没有裁剪的方向写 ±65536，不写 ±∞ |
 | 112 | `clipRadii: vec4` | 可见区域四角的圆角 TL, TR, BR, BL（画布设备像素） |
 | 128 | `light: vec4` | 按压处的光：中心 x、y 与高斯 σ（画布设备像素，σ = 0.4 × 短边），强度（× 0.2；0 = 没有） |
+| 144 | `shadow: vec4` | 投影：峰值 alpha（shadow × 0.5）、σ、向下的偏移（画布设备像素）、空 |
 
 `Group` = 16 字节的头（成员数、k（画布设备像素）、debugMode、空）+ 4 个紧挨着的 `Panel`。
 

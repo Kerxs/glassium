@@ -11,7 +11,16 @@ import {
 } from '../shaders/glass.wgsl.ts'
 import { levelForSigma } from './blur.ts'
 import { UNBOUNDED } from './clipping.ts'
-import { CLIP_UNBOUNDED_PX, PanelRegistry, RIM_WIDTH_DP, packPanel, type MeasuredPanel } from './panels.ts'
+import {
+  CLIP_UNBOUNDED_PX,
+  PanelRegistry,
+  RIM_WIDTH_DP,
+  SHADOW_OFFSET_DP,
+  SHADOW_OPACITY,
+  SHADOW_SIGMA_DP,
+  packPanel,
+  type MeasuredPanel
+} from './panels.ts'
 import { compareOptics, type OpticsProbe } from './verify.ts'
 import {
   gradRadiusOf,
@@ -153,6 +162,9 @@ test('packPanel 写入的每个字段都落在 WGSL struct 的对应偏移上', 
   near(at('light', 1), 60, 'light.y')
   near(at('light', 2), 25, 'light.σ')
   near(at('light', 3), 0.15, 'light.strength')
+  near(at('shadow', 0), 0.3 * SHADOW_OPACITY, 'shadow.alpha（默认深浅 0.3）')
+  near(at('shadow', 1), SHADOW_SIGMA_DP * scale, 'shadow.σ')
+  near(at('shadow', 2), SHADOW_OFFSET_DP * scale, 'shadow.offset')
 
   // 相邻槽位不能被写脏
   assert.ok(data.subarray(0, base).every((v) => v === 0), '写越界到了前一个槽位')
@@ -196,7 +208,7 @@ test('measure 按画布自身尺寸换算，并减去画布原点', () => {
 test('measure 的裁剪矩形外扩 2px 抗锯齿余量，并与画布求交', () => {
   const viewport = resolveViewport(800, 600, 1)
   const registry = new PanelRegistry(() => {})
-  registry.register(fakeElement(-50, 580, 200, 100), {}) // 左边与下边都越出画布
+  registry.register(fakeElement(-50, 580, 200, 100), { shadow: 0 }) // 左边与下边都越出画布；没有投影
   const [m] = registry.measure(viewport).panels
   assert.ok(m)
   const [x, y, w, h] = m.scissor
@@ -204,6 +216,16 @@ test('measure 的裁剪矩形外扩 2px 抗锯齿余量，并与画布求交', (
   assert.equal(y, 578, '上边外扩 2px')
   assert.equal(x + w, 152, '右边 = -50 + 200 + 2')
   assert.equal(y + h, 600, '下侧被画布钳住')
+})
+
+test('有投影时裁剪矩形再往外扩到影子够得着的地方（2.5σ + 偏移）', () => {
+  const viewport = resolveViewport(800, 600, 1)
+  const registry = new PanelRegistry(() => {})
+  registry.register(fakeElement(300, 200, 200, 100), { shadow: 0.5 })
+  const [m] = registry.measure(viewport).panels
+  assert.ok(m)
+  const reach = 2 + 2.5 * SHADOW_SIGMA_DP + SHADOW_OFFSET_DP // 抗锯齿 2px + 29
+  assert.deepEqual(m.scissor, [300 - reach, 200 - reach, 200 + 2 * reach, 100 + 2 * reach])
 })
 
 test('完全在屏外的面板被剔除，不占 draw call', () => {
