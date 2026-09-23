@@ -256,6 +256,14 @@
       .fine a {
         color: inherit;
       }
+
+      /* 减少动效：菜单与提示条直接出现、直接消失（stage 自己也会停掉帧循环里的过渡） */
+      @media (prefers-reduced-motion: reduce) {
+        .share .menu,
+        .toast {
+          transition: none;
+        }
+      }
     </style>
   </head>
   <body>
