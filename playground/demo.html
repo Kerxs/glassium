@@ -134,6 +134,62 @@
         font-size: 18px;
       }
 
+      /*
+        从按钮里长出来的菜单：按钮与菜单在同一个 <glass-container> 里，菜单打开时从按钮那里放大、淡入，
+        smin 把两块玻璃在中间连成一片。全是普通的 CSS 过渡 —— 玻璃跟着元素的缩放与不透明度走。
+      */
+      /* 给打开后的菜单预留位置：玻璃在所有 DOM 下面，菜单要是盖到下面那段的输入框上，
+         输入框的底色就会压在菜单的玻璃上（R1） */
+      .share {
+        position: relative;
+        display: block;
+        height: 200px;
+      }
+
+      .share glass-button {
+        height: 48px;
+        padding: 0 22px;
+        font-weight: 600;
+      }
+
+      .share .menu {
+        position: absolute;
+        left: 0;
+        top: 58px;
+        width: 220px;
+        padding: 8px;
+        box-sizing: border-box;
+        display: grid;
+        transform-origin: 24px -10px;
+        transform: scale(0.5);
+        opacity: 0;
+        pointer-events: none;
+        transition:
+          transform 0.42s cubic-bezier(0.2, 0.9, 0.25, 1.15),
+          opacity 0.22s ease-out;
+      }
+
+      .share.open .menu {
+        transform: scale(1);
+        opacity: 1;
+        pointer-events: auto;
+      }
+
+      /* 菜单里的选项是普通按钮：背景透明（R1），玻璃就是菜单本身 */
+      .share .menu button {
+        all: unset;
+        padding: 10px 12px;
+        border-radius: 12px;
+        font-size: 14px;
+        cursor: pointer;
+      }
+
+      .share .menu button:hover,
+      .share .menu button:focus-visible {
+        outline: 1.5px solid rgba(255, 255, 255, 0.55);
+        outline-offset: -1.5px;
+      }
+
       /* 表单：输入框是普通 DOM（半透明底），提交按钮是玻璃 —— 它直接压在场景上，不在卡片里 */
       form {
         display: flex;
@@ -243,6 +299,18 @@
         <glass-button preset="regular" type="button" aria-label="上一首">⏮</glass-button>
         <glass-button preset="thick" type="button" aria-label="播放">▶</glass-button>
         <glass-button preset="regular" type="button" aria-label="下一首">⏭</glass-button>
+      </glass-container>
+
+      <p class="section-title">分享（菜单从按钮里长出来）</p>
+      <glass-container class="share" id="share" smoothing="28">
+        <glass-button preset="regular" type="button" id="share-btn" aria-expanded="false" aria-controls="share-menu">
+          分享
+        </glass-button>
+        <glass-card class="menu" id="share-menu" preset="thick" corner-radius="22" role="menu">
+          <button role="menuitem">复制链接</button>
+          <button role="menuitem">发送到手机</button>
+          <button role="menuitem">生成海报</button>
+        </glass-card>
       </glass-container>
 
       <p class="section-title">订阅</p>

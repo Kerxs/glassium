@@ -18,6 +18,22 @@ async function main(): Promise<void> {
   const stage = await createGlassStage({ scene: await makePhoto(), sceneOptions: { background: '#141233' } })
   Object.assign(window as unknown as Record<string, unknown>, { glassiumStage: stage })
 
+  // 分享菜单：切换一个 class，剩下的交给 CSS 过渡。玻璃跟着菜单的缩放与淡入走，
+  // 并且因为按钮与菜单在同一个 <glass-container> 里，菜单从按钮那里「长」出来
+  const share = document.getElementById('share')!
+  const shareBtn = document.getElementById('share-btn')!
+  const setOpen = (open: boolean): void => {
+    share.classList.toggle('open', open)
+    shareBtn.setAttribute('aria-expanded', String(open))
+  }
+  shareBtn.addEventListener('click', () => setOpen(!share.classList.contains('open')))
+  document.getElementById('share-menu')!.addEventListener('click', (e) => {
+    if ((e.target as Element).closest('button')) setOpen(false)
+  })
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') setOpen(false)
+  })
+
   // 订阅表单：<glass-button> 在表单里默认就是提交按钮，name / value 跟着进表单数据
   const form = document.getElementById('subscribe') as HTMLFormElement
   const toast = document.getElementById('toast')!
