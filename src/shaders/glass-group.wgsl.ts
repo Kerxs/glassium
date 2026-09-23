@@ -17,14 +17,14 @@
  * 结果也是精确的。
  */
 
-import { GLASS_COMMON_WGSL } from './glass.wgsl.ts'
+import { GLASS_COMMON_WGSL, PANEL_STRUCT_BYTES } from './glass.wgsl.ts'
 
 /** 一组最多几块。与 core/merge.ts 的 MAX_GROUP_MEMBERS 一致（有测试核对）。 */
 export const GROUP_CAPACITY = 4
-/** Group 结构体的字节数：16B 的头 + 4 × 96B 的成员。 */
-export const GROUP_STRUCT_BYTES = 16 + GROUP_CAPACITY * 96
-/** 每组在 uniform buffer 里占的步长：两个 256B 槽位（动态偏移仍按 256 对齐）。 */
-export const GROUP_STRIDE = 512
+/** Group 结构体的字节数：16B 的头 + 4 × 128B 的成员 = 528B。 */
+export const GROUP_STRUCT_BYTES = 16 + GROUP_CAPACITY * PANEL_STRUCT_BYTES
+/** 每组在 uniform buffer 里占的步长：三个 256B 槽位（动态偏移仍按 256 对齐）。 */
+export const GROUP_STRIDE = 768
 export const GROUP_STRIDE_FLOATS = GROUP_STRIDE / 4
 
 export const GLASS_GROUP_WGSL = /* wgsl */ `
@@ -137,10 +137,20 @@ fn evalGroup(px: vec2f) -> Merged {
   return m;
 }
 
+// 成员各自的裁剪区域取并集（任一成员的区域允许就可见）。成员通常同在一个容器里，那就是那个容器。
+fn groupClip(px: vec2f) -> f32 {
+  let count = min(u32(group.header.x + 0.5), ${GROUP_CAPACITY}u);
+  var c = clipCoverage(px, group.members[0].clip, group.members[0].clipRadii);
+  for (var i = 1u; i < count; i++) {
+    c = max(c, clipCoverage(px, group.members[i].clip, group.members[i].clipRadii));
+  }
+  return c;
+}
+
 @fragment fn fs(in: VsOut) -> @location(0) vec4f {
   let px = in.pos.xy;
   let m = evalGroup(px);
-  let coverage = clamp(0.5 - m.sd, 0.0, 1.0);
+  let coverage = clamp(0.5 - m.sd, 0.0, 1.0) * groupClip(px);
 
   let debug = debugView(u32(group.header.z + 0.5), m.sd, coverage, m.dir, m.displacement, m.amountPx);
   if (debug.a >= 0.0) {

@@ -185,6 +185,8 @@ struct Panel {
   float debugMode;
   float rimPx;
   float _pad1;
+  vec4 clip;
+  vec4 clipRadii;
 };
 
 const vec2 LIGHT_DIR = vec2(-0.70710678, -0.70710678);
@@ -240,6 +242,17 @@ vec4 shade(vec2 px, Shading s) {
   float dark = terms.y * DARK_RIM;
   float a = s.coverage * s.opacity;
   return vec4((rgb * (1.0 - dark) + vec3(lit, lit, lit)) * a, a);
+}
+
+// 与 glass.wgsl.ts 的 clipCoverage 对应。
+float clipCoverage(vec2 px, vec4 box, vec4 radii) {
+  vec2 c = (box.xy + box.zw) * 0.5;
+  bool right = px.x > c.x;
+  bool bottom = px.y > c.y;
+  float r = bottom ? (right ? radii.z : radii.w) : (right ? radii.y : radii.x);
+  vec2 e = vec2(max(box.x - px.x, px.x - box.z), max(box.y - px.y, px.y - box.w)) + r;
+  float sd = length(max(e, vec2(0.0))) + min(max(e.x, e.y), 0.0) - r;
+  return clamp(0.5 - sd, 0.0, 1.0);
 }
 
 vec4 debugView(int mode, float sd, float coverage, vec2 dir, float displacement, float amountPx) {
@@ -302,7 +315,7 @@ void main() {
     outColor = vec4(o.sd, o.dir.x, o.dir.y, o.displacement);
     return;
   }
-  float coverage = clamp(0.5 - o.sd, 0.0, 1.0);
+  float coverage = clamp(0.5 - o.sd, 0.0, 1.0) * clipCoverage(px, panel.clip, panel.clipRadii);
   vec4 debug = debugView(int(panel.debugMode + 0.5), o.sd, coverage, o.dir, o.displacement, panel.amountPx);
   if (debug.a >= 0.0) {
     outColor = debug;
@@ -435,6 +448,16 @@ Merged evalGroup(vec2 px) {
   return m;
 }
 
+float groupClip(vec2 px) {
+  int count = min(int(grp.header.x + 0.5), ${capacity});
+  float c = clipCoverage(px, grp.members[0].clip, grp.members[0].clipRadii);
+  for (int i = 1; i < ${capacity}; i++) {
+    if (i >= count) break;
+    c = max(c, clipCoverage(px, grp.members[i].clip, grp.members[i].clipRadii));
+  }
+  return c;
+}
+
 void main() {
   vec2 px = fragPx();
   Merged m = evalGroup(px);
@@ -442,7 +465,7 @@ void main() {
     outColor = vec4(m.sd, m.dir.x, m.dir.y, m.displacement);
     return;
   }
-  float coverage = clamp(0.5 - m.sd, 0.0, 1.0);
+  float coverage = clamp(0.5 - m.sd, 0.0, 1.0) * groupClip(px);
   vec4 debug = debugView(int(grp.header.z + 0.5), m.sd, coverage, m.dir, m.displacement, m.amountPx);
   if (debug.a >= 0.0) {
     outColor = debug;

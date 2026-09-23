@@ -20,7 +20,8 @@ import {
 import { levelForSigma } from './blur.ts'
 import {
   UNBOUNDED,
-  clipBoxOf,
+  NO_CLIP,
+  roundClipOf,
   findClipEntries,
   intersect,
   union,
@@ -85,6 +86,8 @@ export interface MeasuredPanel {
   readonly scissor: readonly [number, number, number, number]
   /** 裁剪祖先围出的可见区域，画布设备像素（没有裁剪的轴是 ±∞）。合并组要用它。 */
   readonly clip: Box
+  /** 可见区域四角的圆角（TL, TR, BR, BL），画布设备像素。着色器按它把圆角外的玻璃抹掉。 */
+  readonly clipRadii: readonly [number, number, number, number]
   readonly chain: EffectChain
 }
 
@@ -325,13 +328,15 @@ export class PanelRegistry {
         record.clips = findClipEntries(record.element)
         record.clipGeneration = this.#styleGeneration
       }
-      const clipBox = record.clips.length > 0 ? toDevice(clipBoxOf(record.clips, clipRects)) : UNBOUNDED
+      const visible = record.clips.length > 0 ? roundClipOf(record.clips, clipRects) : NO_CLIP
+      const clipBox = visible === NO_CLIP ? UNBOUNDED : toDevice(visible.box)
+      const clipRadii = visible.radii.map((r) => r * sx) as [number, number, number, number]
       const own = intersect(
         { x0: x - AA_MARGIN_PX, y0: y - AA_MARGIN_PX, x1: x + w + AA_MARGIN_PX, y1: y + h + AA_MARGIN_PX },
         roundBox(clipBox)
       )
       const scissor = clip(own.x0, own.y0, own.x1, own.y1)
-      measured.set(record, { record, x, y, w, h, scissor, clip: clipBox, chain })
+      measured.set(record, { record, x, y, w, h, scissor, clip: clipBox, clipRadii, chain })
     }
 
     // 2) 合并组。一块面板只能属于一个组（先到先得），一组最多 MAX_GROUP_MEMBERS 块。
@@ -417,11 +422,17 @@ export function packPanel(
   writePanel(data, index * PANEL_STRIDE_FLOATS, panel, viewport, blurLevels, debugMode)
 }
 
-/** Panel 结构体占几个 float（96B / 4）。合并组里的成员按这个步长紧挨着排。 */
+/** Panel 结构体占几个 float（128B / 4）。合并组里的成员按这个步长紧挨着排。 */
 export const PANEL_STRUCT_FLOATS = PANEL_STRUCT_BYTES / 4
 
 /**
- * 把一个合并组写进 uniform 数组的第 index 个组槽位（每槽 512B）。
+ * 没有裁剪的方向写进 uniform 的值。不写 ±∞：着色器里 ∞ − ∞ 是 NaN。
+ * 画布最大 16384 像素，±65536 离得足够远，f32 在这个量级上仍有 1/256 像素的精度。
+ */
+export const CLIP_UNBOUNDED_PX = 65536
+
+/**
+ * 把一个合并组写进 uniform 数组的第 index 个组槽位（每槽 768B）。
  *
  * 布局必须与 glass-group.wgsl.ts 的 `struct Group` 一致：16B 的头
  * （成员数、k、调试模式、空）之后是 4 个紧挨着的 Panel。
@@ -513,4 +524,15 @@ function writePanel(
   data[o + 21] = DEBUG_MODES.indexOf(debugMode)
   data[o + 22] = RIM_WIDTH_DP * scale
   data[o + 23] = 0
+  // clip: vec4f @ 96 —— 可见区域 x0, y0, x1, y1
+  const bound = (v: number): number => Math.max(-CLIP_UNBOUNDED_PX, Math.min(CLIP_UNBOUNDED_PX, v))
+  data[o + 24] = bound(panel.clip.x0)
+  data[o + 25] = bound(panel.clip.y0)
+  data[o + 26] = bound(panel.clip.x1)
+  data[o + 27] = bound(panel.clip.y1)
+  // clipRadii: vec4f @ 112 —— TL, TR, BR, BL
+  data[o + 28] = panel.clipRadii[0]
+  data[o + 29] = panel.clipRadii[1]
+  data[o + 30] = panel.clipRadii[2]
+  data[o + 31] = panel.clipRadii[3]
 }

@@ -645,6 +645,57 @@ async function run(): Promise<void> {
     return ok && refreshUploads === 2 && dynFrames >= 5 && dynUploads === dynFrames ? pass(detail) : fail(detail)
   })
 
+  await check('clipping-rounded', async () => {
+    // 圆角容器 200×100（border-radius 24px、overflow hidden），里面一张比它大的卡片把它整个盖住。
+    // 容器左上角、圆角外面的那一小块：有卡片与删掉卡片必须逐位相同（玻璃被圆角裁掉了）；
+    // 容器中间必须不同（玻璃确实画了）
+    const box = document.createElement('div')
+    Object.assign(box.style, {
+      position: 'absolute',
+      left: '40px',
+      top: '480px',
+      width: '200px',
+      height: '100px',
+      overflow: 'hidden',
+      borderRadius: '24px'
+    })
+    const card = document.createElement('glass-card')
+    card.setAttribute('corner-radius', '0')
+    Object.assign(card.style, { position: 'absolute', left: '-30px', top: '-30px', width: '260px', height: '160px' })
+    box.append(card)
+    document.body.append(box)
+    await sleep(0)
+    const v = stage.debug.stats().viewport!
+    const s = v.compositeWidth / v.cssWidth
+    const canvas = stage.canvas.getBoundingClientRect()
+    const b = box.getBoundingClientRect()
+    // 圆角外：离角 1–6 CSS 像素的方块，到圆心 (24, 24) 的距离都大于 25
+    const corner: ReadbackRegion = {
+      x: Math.floor((b.left - canvas.left + 1) * s),
+      y: Math.floor((b.top - canvas.top + 1) * s),
+      width: Math.floor(5 * s),
+      height: Math.floor(5 * s)
+    }
+    const middle: ReadbackRegion = {
+      x: Math.floor((b.left - canvas.left + 90) * s),
+      y: Math.floor((b.top - canvas.top + 40) * s),
+      width: Math.floor(20 * s),
+      height: Math.floor(20 * s)
+    }
+    const cornerWith = await sha(await readback(corner))
+    const middleWith = await sha(await readback(middle))
+    card.remove()
+    await sleep(0)
+    const cornerWithout = await sha(await readback(corner))
+    const middleWithout = await sha(await readback(middle))
+    box.remove()
+    stage.debug.renderNow()
+    const detail =
+      `圆角外 ${corner.width}×${corner.height}：${cornerWith === cornerWithout ? '没有玻璃' : '漏出了玻璃'}；` +
+      `容器中间：${middleWith !== middleWithout ? '有玻璃' : '没有玻璃'}`
+    return cornerWith === cornerWithout && middleWith !== middleWithout ? pass(detail) : fail(detail)
+  })
+
   await check('cross-backend', async () => {
     // 同一个固定场景，两个后端各画一帧：calibration 一次，用户图片（cover，放大、带斜条纹硬边）一次
     if (stage.backend !== 'webgpu') return skip(`当前是 ${stage.backend}，只在 WebGPU 起步时比两个后端`)

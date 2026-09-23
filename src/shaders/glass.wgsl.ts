@@ -20,7 +20,7 @@
 import { OPTICS_WGSL } from './optics.wgsl.ts'
 
 /** Panel 结构体的字节数。按 256B 步长排进一条 buffer，用动态偏移切换。 */
-export const PANEL_STRUCT_BYTES = 96
+export const PANEL_STRUCT_BYTES = 128
 /** 每块面板在 uniform buffer 里占的步长。T5 实测 minUniformBufferOffsetAlignment = 256。 */
 export const PANEL_STRIDE = 256
 /** Float32 视角下的步长。 */
@@ -63,6 +63,8 @@ struct Panel {
   debugMode: f32,
   rimPx: f32,           // 边缘高光的宽度，画布设备像素
   _pad1: f32,
+  clip: vec4f,          // 裁剪祖先围出的可见区域 x0, y0, x1, y1 —— 画布设备像素；没有裁剪的方向是 ±65536
+  clipRadii: vec4f,     // 可见区域四角的圆角 TL, TR, BR, BL
 }
 
 // 光源方向：指向光源的单位向量，屏幕坐标（y 向下）。左上 45°。
@@ -77,6 +79,22 @@ const DARK_RIM: f32 = 0.35;
 struct VsOut {
   @builtin(position) pos: vec4f,
 }
+
+// 裁剪祖先围出的可见区域（带圆角）的覆盖率。矩形部分 scissor 已经裁过；这里把圆角外那一小块抹掉，
+// 并给裁剪边一个像素的抗锯齿。没有裁剪时区域是 ±65536、圆角 0，结果恰好是 1.0（乘上去逐位不变）。
+//
+// 用「到四条边的距离」而不是「到中心的偏移减半宽」来算：区域一边是 ±65536 时，中心在几万像素之外，
+// f32 在那个量级上只剩 1/256 像素量级的精度 —— 而到边的距离 max(x0 − p, p − x1) 是精确的。
+fn clipCoverage(px: vec2f, box: vec4f, radii: vec4f) -> f32 {
+  let c = (box.xy + box.zw) * 0.5;
+  let right = px.x > c.x;
+  let bottom = px.y > c.y;
+  let r = select(select(radii.x, radii.y, right), select(radii.w, radii.z, right), bottom);
+  let e = vec2f(max(box.x - px.x, px.x - box.z), max(box.y - px.y, px.y - box.w)) + r;
+  let sd = length(max(e, vec2f(0.0, 0.0))) + min(max(e.x, e.y), 0.0) - r;
+  return clamp(0.5 - sd, 0.0, 1.0);
+}
+
 
 @vertex fn vs(@builtin(vertex_index) i: u32) -> VsOut {
   var corners = array<vec2f, 3>(
@@ -218,7 +236,8 @@ fn evalOptics(px: vec2f) -> Optics {
   let px = in.pos.xy;
   let o = evalOptics(px);
   // 1px 抗锯齿：sd 以像素为单位，所以 0.5 - sd 在边界两侧各半个像素内从 1 过渡到 0。
-  let coverage = clamp(0.5 - o.sd, 0.0, 1.0);
+  // 再乘上裁剪区域的覆盖率（祖先的圆角）。探针不乘 —— 它验的是光学，不是裁剪。
+  let coverage = clamp(0.5 - o.sd, 0.0, 1.0) * clipCoverage(px, panel.clip, panel.clipRadii);
 
   let debug = debugView(u32(panel.debugMode + 0.5), o.sd, coverage, o.dir, o.displacement, panel.amountPx);
   if (debug.a >= 0.0) {

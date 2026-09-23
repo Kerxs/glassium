@@ -39,6 +39,7 @@ const panel = (over: Partial<MeasuredPanel> = {}): MeasuredPanel => ({
   h: 50,
   scissor: [0, 0, 120, 80],
   clip: { x0: -Infinity, y0: -Infinity, x1: Infinity, y1: Infinity },
+  clipRadii: [0, 0, 0, 0],
   chain,
   ...over
 })
@@ -113,6 +114,7 @@ test('面板：动了、换了降级结果、换了裁剪、多一块少一块�
     unchangedFrame(frame(), frame({ panels: [panel({ clip: { x0: 0, y0: -Infinity, x1: Infinity, y1: Infinity } })] })),
     false
   )
+  assert.equal(unchangedFrame(frame(), frame({ panels: [panel({ clipRadii: [0, 12, 0, 0] })] })), false)
   assert.equal(unchangedFrame(frame(), frame({ panels: [] })), false)
   assert.equal(unchangedFrame(frame(), frame({ panels: [panel({ record: { element: {} } as unknown as PanelRecord })] })), false)
 })

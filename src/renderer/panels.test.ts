@@ -11,7 +11,7 @@ import {
 } from '../shaders/glass.wgsl.ts'
 import { levelForSigma } from './blur.ts'
 import { UNBOUNDED } from './clipping.ts'
-import { PanelRegistry, RIM_WIDTH_DP, packPanel, type MeasuredPanel } from './panels.ts'
+import { CLIP_UNBOUNDED_PX, PanelRegistry, RIM_WIDTH_DP, packPanel, type MeasuredPanel } from './panels.ts'
 import { compareOptics, type OpticsProbe } from './verify.ts'
 import {
   gradRadiusOf,
@@ -92,7 +92,9 @@ test('packPanel 写入的每个字段都落在 WGSL struct 的对应偏移上', 
     w: 333,
     h: 222,
     scissor: [9, 20, 337, 226],
-    clip: UNBOUNDED,
+    // 一半有界、一半没有：没有裁剪的方向要写成有限的 ±65536（着色器里 ∞ − ∞ 是 NaN）
+    clip: { x0: 5, y0: -Infinity, x1: 400, y1: Infinity },
+    clipRadii: [1, 2, 3, 4],
     chain
   }
 
@@ -134,6 +136,15 @@ test('packPanel 写入的每个字段都落在 WGSL struct 的对应偏移上', 
   near(at('opacity'), 0.9, 'opacity')
   near(at('debugMode'), 3, 'debugMode（grad 在 DEBUG_MODES 里排第 3）')
   near(at('rimPx'), RIM_WIDTH_DP * scale, 'rimPx')
+  near(at('clip', 0), 5, 'clip.x0')
+  near(at('clip', 1), -CLIP_UNBOUNDED_PX, 'clip.y0（−∞ → −65536）')
+  near(at('clip', 2), 400, 'clip.x1')
+  near(at('clip', 3), CLIP_UNBOUNDED_PX, 'clip.y1（+∞ → +65536）')
+  near(at('clipRadii', 0), 1, 'clipRadii.TL')
+  near(at('clipRadii', 1), 2, 'clipRadii.TR')
+  near(at('clipRadii', 2), 3, 'clipRadii.BR')
+  near(at('clipRadii', 3), 4, 'clipRadii.BL')
+  assert.ok(Number.isFinite(at('clip', 1)) && Number.isFinite(at('clip', 3)))
 
   // 相邻槽位不能被写脏
   assert.ok(data.subarray(0, base).every((v) => v === 0), '写越界到了前一个槽位')
