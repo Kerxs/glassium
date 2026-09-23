@@ -194,6 +194,7 @@ T5 顺带把两个计划阶段悬着的硬件问题测掉了，结果记在
 `squircle`、`depth-effect`、`adaptive`。写错的属性会在控制台报出来并被忽略，不会让整块面板失效。
 
 不用组件也行：`stage.register(element, material)` 可以把任意元素注册成玻璃面板。
+全部公开接口见 [docs/api.md](docs/api.md)。
 
 ### 背景：场景
 

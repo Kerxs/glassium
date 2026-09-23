@@ -6,7 +6,8 @@
  *
  * 现在有的：光学核心、有序效果管线与材质立面（T1–T4），WebGPU 渲染器（T5–T8），
  * `<glass-card>` / `<glass-button>` 组件与层级诊断（T9），`<glass-container>` 的合并（T10），
- * WebGL2 后端（T11）。后端阶梯：WebGPU → WebGL2 → CSS 兜底。
+ * WebGL2 后端（T11）。后端阶梯：WebGPU → WebGL2 → CSS 兜底。第一期之后：用户场景（setScene）、
+ * 裁剪、静止时不画、按压处的光、表单、自适应、四个系统设置。逐项说明见 docs/api.md。
  *
  * 在 Node 里 import 整个包是安全的（SSR）：模块顶层不碰任何浏览器全局，
  * defineGlassElements() 在没有 customElements 时什么都不做。
@@ -144,7 +145,7 @@ export { describeElement, describeProblem, type LayerProblem } from './renderer/
 export { defineGlassElements } from './components/register.ts'
 export { GlassElement } from './components/base.ts'
 export { GlassCard } from './components/glass-card.ts'
-export { GlassButton } from './components/glass-button.ts'
+export { GlassButton, type GlassButtonType } from './components/glass-button.ts'
 export { GlassContainer } from './components/glass-container.ts'
 export { MATERIAL_ATTRIBUTES, parseMaterialAttributes } from './components/attributes.ts'
 
