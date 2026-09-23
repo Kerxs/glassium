@@ -22,8 +22,8 @@ export const SIGMA_BASE = 2
  */
 export const MAX_LEVELS = 6
 
-/** 各级的局部 σ（目标纹素）。推导见 blur.wgsl.ts 的注释。 */
-const LOCAL_SIGMA = 0.866
+/** 各级的局部 σ（目标纹素）。推导见 blur.wgsl.ts 的注释。WebGL2 后端用同一个数。 */
+export const LOCAL_SIGMA = 0.866
 
 /**
  * σ（场景像素）→ 模糊链的浮点 mip 级。

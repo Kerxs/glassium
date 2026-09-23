@@ -37,6 +37,11 @@ if (params.get('glassium.reducedMotion') === '1') {
   simulateReducedMotion(true)
 }
 
+// 强制后端：本机平时永远选 WebGPU，WebGL2 那条路径要靠这个才走得到。
+const backendParam = params.get('glassium.backend')
+const backend = backendParam === 'webgl2' || backendParam === 'webgpu' ? backendParam : 'auto'
+if (backend !== 'auto') console.info(`[Playground] 强制后端 ${backend}`)
+
 // 同理：打开系统高对比度要改系统设置。
 if (params.get('glassium.forcedColors') === '1') {
   console.info('[Playground] 强制 forced-colors: active')
@@ -74,12 +79,17 @@ function render(stage: GlassStage): void {
     )
   }
 
-  if (probe) {
+  if (probe?.kind === 'webgpu') {
     lines.push(
       `<b>layerIdx</b> ${probe.dynamicArrayLayerIndex ? '动态层索引可用' : '不可用'}`,
       `<b>align</b>    ${probe.minUniformBufferOffsetAlignment}B  (256 stride ${
         probe.stride256Valid ? '成立' : '不成立'
       })`
+    )
+  } else if (probe?.kind === 'webgl2') {
+    lines.push(
+      `<b>align</b>    ${probe.uniformBufferOffsetAlignment}B  (UBO 偏移对齐)`,
+      `<b>float</b>    ${probe.colorBufferFloat ? 'EXT_color_buffer_float 有，探针可用' : '无，探针不可用'}`
     )
   }
 
@@ -127,6 +137,7 @@ async function main(): Promise<void> {
   defineGlassElements()
 
   const stage = await createGlassStage({
+    backend,
     onDegrade: (r) => {
       statsEl.textContent = `降级 ${r.from} → ${r.to}
 ${r.detail}`

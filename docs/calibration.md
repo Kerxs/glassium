@@ -504,8 +504,67 @@ k = 20 恰好是缝宽的两倍：缝中点上两个 sd 都是 5，smin = 5 − 
 
 按下容器里的左按钮：10 帧各不相同，松开后逐位回到静止；管线 8 → 8、bind group 16 → 16。
 
+## WebGL2 后端（T11）
+
+同一台机器（Edge / NVIDIA Lovelace），WebGL2 走 ANGLE 的 D3D11。视口 820×1200 @1x
+（画布 805×1200），playground 默认状态（calibration 场景，色散 0.3、高光 0.7，
+三块单独的面板加一个两成员的合并组）。
+
+### 上下文的能力
+
+| 项 | 实测 |
+|---|---|
+| `UNIFORM_BUFFER_OFFSET_ALIGNMENT` | **256** —— 面板 256B、合并组 512B 的步长都能直接按偏移绑定 UBO |
+| `MAX_UNIFORM_BLOCK_SIZE` | 65536 |
+| `EXT_color_buffer_float` | **有** —— 探针能渲进 RGBA32F，WebGL2 上也能逐像素验光学 |
+| `MAX_TEXTURE_SIZE` | 16384 |
+| `PanelBlock` / `GroupBlock` 的 std140 大小 | 96B / 400B，与 WGSL 侧一致（启动时核对，不一致就拒绝启动） |
+
+### 两个后端整帧逐像素比对
+
+同一页面：先回读 WebGPU 的整帧，dispose 之后 `createGlassStage({ backend: 'webgl2' })`，
+组件自动跟过去，给同样的背景参数再回读。
+
+| | 结果 |
+|---|---|
+| 像素总数 | 966 000 |
+| 逐位相同 | **965 999** |
+| 差 1/255 | 1（在 (377, 589)） |
+| 差 > 1/255 | 0 |
+
+Y 翻转若有任何一处写错，差异会是成片的，而不是一个像素。draw call 数两边都是 16，
+模糊链都是 6 级 10 趟。
+
+WebGPU 一侧的输出在这次重构（渲染后端抽成接口、stage 改成按阶梯选后端）前后逐位相同：
+同一视口下重构前的整帧 `a67d1768…16a1`，重构后还是它。
+
+### WebGL2 上的光学探针
+
+| | 纹素 | 非有限值 | 采样偏移最大误差 | p99 |
+|---|---|---|---|---|
+| 单块面板（卡片） | 81 900 | 0 | 1.0e-4 px（sd = −0.034，紧贴边界） | 9.7e-6 px |
+| 合并组 | 19 418 | 0 | 1.4e-5 px | 2.4e-6 px |
+
+与 WebGPU 那两组数同一个量级，最大误差同样出在 circleMap 斜率发散的边界上。
+
+按钮的按压动画：8 帧各不相同，松开后逐位回到静止；GL 程序数 13 → 13、GL 对象数 31 → 31
+（WebGL2 下 stats 的 pipelineCreations / bindGroupCreations 分别加上了程序数与纹理、帧缓冲、
+缓冲的创建数）。
+
+### 降级与恢复
+
+| 情形 | 结果 |
+|---|---|
+| `?glassium.simulate=no-webgpu` | 「降级 webgpu → webgl2」一条警告，WebGL2 接手，组件是玻璃态 |
+| WebGL2 上下文第一次丢失 | 等恢复后重建，同一块画布，整帧哈希与丢失前逐位相同 |
+| WebGL2 上下文第二次丢失 | 降到 none：换一块没有上下文的新画布（CSS 兜底底色露出来），组件换上兜底表面，回读明确拒绝 |
+| WebGPU 设备第一次丢失 | 26 ms 在新设备上恢复，整帧哈希不变 |
+| WebGPU 设备第二次丢失 | 「降级 webgpu → webgl2」，换一块新画布继续画；此后的整帧与直接用 WebGL2 启动时逐位相同（`6513631c…`） |
+
+页面上始终只有一块画布。层级检查在换过的画布上照常工作（命中测试取的是当前画布）。
+
 ## 待补
 
 - [ ] 上游 playground 默认值的并列对比（需要 T7 之后才有可比的渲染结果）
 - [ ] `1 dp → 1 CSS px` 与上游截图的实际吻合度（T12）
-- [ ] WebGL2 侧的 `UNIFORM_BUFFER_OFFSET_ALIGNMENT` 与 `EXT_color_buffer_float`（T11）
+- [x] ~~WebGL2 侧的 `UNIFORM_BUFFER_OFFSET_ALIGNMENT` 与 `EXT_color_buffer_float`（T11）~~ —— 256、有，见上

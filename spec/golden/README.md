@@ -27,6 +27,10 @@ Dawn/SwiftShader 的软件 WebGPU，而软件光栅化与真实驱动（开发�
 |sd| < 0.01 处**。原先写的「1e-5 绝对误差」在面板边界上做不到也不该要求 —— circleMap 在那里
 斜率发散，f32 的舍入会被放大（见 docs/calibration.md）。
 
+两个后端之间也是这么比的：同一页面里先回读 WebGPU 的整帧，dispose 之后用
+`createGlassStage({ backend: 'webgl2' })` 重建、给同样的参数再回读，逐像素比。T11 实测
+96.6 万个像素里只有 1 个差 1/255（见 docs/calibration.md）。
+
 `playground/verify.html` 是 T12 的事：把上面这套手工步骤固化成一个页面，并且两个后端各跑一遍：
 
 ```

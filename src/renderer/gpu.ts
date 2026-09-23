@@ -23,11 +23,19 @@ import {
   GLASS_WGSL,
   PANEL_STRIDE,
   PANEL_STRIDE_FLOATS,
-  PANEL_STRUCT_BYTES,
-  type PanelDebugMode
+  PANEL_STRUCT_BYTES
 } from '../shaders/glass.wgsl.ts'
 import { SCENE_WGSL } from '../shaders/scene.wgsl.ts'
 import { probeCapabilities, type ProbeReport } from '../webgpu/probe.ts'
+import {
+  READBACK_SIZE,
+  type FrameInput,
+  type FrameResult,
+  type GroupProbeRequest,
+  type ProbeRequest,
+  type ReadbackRequest,
+  type Renderer
+} from './backend.ts'
 import { BACKDROP_FORMAT, BlurChain, levelForSigma } from './blur.ts'
 import {
   PANEL_STRUCT_FLOATS,
@@ -36,81 +44,9 @@ import {
   type MeasuredGroup,
   type MeasuredPanel
 } from './panels.ts'
-import type { GroupOpticsProbe, OpticsProbe } from './verify.ts'
 
-/**
- * 回读区域的边长（不给 region 时的默认值）。
- *
- * 256 不是随便取的：copyTextureToBuffer 要求 bytesPerRow 是 256 的倍数，
- * 而 256 像素 × 4 字节 = 1024，正好整除。
- */
-export const READBACK_SIZE = 256
-
-/** 回读区域，画布设备像素。 */
-export interface ReadbackRegion {
-  readonly x: number
-  readonly y: number
-  readonly width: number
-  readonly height: number
-}
-
-export interface ReadbackResult {
-  /** 实际读到的区域（已与画布求交）。 */
-  readonly region: ReadbackRegion
-  /** 紧密排列的 RGBA8，已从画布格式换成 RGBA 顺序。 */
-  readonly rgba: Uint8Array
-  /** 画布的原始格式，留作核对。 */
-  readonly canvasFormat: GPUTextureFormat
-}
-
-export interface ReadbackRequest {
-  readonly region: ReadbackRegion | undefined
-  readonly resolve: (result: ReadbackResult) => void
-  readonly reject: (err: Error) => void
-}
-
-export interface ProbeRequest {
-  readonly index: number
-  readonly resolve: (probe: OpticsProbe) => void
-  readonly reject: (err: Error) => void
-}
-
-export interface GroupProbeRequest {
-  readonly index: number
-  readonly resolve: (probe: GroupOpticsProbe) => void
-  readonly reject: (err: Error) => void
-}
-
-/** 背景调试参数的当前值。由 stage 持有，跨设备存活。 */
-export interface BackdropState {
-  readonly blurDp: number
-  readonly saturation: number
-  readonly tint: readonly [number, number, number, number]
-  readonly sceneMode: number
-  readonly radialCenterCss: readonly [number, number]
-  readonly radialRadius: number
-}
-
-/** 一帧需要的全部输入。都来自 stage，GpuRenderer 自己不持有任何跨帧的业务状态。 */
-export interface FrameInput {
-  /** 秒。reduced-motion 下由 stage 传 0。 */
-  readonly time: number
-  readonly viewport: ResolvedViewport
-  readonly backdrop: BackdropState
-  readonly panels: readonly MeasuredPanel[]
-  readonly groups: readonly MeasuredGroup[]
-  readonly panelDebugMode: PanelDebugMode
-  readonly probe: ProbeRequest | null
-  readonly groupProbe: GroupProbeRequest | null
-  readonly readback: ReadbackRequest | null
-}
-
-export interface FrameResult {
-  readonly drawCalls: number
-  readonly blurPasses: number
-}
-
-export class GpuRenderer {
+export class GpuRenderer implements Renderer {
+  readonly kind = 'webgpu' as const
   readonly device: GPUDevice
   readonly format: GPUTextureFormat
   readonly probe: ProbeReport
@@ -350,6 +286,10 @@ export class GpuRenderer {
   ): Promise<GpuRenderer> {
     const probe = await probeCapabilities(device)
     return new GpuRenderer(device, format, context, alphaMode, probe)
+  }
+
+  get report(): ProbeReport {
+    return this.probe
   }
 
   get blurLevels(): number {

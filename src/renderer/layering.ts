@@ -390,7 +390,8 @@ export function inspectPanel(
  * - 手动调用 check()。
  */
 export class LayerWatcher {
-  readonly #canvas: HTMLCanvasElement
+  /** 取当前画布 —— 降级时 stage 会换一块新画布，所以不能在构造时存死。 */
+  readonly #canvas: () => HTMLCanvasElement
   readonly #enabled: () => boolean
   readonly #io: IntersectionObserver
   readonly #mo: MutationObserver
@@ -405,7 +406,7 @@ export class LayerWatcher {
   /**
    * @param enabled 当前是否真的在画玻璃。没有 GPU、高对比度模式下玻璃不画，查了也没意义。
    */
-  constructor(canvas: HTMLCanvasElement, enabled: () => boolean) {
+  constructor(canvas: () => HTMLCanvasElement, enabled: () => boolean) {
     this.#canvas = canvas
     this.#enabled = enabled
     // IntersectionObserver 只当触发器用，不拿它记「谁在视口里」：它的回调挂在渲染步骤上，
@@ -415,7 +416,8 @@ export class LayerWatcher {
     })
     this.#mo = new MutationObserver((records) => {
       // 检查自己会改画布的 style（临时打开 pointer-events）—— 不排除的话会自己触发自己
-      if (records.every((r) => r.target === this.#canvas)) return
+      const canvas = this.#canvas()
+      if (records.every((r) => r.target === canvas)) return
       this.schedule()
     })
   }
@@ -462,7 +464,7 @@ export class LayerWatcher {
     const all: LayerProblem<Element>[] = []
     for (const panel of this.#panels) {
       if (!panel.isConnected) continue
-      const problems = inspectPanel(panel, this.#canvas) // 不在视口里的返回 null
+      const problems = inspectPanel(panel, this.#canvas()) // 不在视口里的返回 null
       if (!problems) continue
       let reported = this.#reported.get(panel)
       if (!reported) {

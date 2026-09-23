@@ -3,7 +3,7 @@
  *
  * 这个文件**不经过 WGSL→GLSL 重写器**：它有入口点、绑定和内置变量，那些东西两个
  * 后端差别太大，手写比机翻清楚。重写器只处理 optics.wgsl.ts 里的纯函数子集。
- * WebGL2 版本在 T11 由 src/webgl2/passes.ts 手写。
+ * WebGL2 版本手写在 src/webgl2/shaders.ts，与这里逐段对应。
  *
  * 坐标约定：uv 的原点在**左上**，与 CSS / DOM 一致。WebGPU 的 NDC 是 y 向上的，
  * 所以顶点着色器里做了一次翻转。全项目只在这里翻，别处不要再翻第二次 ——

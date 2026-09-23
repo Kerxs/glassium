@@ -28,7 +28,8 @@
 与 Skiko。
 
 Glassium 没有 Skia，所以这条路不通。改为：WGSL 是唯一真源（`src/shaders/optics.wgsl.ts`），
-GLSL ES 3.0 由 `src/shaders/translate-glsl.ts` 生成；另有一份**独立的 TypeScript 实现**
+GLSL ES 3.0 由 `src/shaders/translate-glsl.ts` 生成（WebGL2 后端原样使用生成物，与 WebGPU
+的整帧回读只差 1 个像素、1/255）；另有一份**独立的 TypeScript 实现**
 （`src/core/optics.ts`）作为 CPU 参考，用来在没有 GPU 的前提下证明数学，并与 GPU 的浮点
 回读逐像素比对（`stage.debug.probeOptics()` + `compareOptics()`，结果见 docs/calibration.md）。
 

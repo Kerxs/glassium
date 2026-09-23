@@ -15,6 +15,7 @@
  */
 
 export interface ProbeReport {
+  readonly kind: 'webgpu'
   /** 动态层索引采样是否可用。 */
   readonly dynamicArrayLayerIndex: boolean
   /** 若不可用，这里是编译错误原文。 */
@@ -89,6 +90,7 @@ export async function probeCapabilities(device: GPUDevice): Promise<ProbeReport>
   const alignment = l.minUniformBufferOffsetAlignment
 
   const report: ProbeReport = {
+    kind: 'webgpu',
     dynamicArrayLayerIndex: dynamic.ok,
     dynamicArrayLayerError: dynamic.error,
     minUniformBufferOffsetAlignment: alignment,

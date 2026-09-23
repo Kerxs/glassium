@@ -26,9 +26,12 @@
  *
  * ## 两层结构
  *
- * 这个文件是**外壳**：画布、面板注册表、调试参数、帧循环、监听器。这些与 GPU 设备无关，
- * 跨设备存活。一台设备上的全部渲染资源在 gpu.ts 的 GpuRenderer 里，设备丢失时整体丢弃、
- * 在新设备上整体重建 —— 面板和参数不受影响。
+ * 这个文件是**外壳**：画布、面板注册表、调试参数、帧循环、监听器。这些与 GPU 后端无关，
+ * 跨设备存活。一个后端（gpu.ts 的 GpuRenderer 或 webgl2/renderer.ts 的 Gl2Renderer）持有
+ * 一台设备 / 一个上下文上的全部渲染资源，丢失时整体丢弃、整体重建 —— 面板和参数不受影响。
+ *
+ * 后端的阶梯：WebGPU → WebGL2 → none（CSS 兜底）。启动时按这个顺序选；运行中某个后端
+ * 第二次丢失，也按这个顺序往下降。
  */
 
 import { parseTint, type GlassMaterial } from '../core/material.ts'
@@ -38,23 +41,31 @@ import {
   acquireDevice,
   gpuCreationCounts,
   releaseDevice,
-  type DeviceFailure
+  simulateDeviceLoss
 } from '../webgpu/device.ts'
-import type { ProbeReport } from '../webgpu/probe.ts'
-import {
-  GpuRenderer,
-  type BackdropState,
-  type GroupProbeRequest,
-  type ProbeRequest,
-  type ReadbackRegion,
-  type ReadbackRequest,
-  type ReadbackResult
-} from './gpu.ts'
+import { Gl2Renderer, gl2CreationCounts } from '../webgl2/renderer.ts'
+import type {
+  BackdropState,
+  BackendReport,
+  GroupProbeRequest,
+  ProbeRequest,
+  ReadbackRegion,
+  ReadbackRequest,
+  ReadbackResult,
+  Renderer
+} from './backend.ts'
+import { GpuRenderer } from './gpu.ts'
 import { LayerWatcher, type LayerProblem } from './layering.ts'
 import { PanelRegistry, type GlassGroup, type GlassPanel } from './panels.ts'
 import type { GroupOpticsProbe, OpticsProbe } from './verify.ts'
 
-export { READBACK_SIZE, type ReadbackRegion, type ReadbackResult } from './gpu.ts'
+export {
+  READBACK_SIZE,
+  type BackendReport,
+  type Gl2Report,
+  type ReadbackRegion,
+  type ReadbackResult
+} from './backend.ts'
 
 export type Backend = 'webgpu' | 'webgl2' | 'none'
 
@@ -106,6 +117,12 @@ export interface GlassStageOptions {
   readonly alphaMode?: GPUCanvasAlphaMode
   /** 降级发生时回调。在 console.warn **之后**触发。 */
   readonly onDegrade?: (reason: DegradeReason) => void
+  /**
+   * 用哪个后端。默认 'auto'：WebGPU → WebGL2 → CSS 兜底。
+   * 显式指定时只试那一个，失败就直接到 CSS 兜底 —— 指定了就是想要它，悄悄换成另一个
+   * 会让「我到底在测哪个后端」说不清。
+   */
+  readonly backend?: 'auto' | 'webgpu' | 'webgl2'
 }
 
 export interface DegradeReason {
@@ -148,6 +165,10 @@ export interface GlassStage {
    * 组件据此决定要不要显示 CSS 兜底表面（见 components/glassium.css）。
    */
   readonly active: boolean
+  /**
+   * 画布（L0）。**降级时会换成一块新的**（一块画布只能有一种上下文），所以别缓存它，
+   * 每次用的时候从这里取。
+   */
   readonly canvas: HTMLCanvasElement
   /**
    * 把一个 DOM 元素注册成玻璃面板。
@@ -173,8 +194,11 @@ export interface GlassStage {
      * 平时不需要手动调 —— 面板进入视口、页面上的 style / class 变化都会自动触发。
      */
     checkLayers(): LayerProblem<Element>[]
-    /** 当前设备的能力探测结果。没有 GPU 时为 null；设备丢失恢复后是新设备的结果。 */
-    readonly probe: ProbeReport | null
+    /**
+     * 当前后端的能力探测结果（WebGPU 与 WebGL2 用 kind 区分）。没有 GPU 时为 null；
+     * 丢失恢复后是新设备的结果。
+     */
+    readonly probe: BackendReport | null
     /** 调整全屏背景视图的参数。见 BackdropDebugParams。 */
     setBackdrop(params: BackdropDebugParams): void
     /**
@@ -198,6 +222,11 @@ export interface GlassStage {
      * 请求就在这一帧里被服务 —— WebGPU 的提交与 mapAsync 都不依赖 rAF。
      */
     renderNow(): void
+    /**
+     * 模拟一次意外丢失：WebGPU 销毁当前设备，WebGL2 用 WEBGL_lose_context 丢掉上下文
+     * （并在下一个任务里恢复，与真实的驱动重置一样是异步的）。验证恢复与降级那条路径用。
+     */
+    simulateContextLoss(): boolean
     /** 所有面板的调试视图：'sdf' / 'mask' / 'grad' / 'displacement'，'off' 恢复正常。 */
     setPanelDebug(mode: PanelDebugMode): void
     /**
@@ -316,10 +345,8 @@ export function createGlassStage(options: GlassStageOptions = {}): Promise<Glass
   return pending
 }
 
-async function buildStage(options: GlassStageOptions): Promise<GlassStage> {
-  const host = options.host ?? document.body
-  const alphaMode = options.alphaMode ?? 'opaque'
-
+/** 建一块画布（L0）。还没有任何上下文 —— 取哪一种由选后端的逻辑决定。 */
+function makeCanvas(): HTMLCanvasElement {
   const canvas = document.createElement('canvas')
   canvas.dataset.glassiumScene = ''
   canvas.setAttribute('aria-hidden', 'true')
@@ -333,6 +360,38 @@ async function buildStage(options: GlassStageOptions): Promise<GlassStage> {
     pointerEvents: 'none',
     background: CSS_FALLBACK
   } satisfies Partial<CSSStyleDeclaration>)
+  return canvas
+}
+
+type WebGpuStart =
+  | { readonly ok: true; readonly value: GpuRenderer }
+  | { readonly ok: false; readonly detail: string; readonly claimed: boolean }
+
+/**
+ * 在画布上起 WebGPU。失败时说明原因，并告诉调用方画布是不是已经被取过 webgpu 上下文 ——
+ * 一块画布只能有一种上下文，取过就得换一块新画布才能再试 WebGL2。
+ */
+async function startWebGpu(canvas: HTMLCanvasElement, alphaMode: GPUCanvasAlphaMode): Promise<WebGpuStart> {
+  const acquired = await acquireDevice()
+  if (!acquired.ok) {
+    return { ok: false, claimed: false, detail: `${acquired.failure.kind}：${acquired.failure.detail}` }
+  }
+  const context = canvas.getContext('webgpu')
+  if (!context) return { ok: false, claimed: false, detail: 'canvas.getContext("webgpu") 返回 null' }
+  try {
+    const renderer = await GpuRenderer.create(acquired.value.device, acquired.value.format, context, alphaMode)
+    return { ok: true, value: renderer }
+  } catch (err) {
+    return { ok: false, claimed: true, detail: `建 WebGPU 渲染资源失败：${String(err)}` }
+  }
+}
+
+async function buildStage(options: GlassStageOptions): Promise<GlassStage> {
+  const host = options.host ?? document.body
+  const alphaMode = options.alphaMode ?? 'opaque'
+  const preferred = options.backend ?? 'auto'
+
+  let canvas = makeCanvas()
   host.prepend(canvas)
 
   const degrade = (reason: DegradeReason): void => {
@@ -340,37 +399,46 @@ async function buildStage(options: GlassStageOptions): Promise<GlassStage> {
     options.onDegrade?.(reason)
   }
 
-  const acquired = await acquireDevice()
-  if (!acquired.ok) {
-    const stage = makeInertStage(canvas, acquired.failure, degrade)
+  // —— 选后端：WebGPU → WebGL2 → none ——
+  //
+  // 'auto' 走完整的阶梯；显式指定 'webgpu' 或 'webgl2' 时只试那一个 —— 指定了就是想要它，
+  // 悄悄换成另一个会让「我到底在测哪个后端」变得说不清。
+  let renderer: Renderer | null = null
+  let claimed = false
+  if (preferred !== 'webgl2') {
+    const started = await startWebGpu(canvas, alphaMode)
+    if (started.ok) {
+      renderer = started.value
+    } else {
+      claimed = started.claimed
+      degrade({ from: 'webgpu', to: preferred === 'auto' ? 'webgl2' : 'none', detail: started.detail })
+    }
+  }
+  if (!renderer && preferred !== 'webgpu') {
+    if (claimed) {
+      const fresh = makeCanvas()
+      canvas.replaceWith(fresh)
+      canvas = fresh
+    }
+    const started = Gl2Renderer.create(canvas, alphaMode)
+    if (started.ok) renderer = started.value
+    else degrade({ from: 'webgl2', to: 'none', detail: started.detail })
+  }
+  if (!renderer) {
+    const stage = makeInertStage(canvas)
     activeStage = stage
     notifyStageChange()
     return stage
   }
 
-  const context = canvas.getContext('webgpu')
-  if (!context) {
-    const stage = makeInertStage(
-      canvas,
-      { kind: 'no-device', detail: 'canvas.getContext("webgpu") 返回 null' },
-      degrade
-    )
-    activeStage = stage
-    notifyStageChange()
-    return stage
-  }
-
-  // —— 与设备无关、跨设备存活的状态 ——
-  let gpu: GpuRenderer | null = await GpuRenderer.create(
-    acquired.value.device,
-    acquired.value.format,
-    context,
-    alphaMode
-  )
-  let backend: Backend = 'webgpu'
+  // —— 与后端无关、跨设备存活的状态 ——
+  let backend: Backend = renderer.kind
+  /** 整个 stage 经历过的意外丢失（WebGPU 设备 + WebGL2 上下文）。 */
   let deviceLosses = 0
+  /** 当前这个后端丢过几次。换后端时清零：第一次重建，第二次降级，每个后端各算各的。 */
+  let lossesThisBackend = 0
   let retiredAllocations = 0
-  /** 刚在新设备上重建：视口没变也必须 resize 一次，新设备上还没有任何纹理。 */
+  /** 刚重建或换了画布：视口没变也必须 resize 一次，新资源上还没有任何纹理。 */
   let forceResize = false
 
   let viewport: ResolvedViewport | null = null
@@ -381,6 +449,7 @@ async function buildStage(options: GlassStageOptions): Promise<GlassStage> {
   let drawCalls = 0
   let blurPasses = 0
   let panelsLastFrame = 0
+  let groupsLastFrame = 0
   let fps = 0
   let fpsWindowStart = 0
   let fpsWindowFrames = 0
@@ -389,7 +458,6 @@ async function buildStage(options: GlassStageOptions): Promise<GlassStage> {
   let pendingProbe: ProbeRequest | null = null
   let pendingGroupProbe: GroupProbeRequest | null = null
   let pendingReadback: ReadbackRequest | null = null
-  let groupsLastFrame = 0
 
   // 背景调试参数（实验用，非正式 API）
   let backdrop: BackdropState = {
@@ -428,7 +496,7 @@ async function buildStage(options: GlassStageOptions): Promise<GlassStage> {
   /** 此刻是不是真的在画玻璃。 */
   const isActive = (): boolean => inactiveReason() === null
 
-  const layers = new LayerWatcher(canvas, isActive)
+  const layers = new LayerWatcher(() => canvas, isActive)
 
   /** 在途的回读与探针全部作废。设备丢失或 stage 销毁时调用，免得调用方的 Promise 永远挂着。 */
   const rejectPending = (why: string): void => {
@@ -463,13 +531,13 @@ async function buildStage(options: GlassStageOptions): Promise<GlassStage> {
       viewport.sceneHeight !== next.sceneHeight
 
     viewport = next
-    if (!changed || !gpu) return
+    if (!changed || !renderer) return
     forceResize = false
 
     canvas.width = next.compositeWidth
     canvas.height = next.compositeHeight
-    const levels = gpu.resize(next)
-    console.info(`[Glassium] ${describeViewport(next)} · 模糊链 ${levels} 级`)
+    const levels = renderer.resize(next)
+    console.info(`[Glassium] ${describeViewport(next)} · 模糊链 ${levels} 级 · ${renderer.kind}`)
     if (next.budgetExceeded) {
       console.warn(
         '[Glassium] 保底清晰度压过了像素预算 —— 场景分辨率高于预算允许的值。' +
@@ -479,7 +547,7 @@ async function buildStage(options: GlassStageOptions): Promise<GlassStage> {
   }
 
   const renderFrame = (now: number): void => {
-    if (disposed || !gpu) return
+    if (disposed || !renderer) return
     syncViewport()
     if (!viewport) return
 
@@ -494,7 +562,7 @@ async function buildStage(options: GlassStageOptions): Promise<GlassStage> {
     pendingGroupProbe = null
     pendingReadback = null
 
-    const result = gpu.render({
+    const result = renderer.render({
       // reduced-motion 下时间冻结在 0：循环不跑的同时画面也必须是确定的那一帧，
       // 否则 resize 触发的重绘会跳到另一个相位，看起来像闪烁。
       time: reducedMotion ? 0 : (now - startTime) / 1000,
@@ -508,7 +576,7 @@ async function buildStage(options: GlassStageOptions): Promise<GlassStage> {
       readback
     })
     if (!result) {
-      // 这一帧没画成（比如资源还没就绪）：请求放回去，下一帧再服务
+      // 这一帧没画成（比如资源还没就绪、上下文刚丢）：请求放回去，下一帧再服务
       pendingProbe ??= probe
       pendingGroupProbe ??= groupProbe
       pendingReadback ??= readback
@@ -567,40 +635,117 @@ async function buildStage(options: GlassStageOptions): Promise<GlassStage> {
     })
   }
 
-  // —— 设备丢失 ——
+  // —— 换画布 ——
   //
-  // 第一次：在新设备上整套重建，面板、参数、监听器原样保留。
-  // 第二次：不再重试，降级。WebGL2 后端要到 T11，所以现在只能退到 CSS 兜底底色。
-  //
-  // 为什么只重试一次：连续丢失通常说明驱动或 GPU 本身有问题，反复重建只会让页面反复卡顿。
+  // 一块画布只能有一种上下文：WebGPU 降到 WebGL2 必须换一块新的；降到 none 也换 ——
+  // 新画布上没有任何上下文，它自己的 CSS 背景（兜底底色）直接露出来，不会冻在最后一帧。
 
-  const degradeToNone = (detail: string): void => {
-    if (gpu) {
-      retiredAllocations += gpu.allocations
-      gpu.destroy() // 解除画布配置 → 画布变透明，CSS 兜底底色露出来
-      gpu = null
+  const onContextLost = (event: Event): void => {
+    event.preventDefault() // 不阻止的话浏览器不会恢复这个上下文
+    const lost = renderer
+    if (disposed || !(lost instanceof Gl2Renderer)) return
+    deviceLosses++
+    lossesThisBackend++
+    rejectPending('WebGL2 上下文丢失')
+    retiredAllocations += lost.allocations
+    lost.destroy()
+    renderer = null
+    stopLoop()
+    if (lossesThisBackend > 1) {
+      degradeFromCurrent(`WebGL2 上下文第 ${lossesThisBackend} 次丢失，不再重试`)
+      return
     }
-    backend = 'none'
+    glLostAt = performance.now()
+    console.warn('[Glassium] WebGL2 上下文丢失，等浏览器恢复后重建全部资源（面板与参数保留）')
+  }
+  let glLostAt = 0
+
+  const onContextRestored = (): void => {
+    if (disposed || backend !== 'webgl2' || renderer) return
+    const started = Gl2Renderer.create(canvas, alphaMode)
+    if (!started.ok) {
+      degradeFromCurrent(`WebGL2 上下文恢复后重建失败：${started.detail}`)
+      return
+    }
+    renderer = started.value
+    forceResize = true
+    console.info(`[Glassium] WebGL2 上下文已恢复，重建耗时 ${Math.round(performance.now() - glLostAt)} ms`)
+    startLoop()
+    requestRender()
+  }
+
+  const attachCanvasListeners = (c: HTMLCanvasElement): void => {
+    c.addEventListener('webglcontextlost', onContextLost)
+    c.addEventListener('webglcontextrestored', onContextRestored)
+  }
+  const detachCanvasListeners = (c: HTMLCanvasElement): void => {
+    c.removeEventListener('webglcontextlost', onContextLost)
+    c.removeEventListener('webglcontextrestored', onContextRestored)
+  }
+
+  const replaceCanvas = (): void => {
+    const fresh = makeCanvas()
+    if (forcedColors) fresh.style.display = 'none'
+    detachCanvasListeners(canvas)
+    resizeObserver.unobserve(canvas)
+    canvas.replaceWith(fresh)
+    canvas = fresh
+    attachCanvasListeners(fresh)
+    resizeObserver.observe(fresh)
+    viewport = null
+    forceResize = true
+  }
+
+  // —— 降级 ——
+  //
+  // 当前后端第二次丢失（或重建失败）时调用。WebGPU 在 'auto' 下先降到 WebGL2，
+  // 其余情况降到 none。为什么只重试一次：连续丢失通常说明驱动或 GPU 本身有问题，
+  // 反复重建只会让页面反复卡顿。
+
+  function degradeFromCurrent(detail: string): void {
+    const from = backend
+    if (renderer) {
+      retiredAllocations += renderer.allocations
+      renderer.destroy()
+      renderer = null
+    }
     stopLoop()
     rejectPending('已降级')
-    degrade({ from: 'webgpu', to: 'webgl2', detail })
-    degrade({
-      from: 'webgl2',
-      to: 'none',
-      detail: 'WebGL2 后端尚未实现（计划中的 T11），退到 CSS 兜底底色。面板元素照常显示，只是后面没有玻璃'
-    })
+    replaceCanvas()
+
+    if (from === 'webgpu' && preferred === 'auto') {
+      const started = Gl2Renderer.create(canvas, alphaMode)
+      degrade({ from: 'webgpu', to: 'webgl2', detail })
+      if (started.ok) {
+        renderer = started.value
+        backend = 'webgl2'
+        lossesThisBackend = 0
+        console.info('[Glassium] 已在 WebGL2 上继续渲染（面板与参数保留）')
+        startLoop()
+        requestRender()
+        notifyStageChange()
+        return
+      }
+      degrade({ from: 'webgl2', to: 'none', detail: started.detail })
+    } else {
+      degrade({ from, to: 'none', detail })
+    }
+    backend = 'none'
     notifyStageChange() // 组件据此换上 CSS 兜底表面
   }
 
+  // —— WebGPU 设备丢失：第一次在新设备上重建，第二次降级 ——
+
   const recover = async (lost: GpuRenderer): Promise<void> => {
     deviceLosses++
+    lossesThisBackend++
     rejectPending('设备丢失')
     retiredAllocations += lost.allocations
     lost.destroy()
-    if (gpu === lost) gpu = null
+    if (renderer === lost) renderer = null
 
-    if (deviceLosses > 1) {
-      degradeToNone(`设备第 ${deviceLosses} 次丢失，不再重试`)
+    if (lossesThisBackend > 1) {
+      degradeFromCurrent(`设备第 ${lossesThisBackend} 次丢失，不再重试`)
       return
     }
 
@@ -612,34 +757,39 @@ async function buildStage(options: GlassStageOptions): Promise<GlassStage> {
       return
     }
     if (!next.ok) {
-      degradeToNone(`重新获取设备失败：${next.failure.kind}：${next.failure.detail}`)
+      degradeFromCurrent(`重新获取设备失败：${next.failure.kind}：${next.failure.detail}`)
+      return
+    }
+    const context = canvas.getContext('webgpu')
+    if (!context) {
+      degradeFromCurrent('重新获取 webgpu 上下文失败')
       return
     }
     try {
-      const renderer = await GpuRenderer.create(next.value.device, next.value.format, context, alphaMode)
+      const rebuilt = await GpuRenderer.create(next.value.device, next.value.format, context, alphaMode)
       if (disposed) {
-        renderer.destroy()
+        rebuilt.destroy()
         releaseDevice()
         return
       }
-      gpu = renderer
-      watchDevice(renderer)
+      renderer = rebuilt
+      watchDevice(rebuilt)
       forceResize = true
       console.info(`[Glassium] 已在新设备上恢复，耗时 ${Math.round(performance.now() - t0)} ms`)
       requestRender()
     } catch (err) {
-      degradeToNone(`在新设备上重建失败：${String(err)}`)
+      degradeFromCurrent(`在新设备上重建失败：${String(err)}`)
     }
   }
 
-  function watchDevice(renderer: GpuRenderer): void {
-    void renderer.device.lost.then(() => {
+  function watchDevice(watched: GpuRenderer): void {
+    void watched.device.lost.then(() => {
       // 主动 dispose 不算丢失；已经换过设备的旧设备再报丢失也不理
-      if (disposed || gpu !== renderer) return
-      void recover(renderer)
+      if (disposed || renderer !== watched) return
+      void recover(watched)
     })
   }
-  watchDevice(gpu)
+  if (renderer instanceof GpuRenderer) watchDevice(renderer)
 
   // —— 监听器 ——
 
@@ -690,6 +840,7 @@ async function buildStage(options: GlassStageOptions): Promise<GlassStage> {
   // 就只能靠它来唤醒重绘，否则会停在一张按旧宽度拉伸的画面上。
   const resizeObserver = new ResizeObserver(() => onResize())
   resizeObserver.observe(canvas)
+  attachCanvasListeners(canvas)
   motionQuery.addEventListener('change', onMotionChange)
   onReducedMotionOverrideChange = applyMotionPreference
   forcedColorsQuery.addEventListener('change', onForcedColorsChange)
@@ -711,26 +862,29 @@ async function buildStage(options: GlassStageOptions): Promise<GlassStage> {
     get active(): boolean {
       return isActive()
     },
-    canvas,
+    get canvas(): HTMLCanvasElement {
+      return canvas
+    },
     debug: {
-      get probe(): ProbeReport | null {
-        return gpu?.probe ?? null
+      get probe(): BackendReport | null {
+        return renderer?.report ?? null
       },
       stats: (): GlassStats => {
-        const created = gpuCreationCounts()
+        const gpuCreated = gpuCreationCounts()
+        const glCreated = gl2CreationCounts()
         return {
           backend,
           fps,
           frames,
           drawCalls,
-          targetAllocations: retiredAllocations + (gpu?.allocations ?? 0),
+          targetAllocations: retiredAllocations + (renderer?.allocations ?? 0),
           blurPasses,
-          blurLevels: gpu?.blurLevels ?? 0,
+          blurLevels: renderer?.blurLevels ?? 0,
           panels: panelsLastFrame,
           groups: groupsLastFrame,
           deviceLosses,
-          pipelineCreations: created.pipelines,
-          bindGroupCreations: created.bindGroups,
+          pipelineCreations: gpuCreated.pipelines + glCreated.programs,
+          bindGroupCreations: gpuCreated.bindGroups + glCreated.objects,
           viewport,
           reducedMotion,
           forcedColors
@@ -740,6 +894,19 @@ async function buildStage(options: GlassStageOptions): Promise<GlassStage> {
       renderNow(): void {
         if (!isActive()) return
         renderFrame(performance.now())
+      },
+      simulateContextLoss(): boolean {
+        if (renderer instanceof GpuRenderer) return simulateDeviceLoss()
+        if (renderer instanceof Gl2Renderer) {
+          const ext = renderer.gl.getExtension('WEBGL_lose_context')
+          if (!ext) return false
+          ext.loseContext()
+          // 真实的驱动重置之后浏览器会自己恢复；模拟时手动恢复，放到下一个任务里 ——
+          // 与真实情形一样是异步的。
+          setTimeout(() => ext.restoreContext(), 0)
+          return true
+        }
+        return false
       },
       readback(region?: ReadbackRegion): Promise<ReadbackResult> {
         return new Promise<ReadbackResult>((resolve, reject) => {
@@ -829,16 +996,18 @@ async function buildStage(options: GlassStageOptions): Promise<GlassStage> {
       if (pendingOneShot !== 0) cancelAnimationFrame(pendingOneShot)
       window.removeEventListener('resize', onResize)
       resizeObserver.disconnect()
+      detachCanvasListeners(canvas)
       motionQuery.removeEventListener('change', onMotionChange)
       onReducedMotionOverrideChange = null
       forcedColorsQuery.removeEventListener('change', onForcedColorsChange)
       onForcedColorsOverrideChange = null
       layers.dispose()
       rejectPending('stage 已销毁')
-      gpu?.destroy()
-      gpu = null
+      const wasWebGpu = renderer instanceof GpuRenderer
+      renderer?.destroy()
+      renderer = null
       canvas.remove()
-      releaseDevice() // 主动释放：device.ts 不会把它记成丢失
+      if (wasWebGpu) releaseDevice() // 主动释放：device.ts 不会把它记成丢失
       activeStage = null
       notifyStageChange()
     }
@@ -850,25 +1019,12 @@ async function buildStage(options: GlassStageOptions): Promise<GlassStage> {
 }
 
 /**
- * 拿不到 GPU 时的惰性 stage。
+ * 拿不到任何 GPU 后端时的惰性 stage。降级警告已经由调用方报过了。
  *
  * 不抛、不返回 null：页面应当**照常工作**，只是没有玻璃。画布留着并带 CSS 兜底
- * 底色，所以不会白屏。
+ * 底色，所以不会白屏；组件显示 glassium.css 的兜底表面。
  */
-function makeInertStage(
-  canvas: HTMLCanvasElement,
-  failure: DeviceFailure,
-  degrade: (reason: DegradeReason) => void
-): GlassStage {
-  degrade({ from: 'webgpu', to: 'webgl2', detail: `${failure.kind}：${failure.detail}` })
-  // T11 之前这里是死路一条，必须说出来 —— 默默变成 none 会让人以为 WebGL2 兜底
-  // 已经生效了，然后困惑于为什么什么都没有。
-  degrade({
-    from: 'webgl2',
-    to: 'none',
-    detail: 'WebGL2 后端尚未实现（计划中的 T11），暂时只能退到 CSS 兜底底色'
-  })
-
+function makeInertStage(canvas: HTMLCanvasElement): GlassStage {
   let disposed = false
   return {
     backend: 'none',
@@ -886,6 +1042,7 @@ function makeInertStage(
         Promise.reject(new Error('[Glassium] 没有 GPU 后端，无法探针')),
       checkLayers: (): LayerProblem<Element>[] => [],
       renderNow(): void {},
+      simulateContextLoss: (): boolean => false,
       stats: (): GlassStats => ({
         backend: 'none',
         fps: 0,

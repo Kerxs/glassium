@@ -155,10 +155,16 @@ CSS 动画不参与折射；`position: fixed` 被忽略。
 - **第一次**：在新设备上整套重建全部 GPU 资源。面板、参数、监听器原样保留，实测约 30 ms，
   恢复后的画面与丢失前逐位相同。
 - **第二次**：不再重试，降级。连续丢失通常说明驱动或 GPU 本身有问题，反复重建只会让页面
-  反复卡顿。WebGL2 后端要到 T11，所以现在降到 `none`：画布露出 CSS 兜底底色，面板元素照常
-  显示，只是后面没有玻璃。
+  反复卡顿。`backend: 'auto'`（默认）下降到 **WebGL2**，换一块新画布继续画（一块画布只能有
+  一种上下文）；WebGL2 也起不来、或者显式指定了 `backend: 'webgpu'` 时降到 `none`：新画布
+  露出 CSS 兜底底色，组件换上兜底表面。
 
-两种情况都会在控制台高声报出来。`stage.debug.stats().deviceLosses` 给出次数。
+WebGL2 的上下文丢失（`webglcontextlost`）走同一套规则：第一次等浏览器恢复后重建，
+第二次降到 `none`。每个后端各算各的次数。
+
+所有情况都会在控制台高声报出来。`stage.debug.stats().deviceLosses` 给出总次数，
+`stage.debug.simulateContextLoss()` 可以模拟一次（WebGPU 销毁设备，WebGL2 用
+`WEBGL_lose_context`）。
 
 （T5 到 T8 期间这里是坏的：日志写着「将尝试重新初始化」，实际上没有任何代码在重建，
 画布会冻在最后一帧。）
@@ -208,6 +214,12 @@ CSS 动画不参与折射；`position: fixed` 被忽略。
 Firefox 无 Linux、无 Intel Mac、无 Android；Chrome 的 Linux 受 GPU 门禁
 （Intel Gen12+ 或 Wayland 上的 NVIDIA）；Chrome Android 受厂商门禁。caniuse 约 87%。
 别信「WebGPU 已经 Baseline 了」这类说法 —— 细节上是错的。
+
+T11 起这一级有了（`src/webgl2/`）：同一套光学（GLSL 由 WGSL 真源机械生成）、同一份 uniform
+字节。本机实测两个后端的整帧只有 1 个像素差 1/255，见 docs/calibration.md。
+
+WebGL2 这一级的代价：光学探针要 `EXT_color_buffer_float`（渲进 RGBA32F），没有它就只能回读
+颜色、不能逐像素验光学；UBO 的偏移对齐值不整除 256 时退回逐次上传（结果一样，慢一点）。
 
 ### CI 不覆盖像素
 
