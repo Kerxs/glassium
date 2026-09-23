@@ -586,6 +586,50 @@ async function run(): Promise<void> {
     }
   })
 
+  await check('transform-scale', async () => {
+    // 祖先 transform: scale(0.5) 里一张 200×100、圆角 24、模糊 8 的卡片，与直接画出来的 100×50、圆角 12、
+    // 模糊 4 的卡片应当逐位相同（折射按短边的比例算，本来就跟着缩放；圆角、模糊这类 dp 量要乘视觉缩放）。
+    // 亮边宽度与投影的形状是渲染器定的绝对 dp —— 缩放时它们也该跟着缩，而直接画的小卡片不缩，所以这里关掉
+    const common = (el: HTMLElement): void => {
+      el.setAttribute('highlight', '0')
+      el.setAttribute('shadow', '0')
+      el.setAttribute('dispersion', '0')
+    }
+    const wrap = document.createElement('div')
+    Object.assign(wrap.style, {
+      position: 'absolute',
+      left: '440px',
+      top: '480px',
+      width: '200px',
+      height: '100px',
+      transform: 'scale(0.5)',
+      transformOrigin: '0 0'
+    })
+    const big = document.createElement('glass-card')
+    big.setAttribute('corner-radius', '24')
+    big.setAttribute('blur', '8')
+    common(big)
+    Object.assign(big.style, { left: '0', top: '0', width: '200px', height: '100px' })
+    wrap.append(big)
+    document.body.append(wrap)
+    await sleep(0)
+    const region = regionOf([big], 6)
+    const scaled = await sha(await readback(region))
+    wrap.remove()
+    const small = document.createElement('glass-card')
+    small.setAttribute('corner-radius', '12')
+    small.setAttribute('blur', '4')
+    common(small)
+    Object.assign(small.style, { left: '440px', top: '480px', width: '100px', height: '50px' })
+    document.body.append(small)
+    await sleep(0)
+    const direct = await sha(await readback(region))
+    small.remove()
+    stage.debug.renderNow()
+    const detail = `scale(0.5) 的大卡片 ${scaled.slice(0, 12)} · 直接画的小卡片 ${direct.slice(0, 12)}`
+    return scaled === direct ? pass(detail) : fail(detail)
+  })
+
   await check('component-equals-register', async () => {
     // 同一个位置先放组件、再放手动注册的 div，材质相同：区域哈希必须逐位相同
     const place = (el: HTMLElement): void => {

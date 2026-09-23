@@ -85,7 +85,8 @@ function samePanel(a: MeasuredPanel, b: MeasuredPanel): boolean {
     sameTuple(a.clipRadii, b.clipRadii) &&
     sameTuple(a.light, b.light) &&
     a.fade === b.fade &&
-    a.tone === b.tone
+    a.tone === b.tone &&
+    a.visualScale === b.visualScale
   )
 }
 

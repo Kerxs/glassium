@@ -124,6 +124,11 @@ export interface MeasuredPanel {
   readonly fade: number
   /** 文字深浅：+1 浅色文字（背后太亮时压暗玻璃），−1 深色文字（背后太暗时提亮玻璃）。 */
   readonly tone: number
+  /**
+   * 视觉缩放：屏幕上的尺寸 ÷ 布局尺寸。自己或祖先有 transform: scale 时不是 1 ——
+   * 以 dp 计的量（圆角、模糊 σ、亮边、投影）跟着乘它，与 DOM 一起缩放。
+   */
+  readonly visualScale: number
   readonly chain: EffectChain
 }
 
@@ -388,16 +393,29 @@ export class PanelRegistry {
         record.filterGeneration = this.#styleGeneration
       }
 
-      // 降级按 CSS 尺寸缓存：材质的分数参数（refraction / distortion / 'frac' 圆角）
+      // 视觉缩放：getBoundingClientRect 量的是变换之后的盒子，offsetWidth 是布局尺寸。
+      // offsetWidth 取整过，所以差不到 1% 时当作没有缩放（仍按量到的尺寸降级，结果与之前逐位相同）；
+      // 真有缩放时按布局尺寸降级、打包时乘上缩放 —— 缩放动画期间也不必每帧重新降级。
+      const layoutW = record.element.offsetWidth
+      const layoutH = record.element.offsetHeight
+      let visualScale = 1
+      if (layoutW > 0 && layoutH > 0) {
+        const s = (r.width / layoutW + r.height / layoutH) / 2
+        if (Math.abs(s - 1) > 0.01) visualScale = s
+      }
+      const lowerW = visualScale === 1 ? r.width : layoutW
+      const lowerH = visualScale === 1 ? r.height : layoutH
+
+      // 降级按尺寸缓存：材质的分数参数（refraction / distortion / 'frac' 圆角）
       // 是按短边算的，尺寸不变就不必重算。
       const cached = record.cached
       let chain: EffectChain
-      if (cached && cached.w === r.width && cached.h === r.height) {
+      if (cached && cached.w === lowerW && cached.h === lowerH) {
         chain = cached.chain
       } else {
         const material = filter ? filter.apply(record.material, record.filterKey ?? '') : record.material
-        chain = lowerMaterial(material, [r.width, r.height])
-        record.cached = { w: r.width, h: r.height, chain }
+        chain = lowerMaterial(material, [lowerW, lowerH])
+        record.cached = { w: lowerW, h: lowerH, chain }
       }
 
       if (record.clips === undefined || record.clipGeneration !== this.#styleGeneration) {
@@ -408,7 +426,7 @@ export class PanelRegistry {
       const clipBox = visible === NO_CLIP ? UNBOUNDED : toDevice(visible.box)
       const clipRadii = visible.radii.map((r) => r * sx) as [number, number, number, number]
       // 有投影时 scissor 往外扩到影子够得着的地方
-      const reach = AA_MARGIN_PX + (chain.shadow > 0 ? SHADOW_REACH_DP * sx : 0)
+      const reach = AA_MARGIN_PX + (chain.shadow > 0 ? SHADOW_REACH_DP * sx * visualScale : 0)
       const own = intersect({ x0: x - reach, y0: y - reach, x1: x + w + reach, y1: y + h + reach }, roundBox(clipBox))
       const scissor = clip(own.x0, own.y0, own.x1, own.y1)
       if (record.tone === undefined || record.toneGeneration !== this.#styleGeneration) {
@@ -430,7 +448,21 @@ export class PanelRegistry {
       const light: [number, number, number, number] = l
         ? [x + l.x * sx, y + l.y * sy, LIGHT_SIGMA_FRAC * Math.min(w, h), Math.min(1, Math.max(0, l.strength)) * LIGHT_GAIN]
         : [0, 0, 1, 0]
-      measured.set(record, { record, x, y, w, h, scissor, clip: clipBox, clipRadii, light, fade, tone: record.tone, chain })
+      measured.set(record, {
+        record,
+        x,
+        y,
+        w,
+        h,
+        scissor,
+        clip: clipBox,
+        clipRadii,
+        light,
+        fade,
+        tone: record.tone,
+        visualScale,
+        chain
+      })
     }
 
     // 2) 合并组。一块面板只能属于一个组（先到先得），一组最多 MAX_GROUP_MEMBERS 块。
@@ -462,8 +494,11 @@ export class PanelRegistry {
         }
         if (members.length === 0) continue
 
-        const k = g.smoothingDp * sx
-        const shadowReach = members.some((m) => m.chain.shadow > 0) ? SHADOW_REACH_DP * sx : 0
+        // smoothing 以 dp 计，跟着容器的视觉缩放走（取第一个成员的：同一个容器里的成员缩放相同）
+        const k = g.smoothingDp * sx * members[0]!.visualScale
+        const shadowReach = members.some((m) => m.chain.shadow > 0)
+          ? SHADOW_REACH_DP * sx * Math.max(...members.map((m) => m.visualScale))
+          : 0
         const bleed = mergeBleed(k) + AA_MARGIN_PX + shadowReach
         let x0 = Infinity
         let y0 = Infinity
@@ -561,8 +596,8 @@ function writePanel(
   blurLevels: number,
   debugMode: PanelDebugMode
 ): void {
-  // dp（= CSS px）→ 画布设备像素
-  const scale = viewport.compositeWidth / viewport.cssWidth
+  // dp（= CSS px）→ 画布设备像素，再乘视觉缩放（transform: scale）
+  const scale = (viewport.compositeWidth / viewport.cssWidth) * panel.visualScale
   const chain = panel.chain
 
   let saturation = 1
@@ -609,7 +644,7 @@ function writePanel(
   data[o + 12] = heightDp * scale
   data[o + 13] = amountDp * scale
   // 模糊 σ 以**场景像素**计：模糊链的第 0 级就是场景分辨率，不是画布分辨率。
-  data[o + 14] = levelForSigma(sigmaDp * viewport.sceneScale, blurLevels)
+  data[o + 14] = levelForSigma(sigmaDp * viewport.sceneScale * panel.visualScale, blurLevels)
   data[o + 15] = saturation
   data[o + 16] = squircle
   data[o + 17] = depthEffect

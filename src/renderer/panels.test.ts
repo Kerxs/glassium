@@ -107,6 +107,7 @@ test('packPanel 写入的每个字段都落在 WGSL struct 的对应偏移上', 
     light: [50, 60, 25, 0.15],
     fade: 0.5,
     tone: -1,
+    visualScale: 1,
     chain
   }
 

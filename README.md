@@ -124,6 +124,8 @@ GPU 输出靠 `stage.debug.probeOptics()` + `compareOptics()` 与 CPU 实现逐�
 - [x] **静止时不画**（`src/renderer/idle.ts`）。每帧照样量面板，但这一帧画出来与上一帧逐像素相同时
       就不提交，浏览器继续显示上一帧。静态背景加不动的卡片：实测 1.5 秒 **0 帧**；滚动一下画 2 帧，
       按钮悬停只在补间期间画；视频场景只在出新帧时画
+- [x] **跟着 transform: scale 缩放**：自己或祖先缩放时，圆角、模糊、亮边、投影这些以 dp 计的量也跟着缩，
+      缩放动画里玻璃与 DOM 一致。`scale(0.5)` 里的大卡片与直接画的小卡片逐位相同
 - [x] **投影**：材质文档一直写着「玻璃越厚，投下的阴影越深」，渲染器却没有。现在玻璃往下投一圈柔和的影子
       （`shadow`，预设从 ultraThin 0.15 到 thick 0.45，clear 为 0），跟着裁剪与不透明度走。实测纯白背景上
       卡片正下方 255 → 220、正上方 255 → 236；`shadow="0"` 时与之前逐位相同
@@ -149,7 +151,7 @@ WebGL2（WebGL2 的上下文丢失同理，第二次降到 CSS 兜底）。T5 �
 
 **193 条测试全绿**，playground 可跑（`npm run dev`），只用公开 API 搭的示例页在 `/demo.html`，
 逐项自动验证在 `/verify.html`
-（现在 WebGPU 上 **PASS 24/24**、WebGL2 上 **PASS 23/23**）。
+（现在 WebGPU 上 **PASS 25/25**、WebGL2 上 **PASS 24/24**）。
 
 T5 顺带把两个计划阶段悬着的硬件问题测掉了，结果记在
 [docs/calibration.md](docs/calibration.md)：`minUniformBufferOffsetAlignment` 实测 256
