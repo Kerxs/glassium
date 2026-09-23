@@ -129,6 +129,8 @@ export interface GlassStats {
   readonly forcedColors: boolean
   /** 减少透明度（prefers-reduced-transparency: reduce）。开着时玻璃换成更实的磨砂（core/transparency.ts）。 */
   readonly reducedTransparency: boolean
+  /** 更高对比度（prefers-contrast: more）。同样换成磨砂；组件另外由 glassium.css 描一圈边。 */
+  readonly moreContrast: boolean
 }
 
 export interface GlassStageOptions {
@@ -353,8 +355,29 @@ export function simulateReducedTransparency(on: boolean | null): void {
   onReducedTransparencyOverrideChange?.()
 }
 
-/** 减少透明度时的材质变换：按面板的文字颜色选深色或浅色磨砂。 */
-const REDUCED_TRANSPARENCY_FILTER: MaterialFilter = {
+let moreContrastOverride: boolean | null = null
+let onMoreContrastOverrideChange: (() => void) | null = null
+
+/** 当前是否要求更高对比度（尊重 simulateMoreContrast）。 */
+export function prefersMoreContrast(): boolean {
+  if (moreContrastOverride !== null) return moreContrastOverride
+  return typeof matchMedia === 'function' && matchMedia('(prefers-contrast: more)').matches
+}
+
+/**
+ * 强制「更高对比度」状态，传 null 恢复为读真实媒体查询。只影响 stage 的反应（磨砂）；
+ * glassium.css 里那圈边框是 CSS 媒体查询，要靠真的打开系统设置来验。
+ */
+export function simulateMoreContrast(on: boolean | null): void {
+  moreContrastOverride = on
+  onMoreContrastOverrideChange?.()
+}
+
+/**
+ * 减少透明度、更高对比度时的材质变换：按面板的文字颜色选深色或浅色磨砂。
+ * Apple 的玻璃在这两个设置下都变得更实，所以两者共用一个变换。
+ */
+const FROST_FILTER: MaterialFilter = {
   key: (element) => frostForColor(getComputedStyle(element).color),
   apply: (material, key) => reduceTransparency(material, key as Frost)
 }
@@ -576,11 +599,14 @@ async function buildStage(options: GlassStageOptions): Promise<GlassStage> {
   let forcedColors = readForcedColors()
   if (forcedColors) canvas.style.display = 'none'
 
-  // 减少透明度：玻璃换成更实的磨砂。stage 照常画，只是所有面板的材质多过一道变换。
+  // 减少透明度、更高对比度：玻璃换成更实的磨砂。stage 照常画，只是所有面板的材质多过一道变换。
   const transparencyQuery = window.matchMedia('(prefers-reduced-transparency: reduce)')
   const readReducedTransparency = (): boolean => reducedTransparencyOverride ?? transparencyQuery.matches
   let reducedTransparency = readReducedTransparency()
-  panels.setMaterialFilter(reducedTransparency ? REDUCED_TRANSPARENCY_FILTER : null)
+  const contrastQuery = window.matchMedia('(prefers-contrast: more)')
+  const readMoreContrast = (): boolean => moreContrastOverride ?? contrastQuery.matches
+  let moreContrast = readMoreContrast()
+  panels.setMaterialFilter(reducedTransparency || moreContrast ? FROST_FILTER : null)
 
   /** 此刻为什么不画玻璃；在画时返回 null。 */
   const inactiveReason = (): string | null =>
@@ -975,17 +1001,24 @@ async function buildStage(options: GlassStageOptions): Promise<GlassStage> {
 
   const onForcedColorsChange = (): void => applyForcedColors()
 
-  const applyReducedTransparency = (): void => {
-    const next = readReducedTransparency()
-    if (next === reducedTransparency) return
-    reducedTransparency = next
-    console.info(
-      `[Glassium] prefers-reduced-transparency 变为 ${reducedTransparency ? 'reduce，玻璃换成磨砂' : 'no-preference，恢复通透'}`
-    )
-    panels.setMaterialFilter(reducedTransparency ? REDUCED_TRANSPARENCY_FILTER : null)
+  const applyFrostPreferences = (): void => {
+    const nextTransparency = readReducedTransparency()
+    const nextContrast = readMoreContrast()
+    if (nextTransparency === reducedTransparency && nextContrast === moreContrast) return
+    if (nextTransparency !== reducedTransparency) {
+      console.info(`[Glassium] prefers-reduced-transparency 变为 ${nextTransparency ? 'reduce' : 'no-preference'}`)
+    }
+    if (nextContrast !== moreContrast) {
+      console.info(`[Glassium] prefers-contrast 变为 ${nextContrast ? 'more' : 'no-preference'}`)
+    }
+    reducedTransparency = nextTransparency
+    moreContrast = nextContrast
+    const frosted = reducedTransparency || moreContrast
+    console.info(`[Glassium] ${frosted ? '玻璃换成磨砂' : '玻璃恢复通透'}`)
+    panels.setMaterialFilter(frosted ? FROST_FILTER : null)
   }
 
-  const onTransparencyChange = (): void => applyReducedTransparency()
+  const onFrostPreferenceChange = (): void => applyFrostPreferences()
 
   window.addEventListener('resize', onResize)
   // 滚动条出现或消失时画布宽度会变 15px 左右，但 window.resize **不会**触发。
@@ -998,8 +1031,10 @@ async function buildStage(options: GlassStageOptions): Promise<GlassStage> {
   onReducedMotionOverrideChange = applyMotionPreference
   forcedColorsQuery.addEventListener('change', onForcedColorsChange)
   onForcedColorsOverrideChange = applyForcedColors
-  transparencyQuery.addEventListener('change', onTransparencyChange)
-  onReducedTransparencyOverrideChange = applyReducedTransparency
+  transparencyQuery.addEventListener('change', onFrostPreferenceChange)
+  onReducedTransparencyOverrideChange = applyFrostPreferences
+  contrastQuery.addEventListener('change', onFrostPreferenceChange)
+  onMoreContrastOverrideChange = applyFrostPreferences
 
   syncViewport()
   if (reducedMotion) {
@@ -1047,7 +1082,8 @@ async function buildStage(options: GlassStageOptions): Promise<GlassStage> {
           viewport,
           reducedMotion,
           forcedColors,
-          reducedTransparency
+          reducedTransparency,
+          moreContrast
         }
       },
       checkLayers: (): LayerProblem<Element>[] => layers.check(),
@@ -1171,8 +1207,10 @@ async function buildStage(options: GlassStageOptions): Promise<GlassStage> {
       onReducedMotionOverrideChange = null
       forcedColorsQuery.removeEventListener('change', onForcedColorsChange)
       onForcedColorsOverrideChange = null
-      transparencyQuery.removeEventListener('change', onTransparencyChange)
+      transparencyQuery.removeEventListener('change', onFrostPreferenceChange)
       onReducedTransparencyOverrideChange = null
+      contrastQuery.removeEventListener('change', onFrostPreferenceChange)
+      onMoreContrastOverrideChange = null
       layers.dispose()
       rejectPending('stage 已销毁')
       const wasWebGpu = renderer instanceof GpuRenderer
@@ -1267,7 +1305,8 @@ function makeInertStage(canvas: HTMLCanvasElement, options: GlassStageOptions): 
         viewport: null,
         reducedMotion: prefersReducedMotion(),
         forcedColors: forcedColorsOverride ?? window.matchMedia('(forced-colors: active)').matches,
-        reducedTransparency: prefersReducedTransparency()
+        reducedTransparency: prefersReducedTransparency(),
+        moreContrast: prefersMoreContrast()
       })
     },
     // 没有 GPU 时面板照样可以注册 —— 元素本身照常显示，只是后面没有玻璃。

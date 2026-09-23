@@ -18,6 +18,7 @@ import {
   defineGlassElements,
   GlassPresets,
   joinProbeAndColors,
+  simulateMoreContrast,
   simulateReducedTransparency,
   summarizeBySector,
   type GlassStage,
@@ -364,13 +365,24 @@ async function run(): Promise<void> {
     simulateReducedTransparency(null)
     await sleep(0)
     const after = await readback(region)
+    // 更高对比度走的是同一个磨砂变换：画出来必须与减少透明度逐位相同，关掉之后同样复原
+    simulateMoreContrast(true)
+    await sleep(0)
+    const contrast = await readback(region)
+    const contrastFlag = stage.debug.stats().moreContrast
+    simulateMoreContrast(null)
+    await sleep(0)
+    const afterContrast = await readback(region)
     const a = lumaStats(before)
     const b = lumaStats(reduced)
-    const restored = (await sha(before)) === (await sha(after))
+    const restored = (await sha(before)) === (await sha(after)) && (await sha(before)) === (await sha(afterContrast))
+    const sameFrost = (await sha(reduced)) === (await sha(contrast))
     const detail =
       `卡片内部 ${region.width}×${region.height}：亮度 ${a.mean.toFixed(1)} ± ${a.std.toFixed(1)}` +
-      ` → ${b.mean.toFixed(1)} ± ${b.std.toFixed(1)} · stats ${flag} · 关掉后${restored ? '逐位复原' : '没有复原'}`
-    return flag && b.std < a.std * 0.25 && b.mean < 90 && restored ? pass(detail) : fail(detail)
+      ` → ${b.mean.toFixed(1)} ± ${b.std.toFixed(1)} · stats ${flag} / ${contrastFlag}` +
+      ` · 更高对比度${sameFrost ? '与之逐位相同' : '与之不同'} · 关掉后${restored ? '逐位复原' : '没有复原'}`
+    const ok = flag && contrastFlag && b.std < a.std * 0.25 && b.mean < 90 && sameFrost && restored
+    return ok ? pass(detail) : fail(detail)
   })
 
   await check('component-equals-register', async () => {

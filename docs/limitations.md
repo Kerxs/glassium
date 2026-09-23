@@ -245,9 +245,10 @@ click 里 `preventDefault()` 能阻止提交。两处与原生按钮不同：
   输入框时浏览器照样提交（只是没有按钮的 name / value），有多个时什么都不做。需要回车提交的表单，
   放一个隐藏的原生提交按钮。
 
-### 减少透明度：玻璃换成磨砂
+### 减少透明度、更高对比度：玻璃换成磨砂
 
-系统打开「减少透明度」（`prefers-reduced-transparency: reduce`）时，所有面板的材质多过一道变换
+系统打开「减少透明度」（`prefers-reduced-transparency: reduce`）或「更高对比度」（`prefers-contrast: more`）时，
+所有面板的材质多过一道变换 —— Apple 的玻璃在这两个设置下都变得更实，两者共用同一个变换
 （`src/core/transparency.ts`）：模糊至少 24dp、关掉色散、表面叠一层实得多的颜色。材质自己的 tint 够显眼
 （alpha ≥ 0.3）就沿用它的颜色、加厚到 0.85；否则按面板的**文字颜色**选磨砂 —— 浅色文字配深色、深色文字配浅色 ——
 alpha 0.8。形状、折射、高光保留。
@@ -257,7 +258,11 @@ alpha 0.8。形状、折射、高光保留。
 - 解析不了的颜色写法（`oklch()` 之类）当作浅色文字，配深色磨砂。
 - 兜底表面（没有 GPU、upgrade 之前）在这个设置下也换成深色磨砂（`glassium.css`）；兜底表面上是深色文字的话，
   在同一个媒体查询里自己覆盖。
-- Safari 与 Firefox 目前不支持这个媒体查询（查询恒为不匹配），在那里这一条不生效。
+- 更高对比度时组件另外描一圈边（`glassium.css`，`box-shadow: inset 0 0 0 1px currentColor`）：
+  用文字颜色，而磨砂是按文字颜色的反色选的，所以这圈边总看得清。不用 outline，免得盖掉按钮的焦点框。
+  这圈边是 CSS 媒体查询，`simulateMoreContrast()` 模拟不到它，只模拟得到 stage 的磨砂。
+- `prefers-reduced-transparency` 目前只有 Chromium 支持（Safari 与 Firefox 里查询恒为不匹配，这一条不生效）；
+  `prefers-contrast` 三家都支持。
 
 ### 高对比度模式下停用
 

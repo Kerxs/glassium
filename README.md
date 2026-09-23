@@ -128,9 +128,10 @@ GPU 输出靠 `stage.debug.probeOptics()` + `compareOptics()` 与 CPU 实现逐�
       `name` / `value` 只在被按下时进表单数据、`type="reset"`、`formaction` 一类的覆盖属性、
       祖先 `<fieldset disabled>`、click 里 `preventDefault()` 能拦下。两处例外见
       [docs/limitations.md](docs/limitations.md)
-- [x] **减少透明度**（`prefers-reduced-transparency`，`src/core/transparency.ts`）。玻璃换成更实的磨砂：
-      模糊至少 24dp、关掉色散、按文字颜色选深色或浅色磨砂（保证与文字的对比度 ≥ 4.5:1），形状与高光保留。
-      实测卡片内部的图案起伏从 ±22.7 降到 ±0；关掉之后逐位复原。与减少动效、高对比度并列，三个系统设置都有反应
+- [x] **减少透明度、更高对比度**（`prefers-reduced-transparency`、`prefers-contrast: more`，`src/core/transparency.ts`）。
+      玻璃换成更实的磨砂：模糊至少 24dp、关掉色散、按文字颜色选深色或浅色磨砂（保证与文字的对比度 ≥ 4.5:1），
+      形状与高光保留；更高对比度时组件再描一圈边。实测卡片内部的图案起伏从 ±22.7 降到 ±0，关掉之后逐位复原。
+      加上减少动效与强制配色，四个系统设置都有反应
 
 GPU 设备丢失时会在新设备上整套重建（实测约 30 ms，恢复后画面逐位相同），第二次丢失则降到
 WebGL2（WebGL2 的上下文丢失同理，第二次降到 CSS 兜底）。T5 到 T8 期间这一点是坏的：

@@ -77,6 +77,19 @@
 }
 
 /*
+ * 更高对比度（prefers-contrast: more）：玻璃在 stage 那边同样换成磨砂，这里再描一圈边。
+ * 用文字颜色 —— 磨砂是按文字颜色的反色选的，这圈边在磨砂上总是看得清。
+ *
+ * 用 box-shadow 而不是 outline：<glass-button> 的焦点框是 outline，这里（文档级样式）会盖掉影子树里的
+ * :host(:focus-visible) 规则，焦点框就没了。
+ */
+@media (prefers-contrast: more) {
+  :where(glass-card, glass-button) {
+    box-shadow: inset 0 0 0 1px currentColor;
+  }
+}
+
+/*
  * 高对比度模式。
  *
  * 背景色和文字色由浏览器强制成系统色（背景的 alpha 保留），所以这里不写颜色，

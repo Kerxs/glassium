@@ -16,6 +16,7 @@ import {
   defineGlassElements,
   simulateForcedColors,
   simulateNoWebGpu,
+  simulateMoreContrast,
   simulateReducedMotion,
   simulateReducedTransparency,
   type GlassStage,
@@ -58,6 +59,12 @@ if (params.get('glassium.reducedTransparency') === '1') {
   simulateReducedTransparency(true)
 }
 
+// 同理：系统的「更高对比度」（只模拟得了 stage 的磨砂，CSS 里那圈边框要真的打开系统设置）
+if (params.get('glassium.moreContrast') === '1') {
+  console.info('[Playground] 强制 prefers-contrast: more')
+  simulateMoreContrast(true)
+}
+
 const statsEl = document.getElementById('stats')!
 let clicks = 0
 
@@ -79,7 +86,7 @@ function render(stage: GlassStage): void {
     `<b>source</b>   ${s.scene}  <b>uploads</b> ${s.sceneUploads}`,
     `<b>clicks</b>   ${clicks}${s.forcedColors ? '  (forced-colors：stage 停用)' : ''}${
       s.reducedTransparency ? '  (reduced-transparency：磨砂)' : ''
-    }`
+    }${s.moreContrast ? '  (more-contrast：磨砂)' : ''}`
   ]
 
   if (v) {
