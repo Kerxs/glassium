@@ -66,12 +66,54 @@ export interface BackdropState {
   readonly radialRadius: number
 }
 
+/**
+ * 可以直接上传成纹理的图像源。WebGPU 的 copyExternalImageToTexture 与 WebGL2 的 texImage2D
+ * 都认这几种。
+ */
+export type SceneImageSource =
+  | ImageBitmap
+  | ImageData
+  | HTMLImageElement
+  | HTMLCanvasElement
+  | OffscreenCanvas
+  | HTMLVideoElement
+  | VideoFrame
+
+/** 这一帧要画的用户场景（图片、视频或画布的当前帧）。没有时画内置场景。 */
+export interface SceneImage {
+  readonly source: SceneImageSource
+  /** 源的像素尺寸。 */
+  readonly width: number
+  readonly height: number
+  /**
+   * 静态源的版本号：同一个源对象内容变了（比如画布重画了）时加一，后端据此重新上传。
+   * 动态源（dynamic）每帧都传，不看它。
+   */
+  readonly version: number
+  readonly dynamic: boolean
+  /** 视口 uv → 图片 uv，见 core/scene.ts。 */
+  readonly uvScale: readonly [number, number]
+  readonly uvOffset: readonly [number, number]
+  /** 图片之外（contain 留白）与图片透明处的底色，0–1。 */
+  readonly background: readonly [number, number, number]
+}
+
+/** 视频还没有可用的帧时不上传（上传会抛），继续用上一帧的内容。其它源总是就绪的。 */
+export function sourceReady(source: SceneImageSource): boolean {
+  if (typeof HTMLVideoElement !== 'undefined' && source instanceof HTMLVideoElement) {
+    return source.readyState >= 2 // HAVE_CURRENT_DATA
+  }
+  return true
+}
+
 /** 一帧需要的全部输入。都来自 stage，后端自己不持有任何跨帧的业务状态。 */
 export interface FrameInput {
   /** 秒。reduced-motion 下由 stage 传 0。 */
   readonly time: number
   readonly viewport: ResolvedViewport
   readonly backdrop: BackdropState
+  /** 用户场景。null 时按 backdrop.sceneMode 画内置场景。 */
+  readonly sceneImage: SceneImage | null
   readonly panels: readonly MeasuredPanel[]
   readonly groups: readonly MeasuredGroup[]
   readonly panelDebugMode: PanelDebugMode
@@ -83,7 +125,15 @@ export interface FrameInput {
 export interface FrameResult {
   readonly drawCalls: number
   readonly blurPasses: number
+  /** 这一帧有没有把用户场景重新传进纹理（0 或 1）。静态图片只该传一次。 */
+  readonly sceneUploads: number
 }
+
+/**
+ * 后端准备用户场景的结果：'none' 画不了（还没有任何内容传上去过），'kept' 用已经在纹理里的内容，
+ * 'uploaded' 这一帧刚传了新内容。
+ */
+export type SceneUploadState = 'none' | 'kept' | 'uploaded'
 
 /** WebGL2 上下文的能力探测结果。与 WebGPU 的 ProbeReport 用 kind 区分。 */
 export interface Gl2Report {

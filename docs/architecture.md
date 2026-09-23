@@ -26,6 +26,7 @@ src/core/          纯数学与数据，没有 DOM、没有 GPU，全部在 Node
   pipeline.ts        有序效果管线与采样余量
   material.ts        声明式材质 → 有序管线；预设
   units.ts           dp / CSS px / 设备像素；分辨率策略
+  scene.ts           用户场景怎么铺进视口（object-fit 的 uv 变换、预缩放尺寸、CSS 兜底）
 
 src/shaders/       着色器源（字符串）
   optics.wgsl.ts     光学的 WGSL 唯一真源（带 Apache 头）
@@ -40,6 +41,8 @@ src/renderer/      与后端无关的一层
   panels.ts          面板注册表、合并组、测量、uniform 打包
   blur.ts            模糊链（级数、σ ↔ 级别）
   layering.ts        面板与画布之间有什么：命中测试 + 点名警告
+  clipping.ts        面板的裁剪祖先（按包含块链）与裁剪矩形
+  scene-source.ts    用户场景：图片 / 视频 / 画布 → 每帧交给后端的场景图（缩放、上传时机、CSS 兜底）
   verify.ts          GPU 探针与 CPU 实现的逐像素比对工具
 
 src/webgpu/        设备单例、能力探测、创建计数
@@ -69,7 +72,7 @@ stage 是**外壳**：画布、面板注册表、调试参数、帧循环、监�
 ```
 测量  所有面板一次 getBoundingClientRect（帧内之后不再碰布局）
 打包  Panel / Group → uniform（256B / 512B 步长）
-场景  → 模糊链第 0 级
+场景  内置程序化场景，或用户的图片 / 视频 / 画布（按 object-fit 铺）→ 模糊链第 0 级
 模糊  每级两趟，2 × (K − 1) 趟，与面板数无关（共享链）
 上屏  背景
 面板  每块一次 draw：全屏三角形 + 裁剪矩形，片元里用 SDF 算几何

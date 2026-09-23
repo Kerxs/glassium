@@ -31,7 +31,10 @@ import {
   type GroupProbeRequest,
   type ProbeRequest,
   type ReadbackRequest,
-  type Renderer
+  type Renderer,
+  type SceneImage,
+  type SceneUploadState,
+  sourceReady
 } from '../renderer/backend.ts'
 import { LOCAL_SIGMA, MAX_LEVELS, levelForSigma } from '../renderer/blur.ts'
 import {
@@ -41,7 +44,15 @@ import {
   type MeasuredGroup,
   type MeasuredPanel
 } from '../renderer/panels.ts'
-import { BACKDROP_FS, BLUR_FS, FULLSCREEN_VS, GLASS_FS, SCENE_FS, glassGroupFs } from './shaders.ts'
+import {
+  BACKDROP_FS,
+  BLUR_FS,
+  FULLSCREEN_VS,
+  GLASS_FS,
+  SCENE_FS,
+  SCENE_IMAGE_FS,
+  glassGroupFs
+} from './shaders.ts'
 
 let programsCreated = 0
 let objectsCreated = 0
@@ -73,6 +84,11 @@ export class Gl2Renderer implements Renderer {
   readonly gl: WebGL2RenderingContext
 
   readonly #scene: Program
+  readonly #sceneImage: Program
+  #imageTexture: WebGLTexture | null = null
+  #uploadedSource: SceneImage['source'] | null = null
+  #uploadedVersion = -1
+  #uploadWarned = false
   readonly #blur: Program
   readonly #backdrop: Program
   readonly #glass: Program
@@ -119,6 +135,7 @@ export class Gl2Renderer implements Renderer {
     )
 
     this.#scene = compile(gl, SCENE_FS, 'scene')
+    this.#sceneImage = compile(gl, SCENE_IMAGE_FS, 'scene-image')
     this.#blur = compile(gl, BLUR_FS, 'blur')
     this.#backdrop = compile(gl, BACKDROP_FS, 'backdrop')
     this.#glass = compile(gl, GLASS_FS, 'glass')
@@ -317,18 +334,30 @@ export class Gl2Renderer implements Renderer {
     gl.activeTexture(gl.TEXTURE0)
 
     // 1) 场景 → 模糊链的 mip 0（离屏：不翻 y，纹理第 0 行 = 屏幕顶部，与 WebGPU 相同）
+    const scene = input.sceneImage ? this.#prepareImage(input.sceneImage) : 'none'
+    const image = scene !== 'none' ? input.sceneImage : null
     gl.bindFramebuffer(gl.FRAMEBUFFER, this.#chainFbos[0]!)
     gl.viewport(0, 0, W, H)
-    useProgram(gl, this.#scene)
-    gl.uniform1f(loc(gl, this.#scene, 'uFlipUv'), 0)
-    gl.uniform4f(loc(gl, this.#scene, 'uScene0'), W, H, input.time, backdrop.sceneMode)
-    gl.uniform4f(
-      loc(gl, this.#scene, 'uScene1'),
-      backdrop.radialCenterCss[0] / viewport.cssWidth,
-      backdrop.radialCenterCss[1] / viewport.cssHeight,
-      backdrop.radialRadius,
-      0
-    )
+    if (image) {
+      const p = this.#sceneImage
+      useProgram(gl, p)
+      gl.bindTexture(gl.TEXTURE_2D, this.#imageTexture)
+      gl.uniform1i(loc(gl, p, 'uImage'), 0)
+      gl.uniform1f(loc(gl, p, 'uFlipUv'), 0)
+      gl.uniform4f(loc(gl, p, 'uUv'), image.uvScale[0], image.uvScale[1], image.uvOffset[0], image.uvOffset[1])
+      gl.uniform4f(loc(gl, p, 'uBackground'), image.background[0], image.background[1], image.background[2], 1)
+    } else {
+      useProgram(gl, this.#scene)
+      gl.uniform1f(loc(gl, this.#scene, 'uFlipUv'), 0)
+      gl.uniform4f(loc(gl, this.#scene, 'uScene0'), W, H, input.time, backdrop.sceneMode)
+      gl.uniform4f(
+        loc(gl, this.#scene, 'uScene1'),
+        backdrop.radialCenterCss[0] / viewport.cssWidth,
+        backdrop.radialCenterCss[1] / viewport.cssHeight,
+        backdrop.radialRadius,
+        0
+      )
+    }
     gl.drawArrays(gl.TRIANGLES, 0, 3)
 
     // 2) 模糊链：每级两趟，与面板数量无关
@@ -429,8 +458,53 @@ export class Gl2Renderer implements Renderer {
 
     return {
       drawCalls: 2 + passes + panels.length + groups.length,
-      blurPasses: passes
+      blurPasses: passes,
+      sceneUploads: scene === 'uploaded' ? 1 : 0
     }
+  }
+
+  /**
+   * 把用户场景传进纹理（需要时）。
+   * 与 WebGPU 那边一样：上传失败不抛进帧循环，警告一次，有旧内容就用旧的，没有就画内置场景。
+   */
+  #prepareImage(img: SceneImage): SceneUploadState {
+    const gl = this.gl
+    if (!this.#imageTexture) {
+      const tex = gl.createTexture()
+      if (!tex) return 'none'
+      gl.bindTexture(gl.TEXTURE_2D, tex)
+      // 只有一级、不做 mip：静态图已经在 CPU 上缩到视口大小（见 core/scene.ts 的 sceneBitmapSize）
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR)
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
+      this.#imageTexture = tex
+      objectsCreated++
+    }
+    let uploaded = false
+    const stale = img.dynamic || img.source !== this.#uploadedSource || img.version !== this.#uploadedVersion
+    if (stale && sourceReady(img.source)) {
+      gl.bindTexture(gl.TEXTURE_2D, this.#imageTexture)
+      // 与 WebGPU 的 copyExternalImageToTexture（flipY: false、不预乘）一致：第 0 行是图片顶部
+      gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false)
+      gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false)
+      try {
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, gl.RGBA, gl.UNSIGNED_BYTE, img.source as TexImageSource)
+        this.#uploadedSource = img.source
+        this.#uploadedVersion = img.version
+        uploaded = true
+      } catch (err) {
+        if (!this.#uploadWarned) {
+          this.#uploadWarned = true
+          console.warn(
+            `[Glassium] 场景图片上传失败，先画${this.#uploadedSource ? '上一次的内容' : '内置场景'}：${String(err)}` +
+              '（跨源图片要带 CORS 头并设 crossOrigin）'
+          )
+        }
+      }
+    }
+    if (this.#uploadedSource === null) return 'none'
+    return uploaded ? 'uploaded' : 'kept'
   }
 
   #setGlassUniforms(p: Program, cw: number, ch: number, ox: number, oy: number, onScreen: boolean): void {
@@ -581,7 +655,8 @@ export class Gl2Renderer implements Renderer {
     this.#destroyed = true
     const gl = this.gl
     this.#destroyTargets()
-    for (const p of [this.#scene, this.#blur, this.#backdrop, this.#glass, this.#group]) {
+    if (this.#imageTexture) gl.deleteTexture(this.#imageTexture)
+    for (const p of [this.#scene, this.#sceneImage, this.#blur, this.#backdrop, this.#glass, this.#group]) {
       gl.deleteProgram(p.program)
     }
     gl.deleteVertexArray(this.#vao)

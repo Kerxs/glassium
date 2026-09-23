@@ -104,8 +104,13 @@ export {
   type Gl2Report,
   type GlassStats,
   type ReadbackRegion,
-  type ReadbackResult
+  type ReadbackResult,
+  type GlassSceneSource,
+  type SceneKind,
+  type SceneOptions
 } from './renderer/stage.ts'
+// 用户场景怎么铺进视口（object-fit 语义）。纯函数，别的渲染器也能用同一套算法。
+export { sceneBitmapSize, sceneCssBackground, sceneUvTransform, type SceneFit, type UvTransform } from './core/scene.ts'
 export { gl2CreationCounts } from './webgl2/renderer.ts'
 
 export {

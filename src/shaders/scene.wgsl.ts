@@ -132,3 +132,34 @@ fn calibration(uv: vec2f, res: vec2f) -> vec3f {
   return vec4f(palette(t), 1.0);
 }
 `
+
+/**
+ * 用户场景：一张图（或视频、画布的当前帧），按 object-fit 铺进场景目标。
+ *
+ * uv 的变换在 CPU 上算好（core/scene.ts 的 sceneUvTransform），这里只做一次乘加。
+ * 落在 [0, 1] 之外（contain 留白）的像素填底色；图片自己带透明时合到底色上 ——
+ * 画布恒为不透明，场景里不能留下 alpha < 1 的像素。
+ *
+ * 图片纹理只有一级：静态图片上传前已经按场景分辨率做过高质量缩放，采样基本是 1:1。
+ */
+export const SCENE_IMAGE_WGSL = /* wgsl */ `
+struct ImageScene {
+  uvScale: vec2f,
+  uvOffset: vec2f,
+  background: vec4f,
+}
+
+@group(0) @binding(0) var<uniform> u: ImageScene;
+@group(0) @binding(1) var samp: sampler;
+@group(0) @binding(2) var img: texture_2d<f32>;
+
+${FULLSCREEN_VS}
+
+@fragment fn fs(in: VsOut) -> @location(0) vec4f {
+  let uv = in.uv * u.uvScale + u.uvOffset;
+  let inside = uv.x >= 0.0 && uv.x <= 1.0 && uv.y >= 0.0 && uv.y <= 1.0;
+  let c = textureSampleLevel(img, samp, clamp(uv, vec2f(0.0, 0.0), vec2f(1.0, 1.0)), 0.0);
+  let rgb = mix(u.background.rgb, c.rgb, c.a);
+  return vec4f(select(u.background.rgb, rgb, inside), 1.0);
+}
+`

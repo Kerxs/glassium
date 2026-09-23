@@ -57,7 +57,16 @@ import type {
 import { GpuRenderer } from './gpu.ts'
 import { LayerWatcher, type LayerProblem } from './layering.ts'
 import { PanelRegistry, type GlassGroup, type GlassPanel } from './panels.ts'
+import {
+  SceneSlot,
+  sceneFallbackCss,
+  type GlassSceneSource,
+  type SceneKind,
+  type SceneOptions
+} from './scene-source.ts'
 import type { GroupOpticsProbe, OpticsProbe } from './verify.ts'
+
+export type { GlassSceneSource, SceneKind, SceneOptions } from './scene-source.ts'
 
 export {
   READBACK_SIZE,
@@ -97,8 +106,15 @@ export interface GlassStats {
    * 预热之后必须走平 —— 持续上涨说明有东西拿逐面板或逐帧的值在建管线。
    */
   readonly pipelineCreations: number
-  /** 同上，bind group。只在视口尺寸变化、面板数超过容量、换设备时增长。 */
+  /** 同上，bind group。只在视口尺寸变化、面板数超过容量、场景图片换尺寸、换设备时增长。 */
   readonly bindGroupCreations: number
+  /** 当前场景是哪一类。'builtin' 是内置的程序化场景。 */
+  readonly scene: SceneKind
+  /**
+   * 用户场景累计上传了几次。静态图片只在换图、视口变化重新缩放时各传一次；
+   * 视频只在出新帧时传。一直涨说明有东西在每帧重传。
+   */
+  readonly sceneUploads: number
   readonly viewport: ResolvedViewport | null
   readonly reducedMotion: boolean
   /** 高对比度模式（forced-colors: active）。开着时 stage 停用，画布隐藏。 */
@@ -128,6 +144,12 @@ export interface GlassStageOptions {
    * 会让「我到底在测哪个后端」说不清。
    */
   readonly backend?: 'auto' | 'webgpu' | 'webgl2'
+  /**
+   * 初始场景，同 setScene。加载完成之前画 sceneOptions.background 的纯色 —— 不画内置场景，
+   * 免得先闪一下别的图案。加载失败时警告，退回内置场景。createGlassStage 不等它加载完。
+   */
+  readonly scene?: GlassSceneSource
+  readonly sceneOptions?: SceneOptions
 }
 
 export interface DegradeReason {
@@ -192,6 +214,20 @@ export interface GlassStage {
    * `<glass-container>` 背后就是它。最多 4 块，多出来的单独绘制并警告一次。
    */
   group(options?: { readonly smoothing?: number }): GlassGroup
+  /**
+   * 玻璃后面画什么：一张图、一段视频或一块画布，按 fit 铺满视口。传 null 回到内置场景。
+   *
+   * 返回的 Promise 在新场景可以画出来时 resolve（图片已解码并缩放好、视频有了第一帧），
+   * 在那之前继续画旧场景，中间不闪。加载失败时 reject，场景保持原样；被后一次 setScene
+   * 取代的调用 reject 一个 name 为 'AbortError' 的 DOMException。
+   *
+   * 跨源的图片与视频需要 CORS（服务器带 Access-Control-Allow-Origin，元素设 crossOrigin），
+   * 否则浏览器不允许把它传进 GPU —— 这种情况在这里就 reject，不会等到画的时候。
+   * 传进来的 ImageBitmap 在换掉之前要保持打开：视口变化时要从它重新缩放。
+   */
+  setScene(source: GlassSceneSource | null, options?: SceneOptions): Promise<void>
+  /** 非 dynamic 的画布、ImageData 内容变了（或者想让暂停的视频换一帧）：下一帧重新上传。 */
+  refreshScene(): void
   readonly debug: {
     stats(): GlassStats
     /**
@@ -430,7 +466,7 @@ async function buildStage(options: GlassStageOptions): Promise<GlassStage> {
     else degrade({ from: 'webgl2', to: 'none', detail: started.detail })
   }
   if (!renderer) {
-    const stage = makeInertStage(canvas)
+    const stage = makeInertStage(canvas, options)
     activeStage = stage
     notifyStageChange()
     return stage
@@ -457,6 +493,7 @@ async function buildStage(options: GlassStageOptions): Promise<GlassStage> {
   let groupsLastFrame = 0
   let measureMs = 0
   let frameMs = 0
+  let sceneUploads = 0
   let fps = 0
   let fpsWindowStart = 0
   let fpsWindowFrames = 0
@@ -478,6 +515,15 @@ async function buildStage(options: GlassStageOptions): Promise<GlassStage> {
   let panelDebugMode: PanelDebugMode = 'off'
 
   const panels = new PanelRegistry(() => requestRender())
+  const scene = new SceneSlot(
+    () => viewport,
+    () => requestRender()
+  )
+
+  /** 没有 GPU 后端时，画布露出来的是它自己的 CSS 背景：用户场景能写成 CSS 就用它，否则用兜底底色。 */
+  const applyFallbackBackground = (): void => {
+    canvas.style.background = scene.fallbackCss() ?? CSS_FALLBACK
+  }
 
   const motionQuery = window.matchMedia('(prefers-reduced-motion: reduce)')
   const readReducedMotion = (): boolean => reducedMotionOverride ?? motionQuery.matches
@@ -577,6 +623,7 @@ async function buildStage(options: GlassStageOptions): Promise<GlassStage> {
       time: reducedMotion ? 0 : (now - startTime) / 1000,
       viewport,
       backdrop,
+      sceneImage: scene.frame(viewport),
       panels: measured.panels,
       groups: measured.groups,
       panelDebugMode,
@@ -593,6 +640,7 @@ async function buildStage(options: GlassStageOptions): Promise<GlassStage> {
     }
 
     frames++
+    sceneUploads += result.sceneUploads
     measureMs = t1 - t0
     frameMs = performance.now() - t0
     drawCalls = result.drawCalls
@@ -742,6 +790,7 @@ async function buildStage(options: GlassStageOptions): Promise<GlassStage> {
       degrade({ from, to: 'none', detail })
     }
     backend = 'none'
+    applyFallbackBackground()
     notifyStageChange() // 组件据此换上 CSS 兜底表面
   }
 
@@ -912,6 +961,8 @@ async function buildStage(options: GlassStageOptions): Promise<GlassStage> {
           deviceLosses,
           pipelineCreations: gpuCreated.pipelines + glCreated.programs,
           bindGroupCreations: gpuCreated.bindGroups + glCreated.objects,
+          scene: scene.kind,
+          sceneUploads,
           viewport,
           reducedMotion,
           forcedColors
@@ -1015,11 +1066,20 @@ async function buildStage(options: GlassStageOptions): Promise<GlassStage> {
     group(options: { readonly smoothing?: number } = {}): GlassGroup {
       return panels.group(options)
     },
+    setScene(source: GlassSceneSource | null, sceneOptions: SceneOptions = {}): Promise<void> {
+      return scene.set(source, sceneOptions).then(() => {
+        if (backend === 'none') applyFallbackBackground()
+      })
+    },
+    refreshScene(): void {
+      scene.refresh()
+    },
     requestRender,
     dispose(): void {
       if (disposed) return
       disposed = true
       stopLoop()
+      scene.dispose()
       if (pendingOneShot !== 0) cancelAnimationFrame(pendingOneShot)
       window.removeEventListener('resize', onResize)
       resizeObserver.disconnect()
@@ -1041,6 +1101,18 @@ async function buildStage(options: GlassStageOptions): Promise<GlassStage> {
     }
   }
 
+  if (options.scene !== undefined) {
+    try {
+      scene.showPlaceholder(options.sceneOptions)
+    } catch {
+      // 选项写错：下面的 setScene 会以同一个错误失败并警告
+    }
+    stage.setScene(options.scene, options.sceneOptions).catch((err: unknown) => {
+      if (err instanceof DOMException && err.name === 'AbortError') return
+      console.warn(`[Glassium] 初始场景没加载成，改画内置场景：${err instanceof Error ? err.message : String(err)}`)
+    })
+  }
+
   activeStage = stage
   notifyStageChange()
   return stage
@@ -1052,8 +1124,28 @@ async function buildStage(options: GlassStageOptions): Promise<GlassStage> {
  * 不抛、不返回 null：页面应当**照常工作**，只是没有玻璃。画布留着并带 CSS 兜底
  * 底色，所以不会白屏；组件显示 glassium.css 的兜底表面。
  */
-function makeInertStage(canvas: HTMLCanvasElement): GlassStage {
+function makeInertStage(canvas: HTMLCanvasElement, options: GlassStageOptions): GlassStage {
   let disposed = false
+  let sceneKind: SceneKind = 'builtin'
+  let releaseScene = (): void => {}
+  // 没有 GPU 也尽量保住背景：URL、<img>、Blob 写成画布的 CSS 背景
+  const setScene = (source: GlassSceneSource | null, sceneOptions: SceneOptions = {}): Promise<void> => {
+    try {
+      const fallback = sceneFallbackCss(source, sceneOptions)
+      releaseScene()
+      releaseScene = fallback?.release ?? ((): void => {})
+      canvas.style.background = fallback?.css ?? CSS_FALLBACK
+      sceneKind = fallback ? 'image' : 'builtin'
+      return Promise.resolve()
+    } catch (err) {
+      return Promise.reject(err)
+    }
+  }
+  if (options.scene !== undefined) {
+    setScene(options.scene, options.sceneOptions).catch((err: unknown) => {
+      console.warn(`[Glassium] 初始场景写不成 CSS 背景：${err instanceof Error ? err.message : String(err)}`)
+    })
+  }
   return {
     backend: 'none',
     active: false,
@@ -1085,6 +1177,8 @@ function makeInertStage(canvas: HTMLCanvasElement): GlassStage {
         deviceLosses: 0,
         pipelineCreations: 0,
         bindGroupCreations: 0,
+        scene: sceneKind,
+        sceneUploads: 0,
         viewport: null,
         reducedMotion: prefersReducedMotion(),
         forcedColors: forcedColorsOverride ?? window.matchMedia('(forced-colors: active)').matches
@@ -1098,10 +1192,13 @@ function makeInertStage(canvas: HTMLCanvasElement): GlassStage {
     group(): GlassGroup {
       return { setMembers(): void {}, setSmoothing(): void {}, dissolve(): void {} }
     },
+    setScene,
+    refreshScene(): void {},
     requestRender(): void {},
     dispose(): void {
       if (disposed) return
       disposed = true
+      releaseScene()
       canvas.remove()
       activeStage = null
       notifyStageChange()

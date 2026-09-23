@@ -25,7 +25,7 @@ import {
   PANEL_STRIDE_FLOATS,
   PANEL_STRUCT_BYTES
 } from '../shaders/glass.wgsl.ts'
-import { SCENE_WGSL } from '../shaders/scene.wgsl.ts'
+import { SCENE_IMAGE_WGSL, SCENE_WGSL } from '../shaders/scene.wgsl.ts'
 import { probeCapabilities, type ProbeReport } from '../webgpu/probe.ts'
 import {
   READBACK_SIZE,
@@ -34,7 +34,10 @@ import {
   type GroupProbeRequest,
   type ProbeRequest,
   type ReadbackRequest,
-  type Renderer
+  type Renderer,
+  type SceneImage,
+  type SceneUploadState,
+  sourceReady
 } from './backend.ts'
 import { BACKDROP_FORMAT, BlurChain, levelForSigma } from './blur.ts'
 import {
@@ -56,6 +59,14 @@ export class GpuRenderer implements Renderer {
   readonly #sampler: GPUSampler
 
   readonly #scenePipeline: GPURenderPipeline
+  readonly #imagePipeline: GPURenderPipeline
+  readonly #imageUniforms: GPUBuffer
+  readonly #imageUniformData = new Float32Array(8)
+  #imageTexture: GPUTexture | null = null
+  #imageBindGroup: GPUBindGroup | null = null
+  #uploadedSource: SceneImage['source'] | null = null
+  #uploadedVersion = -1
+  #uploadWarned = false
   readonly #backdropPipeline: GPURenderPipeline
   readonly #glassPipeline: GPURenderPipeline
   readonly #probePipeline: GPURenderPipeline
@@ -136,6 +147,22 @@ export class GpuRenderer implements Renderer {
       vertex: { module: backdropModule, entryPoint: 'vs' },
       fragment: { module: backdropModule, entryPoint: 'fs', targets: [{ format }] },
       primitive: { topology: 'triangle-list' }
+    })
+
+    // 用户场景：一张图按 object-fit 铺进场景目标（与内置场景画进同一个地方：模糊链的第 0 级）
+    const imageModule = device.createShaderModule({ label: 'glassium:scene-image', code: SCENE_IMAGE_WGSL })
+    this.#imagePipeline = device.createRenderPipeline({
+      label: 'glassium:scene-image',
+      layout: 'auto',
+      vertex: { module: imageModule, entryPoint: 'vs' },
+      fragment: { module: imageModule, entryPoint: 'fs', targets: [{ format: BACKDROP_FORMAT }] },
+      primitive: { topology: 'triangle-list' }
+    })
+    // ImageScene: uvScale + uvOffset + background(vec4) = 32B
+    this.#imageUniforms = device.createBuffer({
+      label: 'glassium:scene-image-uniforms',
+      size: 32,
+      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
     })
 
     // SceneUniforms: resolution + time + mode + center + radius + pad = 32B
@@ -452,6 +479,8 @@ export class GpuRenderer implements Renderer {
     const encoder = device.createCommandEncoder({ label: 'glassium:frame' })
 
     // 1) 场景 -> 模糊链的 mip 0（锐利背景就是这一级，不需要额外拷贝）
+    //    用户场景的上传与 uniform 写在开 pass 之前：它们走队列，排在这一帧的命令之前执行。
+    const image = input.sceneImage ? this.#prepareImage(input.sceneImage) : 'none'
     const scenePass = encoder.beginRenderPass({
       label: 'glassium:scene',
       colorAttachments: [
@@ -463,8 +492,13 @@ export class GpuRenderer implements Renderer {
         }
       ]
     })
-    scenePass.setPipeline(this.#scenePipeline)
-    scenePass.setBindGroup(0, this.#sceneBindGroup)
+    if (image !== 'none' && this.#imageBindGroup) {
+      scenePass.setPipeline(this.#imagePipeline)
+      scenePass.setBindGroup(0, this.#imageBindGroup)
+    } else {
+      scenePass.setPipeline(this.#scenePipeline)
+      scenePass.setBindGroup(0, this.#sceneBindGroup)
+    }
     scenePass.draw(3)
     scenePass.end()
 
@@ -527,8 +561,79 @@ export class GpuRenderer implements Renderer {
 
     return {
       drawCalls: 2 + this.#blurChain.passesLastFrame + panels.length + groups.length,
-      blurPasses: this.#blurChain.passesLastFrame
+      blurPasses: this.#blurChain.passesLastFrame,
+      sceneUploads: image === 'uploaded' ? 1 : 0
     }
+  }
+
+  /**
+   * 把用户场景传进纹理（需要时）并写好 uv 变换。
+   *
+   * 上传失败不抛：跨源图片没有 CORS、视频还没有可用的帧时 copyExternalImageToTexture 会抛，
+   * 而抛进帧循环会让下一帧的 rAF 排不上、整个 stage 冻住。警告一次，有旧内容就接着用旧的，
+   * 没有就画内置场景。
+   */
+  #prepareImage(img: SceneImage): SceneUploadState {
+    const device = this.device
+    const w = Math.max(1, Math.floor(img.width))
+    const h = Math.max(1, Math.floor(img.height))
+    if (!this.#imageTexture || this.#imageTexture.width !== w || this.#imageTexture.height !== h) {
+      this.#imageTexture?.destroy()
+      this.#imageTexture = device.createTexture({
+        label: 'glassium:scene-image',
+        size: { width: w, height: h },
+        format: 'rgba8unorm',
+        // copyExternalImageToTexture 要求目标同时带 COPY_DST 与 RENDER_ATTACHMENT
+        usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST | GPUTextureUsage.RENDER_ATTACHMENT
+      })
+      this.#imageBindGroup = device.createBindGroup({
+        label: 'glassium:scene-image',
+        layout: this.#imagePipeline.getBindGroupLayout(0),
+        entries: [
+          { binding: 0, resource: { buffer: this.#imageUniforms } },
+          { binding: 1, resource: this.#sampler },
+          { binding: 2, resource: this.#imageTexture.createView() }
+        ]
+      })
+      this.#uploadedSource = null
+      this.#uploadedVersion = -1
+    }
+
+    let uploaded = false
+    const stale = img.dynamic || img.source !== this.#uploadedSource || img.version !== this.#uploadedVersion
+    if (stale && sourceReady(img.source)) {
+      try {
+        device.queue.copyExternalImageToTexture(
+          { source: img.source, flipY: false },
+          { texture: this.#imageTexture, premultipliedAlpha: false },
+          { width: w, height: h }
+        )
+        this.#uploadedSource = img.source
+        this.#uploadedVersion = img.version
+        uploaded = true
+      } catch (err) {
+        if (!this.#uploadWarned) {
+          this.#uploadWarned = true
+          console.warn(
+            `[Glassium] 场景图片上传失败，先画${this.#uploadedSource ? '上一次的内容' : '内置场景'}：${String(err)}` +
+              '（跨源图片要带 CORS 头并设 crossOrigin）'
+          )
+        }
+      }
+    }
+    if (this.#uploadedSource === null) return 'none'
+
+    const u = this.#imageUniformData
+    u[0] = img.uvScale[0]
+    u[1] = img.uvScale[1]
+    u[2] = img.uvOffset[0]
+    u[3] = img.uvOffset[1]
+    u[4] = img.background[0]
+    u[5] = img.background[1]
+    u[6] = img.background[2]
+    u[7] = 1
+    device.queue.writeBuffer(this.#imageUniforms, 0, u)
+    return uploaded ? 'uploaded' : 'kept'
   }
 
   /** 合并组的探针：把合并后的 sd、方向、位移渲进 rgba32float，覆盖整组的裁剪矩形。 */
@@ -762,6 +867,8 @@ export class GpuRenderer implements Renderer {
     this.#probeStageUniforms.destroy()
     this.#panelBuffer?.destroy()
     this.#groupBuffer?.destroy()
+    this.#imageTexture?.destroy()
+    this.#imageUniforms.destroy()
     this.#blurChain.destroy()
     try {
       this.#context.unconfigure()

@@ -109,17 +109,31 @@ GPU 输出靠 `stage.debug.probeOptics()` + `compareOptics()` 与 CPU 实现逐�
       数学规格 [spec/optics.md](spec/optics.md)、管线规格 [spec/pipeline.md](spec/pipeline.md)、
       架构 [docs/architecture.md](docs/architecture.md)
 
+第一期之后加的：
+
+- [x] **矩形裁剪**（`src/renderer/clipping.ts`）。面板在滚动容器里被滚出可见区域时，玻璃跟着裁掉；
+      按包含块链找裁剪祖先，absolute / fixed 的规则与浏览器一致。圆角与 clip-path 不跟，
+      见 [docs/limitations.md](docs/limitations.md)
+- [x] **帧开销实测**。每多一块面板主线程约多 1.7 µs；GPU 每帧约 0.25 ms，与面板数基本无关（高端独显），
+      见 [docs/calibration.md](docs/calibration.md)
+- [x] **用户场景**：`stage.setScene()`（`src/renderer/scene-source.ts`）。玻璃后面画你自己的图片、视频或画布，
+      按 `object-fit` 的语义（cover / contain / fill）铺满视口。静态图先由浏览器高质量缩放到场景分辨率、
+      **只上传一次**；视频用 `requestVideoFrameCallback` **只在出新帧时上传**（实测 240Hz 下 2 秒 481 帧、
+      上传 60 次，正好是视频的 30fps）；换场景时旧场景一直画到新的就绪，不闪。
+      没有 GPU 时 URL / `<img>` / Blob 场景退成画布的 CSS 背景，页面照样有这张图
+
 GPU 设备丢失时会在新设备上整套重建（实测约 30 ms，恢复后画面逐位相同），第二次丢失则降到
 WebGL2（WebGL2 的上下文丢失同理，第二次降到 CSS 兜底）。T5 到 T8 期间这一点是坏的：
 日志说会重新初始化，实际上画布会冻住 —— 现已修复，见 [docs/limitations.md](docs/limitations.md)。
 
-**157 条测试全绿**，playground 可跑（`npm run dev`），逐项自动验证在 `/verify.html`。
+**170 条测试全绿**，playground 可跑（`npm run dev`），逐项自动验证在 `/verify.html`
+（现在 WebGPU 上 **PASS 17/17**、WebGL2 上 **PASS 16/16**）。
 
 T5 顺带把两个计划阶段悬着的硬件问题测掉了，结果记在
 [docs/calibration.md](docs/calibration.md)：`minUniformBufferOffsetAlignment` 实测 256
 （256B stride 假设成立），以及 WGSL 的**动态层索引采样可用**（模糊分档不必退回静态绑定）。
 
-第一期的十二项都在上面。还没做的（DPR 2 的实测、多面板的帧开销、与上游渲染结果的像素级截图对比）
+第一期的十二项都在上面。还没做的（DPR 2 的实测、与上游渲染结果的像素级截图对比）
 列在 [docs/calibration.md](docs/calibration.md) 的「待补」里。
 
 与上游的偏离逐条记在 [docs/porting-notes.md](docs/porting-notes.md)：色散的象限变号、
@@ -161,6 +175,23 @@ T5 顺带把两个计划阶段悬着的硬件问题测掉了，结果记在
 `squircle`、`depth-effect`。写错的属性会在控制台报出来并被忽略，不会让整块面板失效。
 
 不用组件也行：`stage.register(element, material)` 可以把任意元素注册成玻璃面板。
+
+### 背景：场景
+
+页面背景属于**场景**（R1），不属于 CSS —— 要放背景图，交给 stage：
+
+```js
+const stage = await createGlassStage({ scene: '/bg.jpg' }) // 加载完成之前画底色，不闪内置图案
+
+await stage.setScene(videoElement)                                  // 视频：有新帧才上传
+await stage.setScene(canvas, { dynamic: true })                     // 每帧重画的画布：每帧上传
+await stage.setScene(file, { fit: 'contain', background: '#111' }) // <input type="file"> 选中的 File
+await stage.setScene(null)                                          // 回到内置场景
+```
+
+`fit` 与 CSS 的 `object-fit` 同义，默认 cover。跨源的图片与视频需要 CORS，否则浏览器不允许把它传进
+GPU —— 这种情况 `setScene` 当场 reject 并说明原因。上传时机、减少动效、没有 GPU 时怎么办见
+[docs/limitations.md](docs/limitations.md)「用户场景」。
 
 还不是 npm 包（第一期不发布），上面的 `glassium` 指的是 `src/index.ts`，
 playground 里是 Vite 的别名。

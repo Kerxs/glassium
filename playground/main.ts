@@ -18,8 +18,11 @@ import {
   simulateNoWebGpu,
   simulateReducedMotion,
   type GlassStage,
-  type PanelDebugMode
+  type PanelDebugMode,
+  type SceneFit
 } from 'glassium'
+
+import { userScenes, type UserScene } from './scenes.ts'
 
 const params = new URLSearchParams(location.search)
 
@@ -66,6 +69,7 @@ function render(stage: GlassStage): void {
     `<b>panels</b>   ${s.panels}  <b>groups</b> ${s.groups}`,
     `<b>cpu</b>      ${s.cpuMs.total.toFixed(2)} ms（测量 ${s.cpuMs.measure.toFixed(2)}）`,
     `<b>pipelines</b> ${s.pipelineCreations}  <b>bindGroups</b> ${s.bindGroupCreations}`,
+    `<b>source</b>   ${s.scene}  <b>uploads</b> ${s.sceneUploads}`,
     `<b>clicks</b>   ${clicks}${s.forcedColors ? '  (forced-colors：stage 停用)' : ''}`
   ]
 
@@ -97,8 +101,12 @@ function render(stage: GlassStage): void {
   statsEl.innerHTML = lines.join('\n')
 }
 
+type BuiltinScene = 'gradient' | 'calibration' | 'radial' | 'flat'
+
 function wireControls(stage: GlassStage): void {
   const scene = document.getElementById('scene') as HTMLSelectElement
+  const fit = document.getElementById('fit') as HTMLSelectElement
+  const file = document.getElementById('file') as HTMLInputElement
   const debug = document.getElementById('debug') as HTMLSelectElement
   debug.addEventListener('change', () => {
     stage.debug.setPanelDebug(debug.value as PanelDebugMode)
@@ -120,7 +128,8 @@ function wireControls(stage: GlassStage): void {
       blurDp: Number(blur.value),
       saturation: Number(sat.value),
       tint: `rgba(255, 255, 255, ${a})`,
-      scene: scene.value as 'gradient' | 'calibration' | 'radial' | 'flat',
+      // setScene 的场景（user:…）盖在内置场景上面；内置的那个保持不变
+      ...(scene.value.startsWith('user:') ? {} : { scene: scene.value as BuiltinScene }),
       // radial 以卡片中心为圆心：折射往里采就是往暗处采，色散让蓝比红更暗
       radialCenter: [card.left + card.width / 2, card.top + card.height / 2],
       radialRadius: 0.6
@@ -128,8 +137,55 @@ function wireControls(stage: GlassStage): void {
   }
 
   for (const el of [blur, sat, tint]) el.addEventListener('input', apply)
-  scene.addEventListener('change', apply)
-  apply()
+
+  // —— setScene：图片、动画画布、视频、本地文件 ——
+  const scenes = userScenes(stage)
+  /** 最后一个真正显示出来的选项。换场景失败、选文件时取消，都回到它。 */
+  let shown = scene.value
+  const failed = (err: unknown): void => {
+    if (err instanceof DOMException && err.name === 'AbortError') return // 被后一次切换取代，不算失败
+    console.warn('[Playground] 换场景失败：', err)
+    scene.value = shown
+  }
+  const userSceneOf = (value: string): UserScene | null =>
+    value.startsWith('user:') ? (value.slice('user:'.length) as UserScene) : null
+  const showScene = (value: string): void => {
+    scenes.show(userSceneOf(value), fit.value as SceneFit).then(() => {
+      shown = value
+    }, failed)
+    apply()
+  }
+  scene.addEventListener('change', () => {
+    // 本地文件：先弹选择框，选好之后在 file 的 change 里显示
+    if (scene.value === 'user:file') file.click()
+    else showScene(scene.value)
+  })
+  file.addEventListener('change', () => {
+    const picked = file.files?.[0]
+    file.value = '' // 同一个文件可以再选一次
+    if (!picked) {
+      scene.value = shown
+      return
+    }
+    scenes.pickFile(picked, fit.value as SceneFit).then(() => {
+      shown = 'user:file'
+    }, failed)
+  })
+  file.addEventListener('cancel', () => {
+    scene.value = shown
+  })
+  fit.addEventListener('change', () => {
+    if (userSceneOf(shown)) showScene(shown)
+  })
+
+  // ?scene=… 直接从某个场景开始（截图、验证用）：内置的写名字，setScene 的写 user:photo 这样
+  const initial = new URLSearchParams(location.search).get('scene')
+  if (initial && initial !== 'user:file' && [...scene.options].some((o) => o.value === initial)) {
+    scene.value = initial
+    showScene(initial)
+  } else {
+    apply()
+  }
 }
 
 async function main(): Promise<void> {

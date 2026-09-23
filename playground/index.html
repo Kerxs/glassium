@@ -7,8 +7,9 @@
     <style>
       /*
         R1：<glass-*> 到 stage 宿主之间的每个祖先都必须背景透明。
-        页面背景属于**场景**，不属于 CSS —— 这里给 html/body 设不透明底色的话，
-        画布（z-index:0）会被整块盖掉，表现为完全不可见且无报错。
+        页面背景属于**场景**，不属于 CSS（要放背景图就用 stage.setScene）——
+        画布在 z-index:-1，html 与 body 同时设了底色时 body 的底色会把它整块盖掉，
+        表现为完全不可见且无报错。
       */
       html,
       body {
@@ -24,7 +25,7 @@
         -webkit-font-smoothing: antialiased;
       }
 
-      /* L1：DOM 内容层，压在画布之上 */
+      /* L1：DOM 内容层。画布在 z-index:-1，这里其实不需要层叠设置；留着是为了 R1 反例好演示 */
       .content {
         position: relative;
         z-index: 1;
@@ -228,7 +229,7 @@
         gradient 好看，但平滑渐变在 24px 内只变约 1/255，折射挪了采样点也看不出来。
       </p>
       <p>
-        这段文字在 L1（<code>z-index: 1</code>），画布在 L0（<code>z-index: 0</code>）。
+        这段文字在 L1，画布在 L0（<code>z-index: -1</code>）。
         文字可以正常选中、聚焦、输入 —— 布局与命中测试始终归 DOM。
       </p>
 
@@ -256,13 +257,31 @@
       <label>
         scene
         <select id="scene">
-          <option value="calibration">calibration</option>
-          <option value="gradient">gradient</option>
-          <option value="radial">radial（验色散）</option>
-          <option value="flat">flat（验高光）</option>
+          <optgroup label="内置">
+            <option value="calibration">calibration</option>
+            <option value="gradient">gradient</option>
+            <option value="radial">radial（验色散）</option>
+            <option value="flat">flat（验高光）</option>
+          </optgroup>
+          <optgroup label="setScene">
+            <option value="user:photo">photo（图片）</option>
+            <option value="user:canvas">canvas（动画）</option>
+            <option value="user:video">video（视频）</option>
+            <option value="user:file">本地图片…</option>
+          </optgroup>
         </select>
         <output></output>
       </label>
+      <label>
+        fit
+        <select id="fit">
+          <option value="cover">cover</option>
+          <option value="contain">contain</option>
+          <option value="fill">fill</option>
+        </select>
+        <output></output>
+      </label>
+      <input id="file" type="file" accept="image/*" hidden />
       <label>
         debug
         <select id="debug">

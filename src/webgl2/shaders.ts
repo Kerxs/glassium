@@ -97,6 +97,22 @@ void main() {
 }
 `
 
+/** 与 scene.wgsl.ts 的 SCENE_IMAGE_WGSL 对应。离屏，vUv 不翻（纹理第 0 行 = 屏幕顶部）。 */
+export const SCENE_IMAGE_FS = `${HEADER}
+uniform sampler2D uImage;
+uniform vec4 uUv;          // uvScale.xy, uvOffset.xy
+uniform vec4 uBackground;  // rgb, _
+in vec2 vUv;
+out vec4 outColor;
+void main() {
+  vec2 uv = vUv * uUv.xy + uUv.zw;
+  bool inside = uv.x >= 0.0 && uv.x <= 1.0 && uv.y >= 0.0 && uv.y <= 1.0;
+  vec4 c = textureLod(uImage, clamp(uv, vec2(0.0), vec2(1.0)), 0.0);
+  vec3 rgb = mix(uBackground.rgb, c.rgb, c.a);
+  outColor = vec4(inside ? rgb : uBackground.rgb, 1.0);
+}
+`
+
 /**
  * 与 blur.wgsl.ts 的 BLUR_WGSL 对应。WebGPU 那边用单级视图（baseMipLevel = k−1）采样，
  * 这里用 textureLod 指定整数级 —— 整数 lod 下线性 mip 过滤只取那一级，两者等价。
