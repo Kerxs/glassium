@@ -82,7 +82,8 @@ function samePanel(a: MeasuredPanel, b: MeasuredPanel): boolean {
     a.clip.y0 === b.clip.y0 &&
     a.clip.x1 === b.clip.x1 &&
     a.clip.y1 === b.clip.y1 &&
-    sameTuple(a.clipRadii, b.clipRadii)
+    sameTuple(a.clipRadii, b.clipRadii) &&
+    sameTuple(a.light, b.light)
   )
 }
 

@@ -36,9 +36,11 @@ import type { GlassMaterial } from '../core/material.ts'
 import { prefersReducedMotion } from '../renderer/stage.ts'
 import { MATERIAL_ATTRIBUTES } from './attributes.ts'
 import { GlassElement, sharedSheet } from './base.ts'
+import type { PanelLight } from '../renderer/panels.ts'
 import {
   approach,
   dimmed,
+  ENERGY,
   modulate,
   SETTLE_EPSILON,
   targetEnergy,
@@ -125,6 +127,8 @@ export class GlassButton extends GlassElement {
   #lastTick = 0
   /** tabindex 是不是我们加的。作者自己写了 tabindex 的话，禁用时不去动它。 */
   #ownsTabindex = false
+  /** 按下的位置（相对宿主左上角的 CSS 像素）；键盘按下时为 null，光打在中间。 */
+  #pressAt: { x: number; y: number } | null = null
 
   constructor() {
     super()
@@ -138,6 +142,7 @@ export class GlassButton extends GlassElement {
     this.addEventListener('pointerenter', this.#onPointerEnter)
     this.addEventListener('pointerleave', this.#onPointerLeave)
     this.addEventListener('pointerdown', this.#onPointerDown)
+    this.addEventListener('pointermove', this.#onPointerMove)
     this.addEventListener('pointerup', this.#onPointerUp)
     this.addEventListener('pointercancel', this.#onPointerUp)
     this.addEventListener('keydown', this.#onKeyDown)
@@ -210,6 +215,17 @@ export class GlassButton extends GlassElement {
     return this.#isDisabled() ? dimmed(modulated) : modulated
   }
 
+  /**
+   * 按压处的光：强度跟着能量里「按下」的那一段走（悬停那一段不亮），位置是按下的点、
+   * 按住拖动时跟着走；松开后随能量的补间淡掉。键盘按下时打在中间。
+   */
+  protected override light(): PanelLight | null {
+    const strength = (this.#energy - ENERGY.hover) / (ENERGY.pressed - ENERGY.hover)
+    if (!(strength > 0)) return null
+    const at = this.#pressAt ?? { x: this.clientWidth / 2, y: this.clientHeight / 2 }
+    return { x: at.x, y: at.y, strength: Math.min(1, strength) }
+  }
+
   override connectedCallback(): void {
     super.connectedCallback()
     if (!this.hasAttribute('role')) this.setAttribute('role', 'button')
@@ -269,7 +285,20 @@ export class GlassButton extends GlassElement {
   #onPointerDown = (e: PointerEvent): void => {
     if (e.button !== 0 || this.#isDisabled()) return
     this.#pressed = true
+    this.#pressAt = this.#local(e)
     this.#retarget()
+  }
+
+  /** 按住拖动时光跟着手指走。只在按下时跟 —— 悬停时不亮，也就不用跟。 */
+  #onPointerMove = (e: PointerEvent): void => {
+    if (!this.#pressed || !this.#pressAt) return
+    this.#pressAt = this.#local(e)
+    this.refresh()
+  }
+
+  #local(e: PointerEvent): { x: number; y: number } {
+    const r = this.getBoundingClientRect()
+    return { x: e.clientX - r.left, y: e.clientY - r.top }
   }
 
   #onPointerUp = (): void => {
@@ -287,6 +316,7 @@ export class GlassButton extends GlassElement {
       // 原生按钮：空格按下时只显示按下态、并阻止页面滚动，松开时才激活
       e.preventDefault()
       this.#pressed = true
+      this.#pressAt = null // 键盘按下：光打在中间
       this.#retarget()
     }
   }

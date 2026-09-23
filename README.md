@@ -124,6 +124,8 @@ GPU 输出靠 `stage.debug.probeOptics()` + `compareOptics()` 与 CPU 实现逐�
 - [x] **静止时不画**（`src/renderer/idle.ts`）。每帧照样量面板，但这一帧画出来与上一帧逐像素相同时
       就不提交，浏览器继续显示上一帧。静态背景加不动的卡片：实测 1.5 秒 **0 帧**；滚动一下画 2 帧，
       按钮悬停只在补间期间画；视频场景只在出新帧时画
+- [x] **按压处的光**：Apple 玻璃 `.interactive()` 的那种反馈 —— 按下时从按下的地方亮起来，按住拖动时跟着走，
+      松开后随按压的补间淡掉（`GlassPanel.setLight()`，`<glass-button>` 自动用它）。没按下时逐位不变
 - [x] **`<glass-button>` 进表单**：表单关联的自定义元素，行为与原生 `<button>` 相同 —— 默认提交、
       `name` / `value` 只在被按下时进表单数据、`type="reset"`、`formaction` 一类的覆盖属性、
       祖先 `<fieldset disabled>`、click 里 `preventDefault()` 能拦下。两处例外见
@@ -138,7 +140,7 @@ WebGL2（WebGL2 的上下文丢失同理，第二次降到 CSS 兜底）。T5 �
 日志说会重新初始化，实际上画布会冻住 —— 现已修复，见 [docs/limitations.md](docs/limitations.md)。
 
 **190 条测试全绿**，playground 可跑（`npm run dev`），逐项自动验证在 `/verify.html`
-（现在 WebGPU 上 **PASS 20/20**、WebGL2 上 **PASS 19/19**）。
+（现在 WebGPU 上 **PASS 21/21**、WebGL2 上 **PASS 20/20**）。
 
 T5 顺带把两个计划阶段悬着的硬件问题测掉了，结果记在
 [docs/calibration.md](docs/calibration.md)：`minUniformBufferOffsetAlignment` 实测 256

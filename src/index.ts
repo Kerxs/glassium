@@ -149,7 +149,14 @@ export { GlassContainer } from './components/glass-container.ts'
 export { MATERIAL_ATTRIBUTES, parseMaterialAttributes } from './components/attributes.ts'
 
 // —— 玻璃面板（T7 起）与合并组（T10 起）——
-export { DEFAULT_SMOOTHING_DP, type GlassGroup, type GlassPanel } from './renderer/panels.ts'
+export {
+  DEFAULT_SMOOTHING_DP,
+  LIGHT_GAIN,
+  LIGHT_SIGMA_FRAC,
+  type GlassGroup,
+  type GlassPanel,
+  type PanelLight
+} from './renderer/panels.ts'
 export { DEBUG_MODES, type PanelDebugMode } from './shaders/glass.wgsl.ts'
 export {
   SECTORS,

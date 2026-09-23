@@ -18,7 +18,7 @@
 
 import type { GlassMaterial } from '../core/material.ts'
 import { describeElement } from '../renderer/layering.ts'
-import type { GlassPanel } from '../renderer/panels.ts'
+import type { GlassPanel, PanelLight } from '../renderer/panels.ts'
 import { currentStage, onStageChange, type GlassStage } from '../renderer/stage.ts'
 import { MATERIAL_ATTRIBUTES, parseMaterialAttributes } from './attributes.ts'
 
@@ -65,6 +65,11 @@ export class GlassElement extends HTMLElementBase {
     return material
   }
 
+  /** 子类的按压处的光（`<glass-button>`）。默认没有。 */
+  protected light(): PanelLight | null {
+    return null
+  }
+
   connectedCallback(): void {
     GlassElement.#live.add(this)
     GlassElement.#subscribe()
@@ -85,9 +90,10 @@ export class GlassElement extends HTMLElementBase {
     this.refresh()
   }
 
-  /** 材质或交互状态变了：把当前材质推给面板。还没注册（没有 stage）时什么都不做。 */
+  /** 材质或交互状态变了：把当前材质与光推给面板。还没注册（没有 stage）时什么都不做。 */
   protected refresh(): void {
     this.#panel?.setMaterial(this.present(this.#base))
+    this.#panel?.setLight(this.light())
   }
 
   static #subscribe(): void {
@@ -104,6 +110,7 @@ export class GlassElement extends HTMLElementBase {
       if (stage) {
         this.#stage = stage
         this.#panel = stage.register(this, this.present(this.#base))
+        this.#panel.setLight(this.light())
       }
     }
     this.toggleAttribute(ACTIVE_ATTRIBUTE, stage?.active === true)

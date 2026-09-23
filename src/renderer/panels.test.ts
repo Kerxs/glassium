@@ -95,6 +95,7 @@ test('packPanel 写入的每个字段都落在 WGSL struct 的对应偏移上', 
     // 一半有界、一半没有：没有裁剪的方向要写成有限的 ±65536（着色器里 ∞ − ∞ 是 NaN）
     clip: { x0: 5, y0: -Infinity, x1: 400, y1: Infinity },
     clipRadii: [1, 2, 3, 4],
+    light: [50, 60, 25, 0.15],
     chain
   }
 
@@ -145,6 +146,10 @@ test('packPanel 写入的每个字段都落在 WGSL struct 的对应偏移上', 
   near(at('clipRadii', 2), 3, 'clipRadii.BR')
   near(at('clipRadii', 3), 4, 'clipRadii.BL')
   assert.ok(Number.isFinite(at('clip', 1)) && Number.isFinite(at('clip', 3)))
+  near(at('light', 0), 50, 'light.x')
+  near(at('light', 1), 60, 'light.y')
+  near(at('light', 2), 25, 'light.σ')
+  near(at('light', 3), 0.15, 'light.strength')
 
   // 相邻槽位不能被写脏
   assert.ok(data.subarray(0, base).every((v) => v === 0), '写越界到了前一个槽位')

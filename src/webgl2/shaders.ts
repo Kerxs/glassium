@@ -187,6 +187,7 @@ struct Panel {
   float _pad1;
   vec4 clip;
   vec4 clipRadii;
+  vec4 light;
 };
 
 const vec2 LIGHT_DIR = vec2(-0.70710678, -0.70710678);
@@ -219,6 +220,7 @@ struct Shading {
   float highlight;
   float opacity;
   float rimPx;
+  float glow;
 };
 
 vec4 shade(vec2 px, Shading s) {
@@ -238,10 +240,19 @@ vec4 shade(vec2 px, Shading s) {
   }
   vec3 rgb = applyColorFilter(sampled, s.saturation, s.tint);
   vec2 terms = highlightTerms(s.normal, LIGHT_DIR, GLOSS) * rimMask(s.sd, s.rimPx) * s.highlight;
-  float lit = terms.x;
+  float lit = terms.x + s.glow;
   float dark = terms.y * DARK_RIM;
   float a = s.coverage * s.opacity;
   return vec4((rgb * (1.0 - dark) + vec3(lit, lit, lit)) * a, a);
+}
+
+// 与 glass.wgsl.ts 的 lightAt 对应。
+float lightAt(vec2 px, vec4 light) {
+  if (light.w <= 0.0) {
+    return 0.0;
+  }
+  vec2 d = px - light.xy;
+  return light.w * exp(-dot(d, d) / (2.0 * light.z * light.z));
 }
 
 // 与 glass.wgsl.ts 的 clipCoverage 对应。
@@ -337,6 +348,7 @@ void main() {
   s.highlight = panel.highlight;
   s.opacity = panel.opacity;
   s.rimPx = panel.rimPx;
+  s.glow = lightAt(px, panel.light);
   outColor = shade(px, s);
 }
 `
@@ -448,6 +460,16 @@ Merged evalGroup(vec2 px) {
   return m;
 }
 
+float groupGlow(vec2 px) {
+  int count = min(int(grp.header.x + 0.5), ${capacity});
+  float g = 0.0;
+  for (int i = 0; i < ${capacity}; i++) {
+    if (i >= count) break;
+    g += lightAt(px, grp.members[i].light);
+  }
+  return g;
+}
+
 float groupClip(vec2 px) {
   int count = min(int(grp.header.x + 0.5), ${capacity});
   float c = clipCoverage(px, grp.members[0].clip, grp.members[0].clipRadii);
@@ -487,6 +509,7 @@ void main() {
   s.highlight = m.highlight;
   s.opacity = m.opacity;
   s.rimPx = m.rimPx;
+  s.glow = groupGlow(px);
   outColor = shade(px, s);
 }
 `

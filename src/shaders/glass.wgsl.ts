@@ -20,7 +20,7 @@
 import { OPTICS_WGSL } from './optics.wgsl.ts'
 
 /** Panel 结构体的字节数。按 256B 步长排进一条 buffer，用动态偏移切换。 */
-export const PANEL_STRUCT_BYTES = 128
+export const PANEL_STRUCT_BYTES = 144
 /** 每块面板在 uniform buffer 里占的步长。T5 实测 minUniformBufferOffsetAlignment = 256。 */
 export const PANEL_STRIDE = 256
 /** Float32 视角下的步长。 */
@@ -65,6 +65,7 @@ struct Panel {
   _pad1: f32,
   clip: vec4f,          // 裁剪祖先围出的可见区域 x0, y0, x1, y1 —— 画布设备像素；没有裁剪的方向是 ±65536
   clipRadii: vec4f,     // 可见区域四角的圆角 TL, TR, BR, BL
+  light: vec4f,         // 按压处的光：中心 x、y，σ（画布设备像素），强度（0 = 没有）
 }
 
 // 光源方向：指向光源的单位向量，屏幕坐标（y 向下）。左上 45°。
@@ -85,6 +86,15 @@ struct VsOut {
 //
 // 用「到四条边的距离」而不是「到中心的偏移减半宽」来算：区域一边是 ±65536 时，中心在几万像素之外，
 // f32 在那个量级上只剩 1/256 像素量级的精度 —— 而到边的距离 max(x0 − p, p − x1) 是精确的。
+// 按压处的光：以按下的点为中心的高斯光斑，加到亮边的加性光上。强度 0 时恰好是 0，乘不乘都逐位不变。
+fn lightAt(px: vec2f, light: vec4f) -> f32 {
+  if (light.w <= 0.0) {
+    return 0.0;
+  }
+  let d = px - light.xy;
+  return light.w * exp(-dot(d, d) / (2.0 * light.z * light.z));
+}
+
 fn clipCoverage(px: vec2f, box: vec4f, radii: vec4f) -> f32 {
   let c = (box.xy + box.zw) * 0.5;
   let right = px.x > c.x;
@@ -133,6 +143,7 @@ struct Shading {
   highlight: f32,
   opacity: f32,
   rimPx: f32,
+  glow: f32,            // 按压处的光在这个像素上的亮度（lightAt 的结果）
 }
 
 fn shade(px: vec2f, s: Shading) -> vec4f {
@@ -163,7 +174,7 @@ fn shade(px: vec2f, s: Shading) -> vec4f {
   // 法线用纯 SDF 梯度（放大后的角半径），不混 depthEffect —— 与上游一致，
   // 高光描述的是面板轮廓的朝向，不是折射方向。
   let terms = highlightTerms(s.normal, LIGHT_DIR, GLOSS) * rimMask(s.sd, s.rimPx) * s.highlight;
-  let lit = terms.x;
+  let lit = terms.x + s.glow;
   let dark = terms.y * DARK_RIM;
 
   let a = s.coverage * s.opacity;
@@ -261,6 +272,7 @@ fn evalOptics(px: vec2f) -> Optics {
   s.highlight = panel.highlight;
   s.opacity = panel.opacity;
   s.rimPx = panel.rimPx;
+  s.glow = lightAt(px, panel.light);
   return shade(px, s);
 }
 

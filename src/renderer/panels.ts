@@ -32,8 +32,25 @@ import {
 export interface GlassPanel {
   readonly element: HTMLElement
   setMaterial(material: GlassMaterial): void
+  /**
+   * 按压处的光：Apple 玻璃的 interactive 反馈 —— 从按下的地方亮起来。null 关掉。
+   * 这是交互状态，不是材质，所以单独一条路。`<glass-button>` 按下时自己调它。
+   */
+  setLight(light: PanelLight | null): void
   unregister(): void
 }
+
+/** 按压处的光。x、y 是相对面板元素左上角的 CSS 像素；strength 0–1。 */
+export interface PanelLight {
+  readonly x: number
+  readonly y: number
+  readonly strength: number
+}
+
+/** 光斑的高斯 σ 占面板短边的比例。 */
+export const LIGHT_SIGMA_FRAC = 0.4
+/** strength = 1 时光斑中心加上的亮度（0–1，加性）。 */
+export const LIGHT_GAIN = 0.2
 
 /**
  * 一组合并绘制的面板（`<glass-container>` 背后就是它）。
@@ -88,6 +105,8 @@ export interface MeasuredPanel {
   readonly clip: Box
   /** 可见区域四角的圆角（TL, TR, BR, BL），画布设备像素。着色器按它把圆角外的玻璃抹掉。 */
   readonly clipRadii: readonly [number, number, number, number]
+  /** 按压处的光：中心 x、y 与 σ（画布设备像素）、强度（已乘 LIGHT_GAIN）。没有光时强度为 0。 */
+  readonly light: readonly [number, number, number, number]
   readonly chain: EffectChain
 }
 
@@ -105,6 +124,8 @@ export interface MaterialFilter {
 export interface PanelRecord {
   readonly element: HTMLElement
   material: GlassMaterial
+  /** 按压处的光（见 GlassPanel.setLight）。 */
+  light?: PanelLight | null
   /** 按 CSS 尺寸缓存的降级结果。尺寸或材质变了才重算。 */
   cached: { readonly w: number; readonly h: number; readonly chain: EffectChain } | null
   /** 缓存的裁剪祖先（要读计算样式，所以不每帧重找）。clipGeneration 过期时重找。 */
@@ -248,6 +269,14 @@ export class PanelRegistry {
         record.cached = null
         this.#onChange()
       },
+      setLight: (light: PanelLight | null): void => {
+        const next = light && light.strength > 0 ? light : null
+        const prev = record.light ?? null
+        if (next === prev) return
+        if (next && prev && next.x === prev.x && next.y === prev.y && next.strength === prev.strength) return
+        record.light = next
+        this.#onChange()
+      },
       unregister: (): void => {
         const i = this.#records.indexOf(record)
         if (i >= 0) this.#records.splice(i, 1)
@@ -336,7 +365,11 @@ export class PanelRegistry {
         roundBox(clipBox)
       )
       const scissor = clip(own.x0, own.y0, own.x1, own.y1)
-      measured.set(record, { record, x, y, w, h, scissor, clip: clipBox, clipRadii, chain })
+      const l = record.light
+      const light: [number, number, number, number] = l
+        ? [x + l.x * sx, y + l.y * sy, LIGHT_SIGMA_FRAC * Math.min(w, h), Math.min(1, Math.max(0, l.strength)) * LIGHT_GAIN]
+        : [0, 0, 1, 0]
+      measured.set(record, { record, x, y, w, h, scissor, clip: clipBox, clipRadii, light, chain })
     }
 
     // 2) 合并组。一块面板只能属于一个组（先到先得），一组最多 MAX_GROUP_MEMBERS 块。
@@ -422,7 +455,7 @@ export function packPanel(
   writePanel(data, index * PANEL_STRIDE_FLOATS, panel, viewport, blurLevels, debugMode)
 }
 
-/** Panel 结构体占几个 float（128B / 4）。合并组里的成员按这个步长紧挨着排。 */
+/** Panel 结构体占几个 float（144B / 4）。合并组里的成员按这个步长紧挨着排。 */
 export const PANEL_STRUCT_FLOATS = PANEL_STRUCT_BYTES / 4
 
 /**
@@ -535,4 +568,9 @@ function writePanel(
   data[o + 29] = panel.clipRadii[1]
   data[o + 30] = panel.clipRadii[2]
   data[o + 31] = panel.clipRadii[3]
+  // light: vec4f @ 128 —— 中心 x、y，σ，强度
+  data[o + 32] = panel.light[0]
+  data[o + 33] = panel.light[1]
+  data[o + 34] = panel.light[2]
+  data[o + 35] = panel.light[3]
 }

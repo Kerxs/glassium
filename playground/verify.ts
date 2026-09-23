@@ -19,6 +19,7 @@ import {
   GlassPresets,
   joinProbeAndColors,
   simulateMoreContrast,
+  simulateReducedMotion,
   simulateReducedTransparency,
   summarizeBySector,
   type GlassStage,
@@ -383,6 +384,59 @@ async function run(): Promise<void> {
       ` · 更高对比度${sameFrost ? '与之逐位相同' : '与之不同'} · 关掉后${restored ? '逐位复原' : '没有复原'}`
     const ok = flag && contrastFlag && b.std < a.std * 0.25 && b.mean < 90 && sameFrost && restored
     return ok ? pass(detail) : fail(detail)
+  })
+
+  await check('button-light', async () => {
+    // 按压处的光：在胶囊按钮宽度 25% 处按下。按下本身让整块按钮均匀地变化（tint 加厚、折射加深），
+    // 光只加在按下的地方 —— 所以按钮中间那一条（离边缘一个折射带以上）里，按下点的亮度增量
+    // 要明显大于对称位置（75% 处）的增量。松开之后逐位复原。
+    // 模拟减少动效：能量直接落到终点，结果与帧时序无关。
+    const pill = document.getElementById('v-pill')!
+    simulateReducedMotion(true)
+    try {
+      const r = pill.getBoundingClientRect()
+      const region = regionOf([pill], 0)
+      const at = (clientX: number, clientY: number): PointerEventInit => ({
+        bubbles: true,
+        button: 0,
+        pointerType: 'mouse',
+        clientX,
+        clientY
+      })
+      const rest = await readback(region)
+      pill.dispatchEvent(new PointerEvent('pointerdown', at(r.left + r.width * 0.25, r.top + r.height / 2)))
+      const pressed = await readback(region)
+      pill.dispatchEvent(new PointerEvent('pointerup', at(r.left + r.width * 0.25, r.top + r.height / 2)))
+      pill.dispatchEvent(new PointerEvent('pointerleave', at(r.left - 10, r.top - 10)))
+      const released = await readback(region)
+
+      // 以按下点与对称点为中心、8×12 CSS 像素的方块里，亮度增量的平均
+      const v = stage.debug.stats().viewport!
+      const s = v.compositeWidth / v.cssWidth
+      const gain = (fx: number): number => {
+        let sum = 0
+        let n = 0
+        const cx = Math.round(r.width * fx * s)
+        const cy = Math.round((r.height / 2) * s)
+        for (let y = cy - Math.round(6 * s); y < cy + Math.round(6 * s); y++) {
+          for (let x = cx - Math.round(4 * s); x < cx + Math.round(4 * s); x++) {
+            const i = (y * region.width + x) * 4
+            const l = (p: Uint8Array): number => 0.2126 * p[i]! + 0.7152 * p[i + 1]! + 0.0722 * p[i + 2]!
+            sum += l(pressed) - l(rest)
+            n++
+          }
+        }
+        return sum / n
+      }
+      const near = gain(0.25)
+      const far = gain(0.75)
+      const restored = (await sha(rest)) === (await sha(released))
+      const detail =
+        `亮度增量：按下点 +${near.toFixed(1)}，对称点 +${far.toFixed(1)}（/255）· 松开后${restored ? '逐位复原' : '没有复原'}`
+      return near > far + 10 && restored ? pass(detail) : fail(detail)
+    } finally {
+      simulateReducedMotion(null)
+    }
   })
 
   await check('component-equals-register', async () => {

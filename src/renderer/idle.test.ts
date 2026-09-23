@@ -40,6 +40,7 @@ const panel = (over: Partial<MeasuredPanel> = {}): MeasuredPanel => ({
   scissor: [0, 0, 120, 80],
   clip: { x0: -Infinity, y0: -Infinity, x1: Infinity, y1: Infinity },
   clipRadii: [0, 0, 0, 0],
+  light: [0, 0, 1, 0],
   chain,
   ...over
 })
@@ -115,6 +116,7 @@ test('面板：动了、换了降级结果、换了裁剪、多一块少一块�
     false
   )
   assert.equal(unchangedFrame(frame(), frame({ panels: [panel({ clipRadii: [0, 12, 0, 0] })] })), false)
+  assert.equal(unchangedFrame(frame(), frame({ panels: [panel({ light: [30, 40, 20, 0.2] })] })), false, '按压处的光')
   assert.equal(unchangedFrame(frame(), frame({ panels: [] })), false)
   assert.equal(unchangedFrame(frame(), frame({ panels: [panel({ record: { element: {} } as unknown as PanelRecord })] })), false)
 })

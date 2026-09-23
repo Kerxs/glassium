@@ -21,7 +21,7 @@ import { GLASS_COMMON_WGSL, PANEL_STRUCT_BYTES } from './glass.wgsl.ts'
 
 /** 一组最多几块。与 core/merge.ts 的 MAX_GROUP_MEMBERS 一致（有测试核对）。 */
 export const GROUP_CAPACITY = 4
-/** Group 结构体的字节数：16B 的头 + 4 × 128B 的成员 = 528B。 */
+/** Group 结构体的字节数：16B 的头 + 4 × 144B 的成员 = 592B。 */
 export const GROUP_STRUCT_BYTES = 16 + GROUP_CAPACITY * PANEL_STRUCT_BYTES
 /** 每组在 uniform buffer 里占的步长：三个 256B 槽位（动态偏移仍按 256 对齐）。 */
 export const GROUP_STRIDE = 768
@@ -138,6 +138,16 @@ fn evalGroup(px: vec2f) -> Merged {
 }
 
 // 成员各自的裁剪区域取并集（任一成员的区域允许就可见）。成员通常同在一个容器里，那就是那个容器。
+// 成员各自的光斑相加：只有被按下的那块有光，其余贡献 0。
+fn groupGlow(px: vec2f) -> f32 {
+  let count = min(u32(group.header.x + 0.5), ${GROUP_CAPACITY}u);
+  var g = 0.0;
+  for (var i = 0u; i < count; i++) {
+    g += lightAt(px, group.members[i].light);
+  }
+  return g;
+}
+
 fn groupClip(px: vec2f) -> f32 {
   let count = min(u32(group.header.x + 0.5), ${GROUP_CAPACITY}u);
   var c = clipCoverage(px, group.members[0].clip, group.members[0].clipRadii);
@@ -174,6 +184,7 @@ fn groupClip(px: vec2f) -> f32 {
   s.highlight = m.highlight;
   s.opacity = m.opacity;
   s.rimPx = m.rimPx;
+  s.glow = groupGlow(px);
   return shade(px, s);
 }
 

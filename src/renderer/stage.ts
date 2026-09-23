@@ -1175,6 +1175,7 @@ async function buildStage(options: GlassStageOptions): Promise<GlassStage> {
       return {
         element: handle.element,
         setMaterial: handle.setMaterial,
+        setLight: handle.setLight,
         unregister(): void {
           handle.unregister()
           layers.unwatch(element)
@@ -1312,7 +1313,7 @@ function makeInertStage(canvas: HTMLCanvasElement, options: GlassStageOptions): 
     // 没有 GPU 时面板照样可以注册 —— 元素本身照常显示，只是后面没有玻璃。
     // 返回一个什么都不做的句柄，而不是抛：页面不该因为拿不到 GPU 就挂掉。
     register(element: HTMLElement): GlassPanel {
-      return { element, setMaterial(): void {}, unregister(): void {} }
+      return { element, setMaterial(): void {}, setLight(): void {}, unregister(): void {} }
     },
     group(): GlassGroup {
       return { setMembers(): void {}, setSmoothing(): void {}, dissolve(): void {} }
