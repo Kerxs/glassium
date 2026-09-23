@@ -124,13 +124,17 @@ GPU 输出靠 `stage.debug.probeOptics()` + `compareOptics()` 与 CPU 实现逐�
 - [x] **静止时不画**（`src/renderer/idle.ts`）。每帧照样量面板，但这一帧画出来与上一帧逐像素相同时
       就不提交，浏览器继续显示上一帧。静态背景加不动的卡片：实测 1.5 秒 **0 帧**；滚动一下画 2 帧，
       按钮悬停只在补间期间画；视频场景只在出新帧时画
+- [x] **`<glass-button>` 进表单**：表单关联的自定义元素，行为与原生 `<button>` 相同 —— 默认提交、
+      `name` / `value` 只在被按下时进表单数据、`type="reset"`、`formaction` 一类的覆盖属性、
+      祖先 `<fieldset disabled>`、click 里 `preventDefault()` 能拦下。两处例外见
+      [docs/limitations.md](docs/limitations.md)
 
 GPU 设备丢失时会在新设备上整套重建（实测约 30 ms，恢复后画面逐位相同），第二次丢失则降到
 WebGL2（WebGL2 的上下文丢失同理，第二次降到 CSS 兜底）。T5 到 T8 期间这一点是坏的：
 日志说会重新初始化，实际上画布会冻住 —— 现已修复，见 [docs/limitations.md](docs/limitations.md)。
 
 **178 条测试全绿**，playground 可跑（`npm run dev`），逐项自动验证在 `/verify.html`
-（现在 WebGPU 上 **PASS 17/17**、WebGL2 上 **PASS 16/16**）。
+（现在 WebGPU 上 **PASS 18/18**、WebGL2 上 **PASS 17/17**）。
 
 T5 顺带把两个计划阶段悬着的硬件问题测掉了，结果记在
 [docs/calibration.md](docs/calibration.md)：`minUniformBufferOffsetAlignment` 实测 256
