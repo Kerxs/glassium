@@ -31,6 +31,12 @@ let current: AcquiredDevice | null = null
 let pending: Promise<DeviceResult> | null = null
 let lossCount = 0
 
+/**
+ * 主动释放过的设备。它们的 lost 也会触发（reason 为 'destroyed'），但那不是丢失 ——
+ * 不区分的话，每次 dispose 都会在控制台留一条「设备丢失」的警告，把真正的丢失淹掉。
+ */
+const released = new WeakSet<GPUDevice>()
+
 /** 测试与 playground 的探测用：假装没有 WebGPU。 */
 let simulateMissing = false
 
@@ -118,16 +124,24 @@ export async function acquireDevice(): Promise<DeviceResult> {
 
     // 设备丢失在 Windows 笔记本上是常态（睡眠/唤醒会触发驱动重置），
     // 失效表现是画布静默冻结 —— 不报出来的话会被当成「代码卡死了」。
+    //
+    // 这里**只陈述事实**：丢了、第几次、原因。怎么恢复是 stage 的事（重建或降级），
+    // 由 stage 自己报。这条日志早先写的是「将尝试重新初始化」，而当时根本没有任何代码
+    // 在重建 —— 画布冻在最后一帧，控制台却说会重试。
+    //
+    // 这个回调必须先于 stage 的回调执行，好让 stage 重新 acquire 时拿到的是新设备：
+    // 同一个 Promise 上的回调按注册顺序执行，而这里的注册早于 stage 拿到设备。
     void device.lost.then((info) => {
+      if (current?.device === device) {
+        current = null
+        pending = null
+      }
+      if (released.has(device)) return
       lossCount++
       console.warn(
-        `[Glassium] WebGPU 设备丢失（第 ${lossCount} 次）：${info.reason} ${info.message}。` +
-          (lossCount === 1
-            ? '将尝试重新初始化。'
-            : '已丢失多次，不再重试 —— 应当降级到 WebGL2。')
+        `[Glassium] WebGPU 设备丢失（第 ${lossCount} 次）：${info.reason}` +
+          (info.message ? ` —— ${info.message}` : '')
       )
-      current = null
-      pending = null
     })
 
     current = { adapter, device, format }
@@ -139,16 +153,33 @@ export async function acquireDevice(): Promise<DeviceResult> {
   return result
 }
 
-/** 已经丢失过几次设备。降级决策用：丢过两次就别再试 WebGPU 了。 */
+/** 意外丢失过几次设备（主动释放不算）。 */
 export function deviceLossCount(): number {
   return lossCount
 }
 
-/** 释放单例。dispose() 会调用它，之后可以重新 acquire。 */
+/** 释放单例。dispose() 会调用它，之后可以重新 acquire。这不算丢失。 */
 export function releaseDevice(): void {
   if (current) {
+    released.add(current.device)
     current.device.destroy()
     current = null
   }
   pending = null
+}
+
+/**
+ * 模拟一次意外的设备丢失：销毁当前设备，但**不**记为主动释放。
+ *
+ * 和 simulateNoWebGpu 是同一类东西。真实的丢失来自驱动重置（睡眠/唤醒、驱动更新、
+ * GPU 超时），在本机没法按需复现；而恢复路径写错了平时不会有人发现 —— 直到某台笔记本
+ * 唤醒之后画布冻住。真实丢失的 reason 是 'unknown'，这里是 'destroyed'，
+ * 但 stage 不看 reason，走的是同一条恢复路径。
+ *
+ * @returns 当前没有设备时返回 false
+ */
+export function simulateDeviceLoss(): boolean {
+  if (!current) return false
+  current.device.destroy()
+  return true
 }

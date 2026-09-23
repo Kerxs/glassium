@@ -13,19 +13,24 @@ Dawn/SwiftShader 的软件 WebGPU，而软件光栅化与真实驱动（开发�
 
 ## 那么像素靠什么验证
 
-**`playground/verify.html`，手工跑。** 它把每个光学函数渲到 `rgba32float`，
-`copyTextureToBuffer` + `mapAsync` 回读，与 `src/core/optics.ts` 的 CPU 实现按 **1e-5**
-绝对值逐点比对。这是唯一能证明 WGSL 与 TS 没有漂移的手段，而且它比截图比对**更强** ——
-它比的是数值，不是渲染出来的样子。
+**在浏览器里手工跑。** 现在的手段是 `stage.debug.probeOptics(i)`：把面板的光学中间量
+（sd、方向、位移）渲到 `rgba32float`，`copyTextureToBuffer` + `mapAsync` 回读，再用
+`compareOptics()` 与 `src/core/optics.ts` 的 CPU 实现逐像素比对。颜色层面另有
+`readback()` + `joinProbeAndColors()`，按扇区统计高光与色散。这是唯一能证明 WGSL 与 TS
+没有漂移的手段，而且它比截图比对**更强** —— 它比的是数值，不是渲染出来的样子。
 
-两个后端各跑一遍并 diff 回读：
+判据是 T7 实测之后定的：**零个非有限值、采样偏移 p99 在 1e-4 像素以下、最大误差只出现在
+|sd| < 0.01 处**。原先写的「1e-5 绝对误差」在面板边界上做不到也不该要求 —— circleMap 在那里
+斜率发散，f32 的舍入会被放大（见 docs/calibration.md）。
+
+`playground/verify.html` 是 T12 的事：把上面这套手工步骤固化成一个页面，并且两个后端各跑一遍：
 
 ```
 /verify.html
 /verify.html?glassium.backend=webgl2
 ```
 
-差异超过 1e-4 就是 WGSL→GLSL 重写器错了。套件里没有别的东西能抓到这个。
+两个后端之间差异超过 1e-4 就是 WGSL→GLSL 重写器错了。套件里没有别的东西能抓到这个。
 
 ## CI 实际覆盖什么
 

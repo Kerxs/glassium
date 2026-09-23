@@ -27,8 +27,9 @@
  * 光学核心的 CPU 参考实现。
  *
  * 这份 TypeScript 和 src/shaders/optics.wgsl.ts 里的 WGSL 是**同一套数学的两份实现**，
- * 不是一份调用另一份。这是刻意的冗余：playground/verify.html 把两者逐点比对到 1e-5，
- * 任何一边写错都会当场暴露。GPU 端没法单步调试，CPU 端可以。
+ * 不是一份调用另一份。这是刻意的冗余：stage.debug.probeOptics() + compareOptics() 把两者
+ * 逐像素比对（判据：零个非有限值、采样偏移 p99 < 1e-4 像素），任何一边写错都会当场暴露。
+ * GPU 端没法单步调试，CPU 端可以。
  *
  * 全部函数都是纯函数、无分配优化 —— 这里优先可读性，热路径在 GPU 上。
  */

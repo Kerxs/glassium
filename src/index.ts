@@ -89,7 +89,7 @@ export {
   type ReadbackResult
 } from './renderer/stage.ts'
 
-export { deviceLossCount, simulateNoWebGpu } from './webgpu/device.ts'
+export { deviceLossCount, simulateDeviceLoss, simulateNoWebGpu } from './webgpu/device.ts'
 export type { ProbeReport } from './webgpu/probe.ts'
 
 // —— 玻璃面板（T7 起）——

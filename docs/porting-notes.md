@@ -34,8 +34,9 @@ GLSL ES 3.0 由 `src/shaders/translate-glsl.ts` 生成；另有一份**独立的
 
 顺带记一个对未来 Android 渲染器重要的事实：**没有任何主流着色器转译器能产出 AGSL**
 （naga、Tint、SPIRV-Cross、Slang 都不支持）。AGSL 是 Skia SkSL 的受限子集，唯一的单源路径是
-用 SkSL 写、并留在 AGSL 子集内。`spec/optics.md` 因此用与语言无关的数学表述，而不是给一份
-可转译的着色器源。
+用 SkSL 写、并留在 AGSL 子集内。所以给未来渲染器的契约是**与语言无关的数值向量**
+（`spec/conformance/optics.json`，218 条），而不是一份可转译的着色器源。用文字写成的数学
+说明 `spec/optics.md` 计划在 T12 补上，现在还没有。
 
 ### 2. 色散：鞍面调制 → 径向幅值，且蓝光位移大于红光
 

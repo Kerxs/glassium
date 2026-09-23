@@ -38,9 +38,11 @@
  * 写法约束（重写器依赖这些，违反会抛）：
  *   - 每个 let / var 都必须带类型标注
  *   - 条件用 select(假值, 真值, 条件)，不用 if 表达式
- *   - 只用两边同名的内置函数（abs/min/max/sqrt/pow/step/clamp/length/normalize/sign）
+ *   - 只用两边同名的内置函数（abs/min/max/sqrt/pow/clamp/length/normalize/dot/smoothstep）
+ *   - **不用 sign()**：见下一段
  *
- * 数值上必须与 src/core/optics.ts 逐点一致（playground/verify.html 比到 1e-5）。
+ * 数值上必须与 src/core/optics.ts 逐点一致（probeOptics + compareOptics 逐像素比对，
+ * 判据见 spec/golden/README.md）。
  * 尤其注意符号约定：`p.x >= 0` 取 +1 而不是 sign(p.x) —— 在 p.x 恰为 0 时
  * 两者不同，而面板中心线正好落在那里。
  */
