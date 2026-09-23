@@ -1,17 +1,21 @@
 /**
  * Playground 入口。
  *
- * T5 阶段它只做三件事：建 stage、把 stats 显示出来、提供那几个探测开关。
- * 控件与场景切换在 T12。
+ * 注册组件、建 stage、把 stats 显示出来，再接上左下角的控件与那几个 URL 开关。
+ * 页面上的三块玻璃都是 <glass-card> / <glass-button>，材质写在 HTML 属性上。
  */
+
+// 兜底样式。正式页面里应当用 <link> 放进 <head>，好在 JS 执行之前生效；
+// playground 是开发服务器，这里 import 就够了。
+import '../src/components/glassium.css'
 
 // 按包名引用，和外部使用者写法一致 —— 免得 demo 里全是 ../src/…
 import {
   compareOptics,
   createGlassStage,
-  GlassPresets,
+  defineGlassElements,
+  simulateForcedColors,
   simulateNoWebGpu,
-  type GlassMaterial,
   simulateReducedMotion,
   type GlassStage,
   type PanelDebugMode
@@ -33,7 +37,14 @@ if (params.get('glassium.reducedMotion') === '1') {
   simulateReducedMotion(true)
 }
 
+// 同理：打开系统高对比度要改系统设置。
+if (params.get('glassium.forcedColors') === '1') {
+  console.info('[Playground] 强制 forced-colors: active')
+  simulateForcedColors(true)
+}
+
 const statsEl = document.getElementById('stats')!
+let clicks = 0
 
 function render(stage: GlassStage): void {
   const s = stage.debug.stats()
@@ -47,7 +58,9 @@ function render(stage: GlassStage): void {
     `<b>draws</b>    ${s.drawCalls}`,
     `<b>allocs</b>   ${s.targetAllocations}`,
     `<b>blur</b>     ${s.blurPasses} 趟 / ${s.blurLevels} 级`,
-    `<b>panels</b>   ${s.panels}`
+    `<b>panels</b>   ${s.panels}`,
+    `<b>pipelines</b> ${s.pipelineCreations}  <b>bindGroups</b> ${s.bindGroupCreations}`,
+    `<b>clicks</b>   ${clicks}${s.forcedColors ? '  (forced-colors：stage 停用)' : ''}`
   ]
 
   if (v) {
@@ -109,25 +122,25 @@ function wireControls(stage: GlassStage): void {
 }
 
 async function main(): Promise<void> {
+  // 先注册组件、再建 stage。组件 upgrade 时 stage 还没好，它们会等着，
+  // stage 建好时统一注册 —— 反过来写也一样，顺序不重要。
+  defineGlassElements()
+
   const stage = await createGlassStage({
     onDegrade: (r) => {
-      statsEl.textContent = `降级 ${r.from} → ${r.to}\n${r.detail}`
+      statsEl.textContent = `降级 ${r.from} → ${r.to}
+${r.detail}`
     }
   })
 
   // 供浏览器面板的 javascript_tool 读取 —— 验证靠读数值，不靠看截图猜。
-  Object.assign(window as unknown as Record<string, unknown>, { glassiumStage: stage })
+  Object.assign(window as unknown as Record<string, unknown>, {
+    glassiumStage: stage,
+    glassiumCompareOptics: compareOptics
+  })
 
-  // 注册测试面板。四角不同的那块专门用来看 radiusAt 的修正：
-  // 上游把原始坐标传给 radiusAt，四角会塌缩成右下角那一个。
-  const panels: [HTMLElement, GlassMaterial][] = [
-    [document.getElementById('card')!, GlassPresets.regular],
-    [document.getElementById('pill')!, { ...GlassPresets.thick, cornerRadius: '1frac' }],
-    [document.getElementById('pill2')!, { ...GlassPresets.regular, cornerRadius: [4, 32, 8, 28] }]
-  ]
-  const applyPanels = (overrides: GlassMaterial): void => {
-    for (const [el, base] of panels) stage.register(el, { ...base, ...overrides })
-  }
+  // 滑杆改的是组件的 HTML 属性 —— 和作者在标记里写属性是同一条路径。
+  const glassElements = [...document.querySelectorAll<HTMLElement>('glass-card, glass-button')]
   const disp = document.getElementById('disp') as HTMLInputElement
   const hl = document.getElementById('hl') as HTMLInputElement
   const dispOut = document.getElementById('dispOut') as HTMLOutputElement
@@ -135,25 +148,27 @@ async function main(): Promise<void> {
   const syncPanels = (): void => {
     dispOut.textContent = Number(disp.value).toFixed(2)
     hlOut.textContent = Number(hl.value).toFixed(2)
-    applyPanels({ dispersion: Number(disp.value), highlight: Number(hl.value) })
-  }
-  // 首次注册不走 syncPanels，免得对同一元素「重复注册」触发警告
-  for (const [el, base] of panels) {
-    stage.register(el, { ...base, dispersion: Number(disp.value), highlight: Number(hl.value) })
-  }
-  const quietly = (fn: () => void): void => {
-    const warn = console.warn
-    console.warn = (...a: unknown[]) => {
-      if (!String(a[0]).includes('已经注册过了')) warn(...a)
-    }
-    try {
-      fn()
-    } finally {
-      console.warn = warn
+    for (const el of glassElements) {
+      el.setAttribute('dispersion', disp.value)
+      el.setAttribute('highlight', hl.value)
     }
   }
-  for (const el of [disp, hl]) el.addEventListener('input', () => quietly(syncPanels))
-  Object.assign(window as unknown as Record<string, unknown>, { glassiumCompareOptics: compareOptics })
+  for (const el of [disp, hl]) el.addEventListener('input', syncPanels)
+
+  const pill = document.getElementById('pill')!
+  pill.addEventListener('click', () => {
+    clicks++
+    render(stage)
+  })
+
+  // R1 反例：给内容层加不透明背景。玻璃被整块挡住，控制台点名 main.content ——
+  // 触发靠的是 stage 对 class 变化的监听，这里不用手动调 checkLayers()。
+  const r1 = document.getElementById('r1') as HTMLInputElement
+  r1.addEventListener('change', () => {
+    document.querySelector('main.content')!.classList.toggle('r1-demo', r1.checked)
+  })
+  const disable = document.getElementById('disable') as HTMLInputElement
+  disable.addEventListener('change', () => pill.toggleAttribute('disabled', disable.checked))
 
   wireControls(stage)
   render(stage)

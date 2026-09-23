@@ -2,16 +2,27 @@
  * GlassStage —— 画布宿主与帧循环。
  *
  * 三层宿主（见 docs/limitations.md）：
- *   L0  canvas[data-glassium-scene]  position:fixed; inset:0; z-index:0
- *   L1  DOM 内容                      position:relative; z-index:1（背景必须透明）
+ *   L0  canvas[data-glassium-scene]  position:fixed; inset:0; z-index:-1
+ *   L1  DOM 内容                      照常排版，不需要任何层叠设置（背景必须透明，R1）
  *   L2  #glassium-overlay             z-index:3，**第一期为空**，留给 T13+ 的
  *                                     glass-above-DOM（GlassDialog / GlassSheet）
  *
  * L2 现在就占住层级，是为了将来加它的时候不必让所有使用方重排层叠。
  *
- * 为什么不是 meshora 的 z-index:-1：那边画布只需要在所有内容之下，玻璃由
- * backdrop-filter 交给合成器解析。Glassium 的画布**本身就是玻璃**，面板像素来自它，
- * 放在 -1 会被任何带不透明 background 的祖先整块盖掉 —— 表现为完全不可见且无报错。
+ * ## 为什么是 z-index: -1（与 meshora 相同）
+ *
+ * T5 到 T9 期间这里是 z-index: 0，理由写的是「-1 会画到根背景之下、被任何带背景的祖先
+ * 盖掉」。前半句是错的：负 z-index 的层叠上下文画在根背景**之上**、所有常规流内容之下
+ * （CSS 2.1 附录 E 的第 2 步）。实测 -1 时一点上的命中栈是 [面板, main.content, body, 画布, html]，
+ * 画布在 html 之上，场景照常可见。后半句对 -1 和 0 同样成立，不构成区别。
+ *
+ * 而 0 有一个实打实的代价：画布画在所有**不定位**的内容之上。一个没把内容包进
+ * z-index ≥ 1 容器的普通页面，正文会整个被画布盖住（实测：一行不定位的文字在 0 下消失，
+ * 在 -1 下正常显示）。这恰好是第一次用的人最可能写出的页面。
+ *
+ * -1 的代价只有一个：<html> 和 <body> **都**设了背景时，body 的背景画在画布之上，把玻璃挡住。
+ * 只给 body 设背景没事 —— html 没有背景时 body 的背景会传播成根背景，画在最底层。
+ * 前一种情况 layering.ts 会点名报出来。
  *
  * ## 两层结构
  *
@@ -23,7 +34,12 @@
 import { parseTint, type GlassMaterial } from '../core/material.ts'
 import { describeViewport, resolveViewport, type ResolvedViewport } from '../core/units.ts'
 import type { PanelDebugMode } from '../shaders/glass.wgsl.ts'
-import { acquireDevice, releaseDevice, type DeviceFailure } from '../webgpu/device.ts'
+import {
+  acquireDevice,
+  gpuCreationCounts,
+  releaseDevice,
+  type DeviceFailure
+} from '../webgpu/device.ts'
 import type { ProbeReport } from '../webgpu/probe.ts'
 import {
   GpuRenderer,
@@ -33,6 +49,7 @@ import {
   type ReadbackRequest,
   type ReadbackResult
 } from './gpu.ts'
+import { LayerWatcher, type LayerProblem } from './layering.ts'
 import { PanelRegistry, type GlassPanel } from './panels.ts'
 import type { OpticsProbe } from './verify.ts'
 
@@ -56,8 +73,17 @@ export interface GlassStats {
   readonly panels: number
   /** 这个 stage 经历过的意外设备丢失次数（主动 dispose 不算）。 */
   readonly deviceLosses: number
+  /**
+   * 本会话建过的渲染/计算管线总数（跨设备累计，数在设备上，见 webgpu/device.ts）。
+   * 预热之后必须走平 —— 持续上涨说明有东西拿逐面板或逐帧的值在建管线。
+   */
+  readonly pipelineCreations: number
+  /** 同上，bind group。只在视口尺寸变化、面板数超过容量、换设备时增长。 */
+  readonly bindGroupCreations: number
   readonly viewport: ResolvedViewport | null
   readonly reducedMotion: boolean
+  /** 高对比度模式（forced-colors: active）。开着时 stage 停用，画布隐藏。 */
+  readonly forcedColors: boolean
 }
 
 export interface GlassStageOptions {
@@ -114,6 +140,11 @@ export interface BackdropDebugParams {
 export interface GlassStage {
   /** 当前后端。设备第二次丢失之后会从 'webgpu' 变成 'none'。 */
   readonly backend: Backend
+  /**
+   * 此刻是不是真的在画玻璃。没有 GPU 后端、或者处于高对比度模式时为 false。
+   * 组件据此决定要不要显示 CSS 兜底表面（见 components/glassium.css）。
+   */
+  readonly active: boolean
   readonly canvas: HTMLCanvasElement
   /**
    * 把一个 DOM 元素注册成玻璃面板。
@@ -121,12 +152,19 @@ export interface GlassStage {
    * 元素负责占位、文字、点击与焦点；stage 每帧量它的 getBoundingClientRect，
    * 在画布上它的正后方画玻璃。滚动、缩放、布局变化都自动跟上。
    *
-   * R1：从这个元素到 stage 宿主之间的每个祖先都必须背景透明，
-   * 否则画布会被整块盖掉 —— 玻璃完全不可见，而且没有任何报错。
+   * R1：面板和画布之间的每一层都必须背景透明，否则玻璃会被整块挡住。
+   * 注册之后 stage 会在面板进入视口时查一遍（见 layering.ts），查出来就点名警告。
+   *
+   * 材质写错（比如 tint 解析不了）在这里就抛，而不是等到帧循环里。
    */
   register(element: HTMLElement, material?: GlassMaterial): GlassPanel
   readonly debug: {
     stats(): GlassStats
+    /**
+     * 立即检查所有在视口里的面板与画布之间有什么，返回全部问题（含已经警告过的）。
+     * 平时不需要手动调 —— 面板进入视口、页面上的 style / class 变化都会自动触发。
+     */
+    checkLayers(): LayerProblem<Element>[]
     /** 当前设备的能力探测结果。没有 GPU 时为 null；设备丢失恢复后是新设备的结果。 */
     readonly probe: ProbeReport | null
     /** 调整全屏背景视图的参数。见 BackdropDebugParams。 */
@@ -143,6 +181,15 @@ export interface GlassStage {
      * 画面正常显示、即使 configure 时加了 COPY_SRC。
      */
     readback(region?: ReadbackRegion): Promise<ReadbackResult>
+    /**
+     * 立刻同步画一帧，不等 requestAnimationFrame。
+     *
+     * 给验证用：标签页或面板被隐藏时浏览器会暂停 rAF，readback() / probeOptics() 就会
+     * 一直等下去。Claude 桌面端的浏览器面板就是这样，而且隐藏时 document.visibilityState
+     * **不一定**报 hidden（实测两种都见过），从页面里看不出来。在 readback() 之后调一次，
+     * 请求就在这一帧里被服务 —— WebGPU 的提交与 mapAsync 都不依赖 rAF。
+     */
+    renderNow(): void
     /** 所有面板的调试视图：'sdf' / 'mask' / 'grad' / 'displacement'，'off' 恢复正常。 */
     setPanelDebug(mode: PanelDebugMode): void
     /**
@@ -162,9 +209,58 @@ const CSS_FALLBACK =
   'radial-gradient(130% 150% at 16% 4%, #aed5f3 0%, #2e58a4 42%, #04101f 100%)'
 
 let activeStage: GlassStage | null = null
+/** 正在创建中的 stage。createGlassStage 要等 GPU 设备，两次调用可能交错。 */
+let pendingStage: Promise<GlassStage> | null = null
+
+const stageListeners = new Set<(stage: GlassStage | null) => void>()
+
+/** 当前的 stage。还没建好或已经 dispose 时为 null。 */
+export function currentStage(): GlassStage | null {
+  return activeStage
+}
+
+/**
+ * 订阅 stage 的变化：建好、dispose、降级、高对比度开关。返回取消订阅的函数。
+ *
+ * 组件靠它来**早于 stage** upgrade：createGlassStage 要等 GPU 设备，而
+ * customElements.define 一执行，页面上已有的元素就立即 upgrade —— 「先建 stage 再 upgrade」
+ * 在实际页面里做不到。组件 upgrade 时没有 stage 就先等着，stage 建好时统一注册。
+ */
+export function onStageChange(listener: (stage: GlassStage | null) => void): () => void {
+  stageListeners.add(listener)
+  return () => {
+    stageListeners.delete(listener)
+  }
+}
+
+function notifyStageChange(): void {
+  for (const listener of [...stageListeners]) listener(activeStage)
+}
 
 let reducedMotionOverride: boolean | null = null
 let onReducedMotionOverrideChange: (() => void) | null = null
+
+let forcedColorsOverride: boolean | null = null
+let onForcedColorsOverrideChange: (() => void) | null = null
+
+/** 当前是否减少动效（尊重 simulateReducedMotion）。组件的交互动画也看它。 */
+export function prefersReducedMotion(): boolean {
+  if (reducedMotionOverride !== null) return reducedMotionOverride
+  return typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches
+}
+
+/**
+ * 强制高对比度（forced-colors）状态，传 null 恢复为读真实媒体查询。
+ *
+ * 理由同 simulateReducedMotion：本机打开高对比度要改系统设置，而验证的是 stage 的
+ * 反应 —— 画布要藏起来、帧循环要停、组件要换成 CSS 兜底表面。
+ * `@media (forced-colors: active)` 里那几条 CSS 本身不经过这里，它们要靠真的打开
+ * 系统高对比度来验。
+ */
+export function simulateForcedColors(on: boolean | null): void {
+  forcedColorsOverride = on
+  onForcedColorsOverrideChange?.()
+}
 
 /**
  * 强制 reduced-motion 状态，传 null 恢复为读真实媒体查询。
@@ -188,16 +284,29 @@ export function simulateReducedMotion(on: boolean | null): void {
  * 第二次调用会**警告并返回同一个** —— 不抛。抛的话会让「组件各自确保 stage 存在」
  * 这种很自然的写法变成必须由调用方做全局协调，而多个上下文的真实代价（浏览器上限、
  * 互相之间无法采样）用一条警告说清楚就够了。
+ *
+ * 第一次调用还没完成（在等 GPU 设备）时的第二次调用，拿到的是同一个 Promise ——
+ * 早先这里只查已经建好的 stage，两次调用交错时会建出两个。
  */
-export async function createGlassStage(options: GlassStageOptions = {}): Promise<GlassStage> {
-  if (activeStage) {
+export function createGlassStage(options: GlassStageOptions = {}): Promise<GlassStage> {
+  const existing = activeStage ? Promise.resolve(activeStage) : pendingStage
+  if (existing) {
     console.warn(
       '[Glassium] 已经存在一个 stage，返回既有实例。每文档只应有一个 —— ' +
         '多个画布之间无法互相采样，glass-container 的合并会失效。'
     )
-    return activeStage
+    return existing
   }
+  const pending = buildStage(options)
+  pendingStage = pending
+  const settle = (): void => {
+    if (pendingStage === pending) pendingStage = null
+  }
+  pending.then(settle, settle)
+  return pending
+}
 
+async function buildStage(options: GlassStageOptions): Promise<GlassStage> {
   const host = options.host ?? document.body
   const alphaMode = options.alphaMode ?? 'opaque'
 
@@ -210,7 +319,7 @@ export async function createGlassStage(options: GlassStageOptions = {}): Promise
     width: '100%',
     height: '100%',
     display: 'block',
-    zIndex: '0',
+    zIndex: '-1', // 理由见文件头
     pointerEvents: 'none',
     background: CSS_FALLBACK
   } satisfies Partial<CSSStyleDeclaration>)
@@ -225,6 +334,7 @@ export async function createGlassStage(options: GlassStageOptions = {}): Promise
   if (!acquired.ok) {
     const stage = makeInertStage(canvas, acquired.failure, degrade)
     activeStage = stage
+    notifyStageChange()
     return stage
   }
 
@@ -236,6 +346,7 @@ export async function createGlassStage(options: GlassStageOptions = {}): Promise
       degrade
     )
     activeStage = stage
+    notifyStageChange()
     return stage
   }
 
@@ -284,6 +395,28 @@ export async function createGlassStage(options: GlassStageOptions = {}): Promise
   const motionQuery = window.matchMedia('(prefers-reduced-motion: reduce)')
   const readReducedMotion = (): boolean => reducedMotionOverride ?? motionQuery.matches
   let reducedMotion = readReducedMotion()
+
+  // 高对比度模式下折射图像没有意义，还会让强制配色下的文字压在一张花哨的背景上。
+  // 停用 stage：画布藏起来、帧循环停下，组件换成 CSS 兜底表面（由 active 驱动）。
+  const forcedColorsQuery = window.matchMedia('(forced-colors: active)')
+  const readForcedColors = (): boolean => forcedColorsOverride ?? forcedColorsQuery.matches
+  let forcedColors = readForcedColors()
+  if (forcedColors) canvas.style.display = 'none'
+
+  /** 此刻为什么不画玻璃；在画时返回 null。 */
+  const inactiveReason = (): string | null =>
+    disposed
+      ? 'stage 已销毁'
+      : backend === 'none'
+        ? '没有 GPU 后端'
+        : forcedColors
+          ? '高对比度模式下 stage 停用'
+          : null
+
+  /** 此刻是不是真的在画玻璃。 */
+  const isActive = (): boolean => inactiveReason() === null
+
+  const layers = new LayerWatcher(canvas, isActive)
 
   /** 在途的回读与探针全部作废。设备丢失或 stage 销毁时调用，免得调用方的 Promise 永远挂着。 */
   const rejectPending = (why: string): void => {
@@ -384,7 +517,7 @@ export async function createGlassStage(options: GlassStageOptions = {}): Promise
   }
 
   const startLoop = (): void => {
-    if (disposed || rafId !== 0 || backend === 'none') return
+    if (disposed || rafId !== 0 || backend === 'none' || forcedColors) return
     if (reducedMotion) {
       // 一个 rAF 都不排 —— 零持续开销，不是「排了但什么都不做」。
       fps = 0
@@ -405,7 +538,7 @@ export async function createGlassStage(options: GlassStageOptions = {}): Promise
   }
 
   function requestRender(): void {
-    if (disposed || rafId !== 0 || pendingOneShot !== 0 || backend === 'none') return
+    if (disposed || rafId !== 0 || pendingOneShot !== 0 || backend === 'none' || forcedColors) return
     pendingOneShot = requestAnimationFrame((now) => {
       pendingOneShot = 0
       renderFrame(now)
@@ -434,6 +567,7 @@ export async function createGlassStage(options: GlassStageOptions = {}): Promise
       to: 'none',
       detail: 'WebGL2 后端尚未实现（计划中的 T11），退到 CSS 兜底底色。面板元素照常显示，只是后面没有玻璃'
     })
+    notifyStageChange() // 组件据此换上 CSS 兜底表面
   }
 
   const recover = async (lost: GpuRenderer): Promise<void> => {
@@ -506,6 +640,28 @@ export async function createGlassStage(options: GlassStageOptions = {}): Promise
 
   const onMotionChange = (): void => applyMotionPreference()
 
+  const applyForcedColors = (): void => {
+    const next = readForcedColors()
+    if (next === forcedColors) return
+    forcedColors = next
+    console.info(
+      `[Glassium] forced-colors 变为 ${forcedColors ? 'active，停用 stage、隐藏画布' : 'none，恢复 stage'}`
+    )
+    if (forcedColors) {
+      stopLoop()
+      rejectPending('高对比度模式下 stage 停用')
+      canvas.style.display = 'none'
+    } else {
+      canvas.style.display = 'block'
+      forceResize = true // 藏起来期间视口可能变过，而且藏着的画布量出来是 0×0
+      startLoop()
+      layers.schedule()
+    }
+    notifyStageChange()
+  }
+
+  const onForcedColorsChange = (): void => applyForcedColors()
+
   window.addEventListener('resize', onResize)
   // 滚动条出现或消失时画布宽度会变 15px 左右，但 window.resize **不会**触发。
   // 帧循环在跑时每帧都会重新量，问题不大；reduced-motion 下循环不跑，
@@ -514,10 +670,15 @@ export async function createGlassStage(options: GlassStageOptions = {}): Promise
   resizeObserver.observe(canvas)
   motionQuery.addEventListener('change', onMotionChange)
   onReducedMotionOverrideChange = applyMotionPreference
+  forcedColorsQuery.addEventListener('change', onForcedColorsChange)
+  onForcedColorsOverrideChange = applyForcedColors
 
   syncViewport()
   if (reducedMotion) {
     console.info('[Glassium] prefers-reduced-motion: reduce —— 只画一帧，不启动帧循环')
+  }
+  if (forcedColors) {
+    console.info('[Glassium] forced-colors: active —— stage 停用，画布隐藏，组件显示 CSS 兜底表面')
   }
   startLoop()
 
@@ -525,28 +686,44 @@ export async function createGlassStage(options: GlassStageOptions = {}): Promise
     get backend(): Backend {
       return backend
     },
+    get active(): boolean {
+      return isActive()
+    },
     canvas,
     debug: {
       get probe(): ProbeReport | null {
         return gpu?.probe ?? null
       },
-      stats: (): GlassStats => ({
-        backend,
-        fps,
-        frames,
-        drawCalls,
-        targetAllocations: retiredAllocations + (gpu?.allocations ?? 0),
-        blurPasses,
-        blurLevels: gpu?.blurLevels ?? 0,
-        panels: panelsLastFrame,
-        deviceLosses,
-        viewport,
-        reducedMotion
-      }),
+      stats: (): GlassStats => {
+        const created = gpuCreationCounts()
+        return {
+          backend,
+          fps,
+          frames,
+          drawCalls,
+          targetAllocations: retiredAllocations + (gpu?.allocations ?? 0),
+          blurPasses,
+          blurLevels: gpu?.blurLevels ?? 0,
+          panels: panelsLastFrame,
+          deviceLosses,
+          pipelineCreations: created.pipelines,
+          bindGroupCreations: created.bindGroups,
+          viewport,
+          reducedMotion,
+          forcedColors
+        }
+      },
+      checkLayers: (): LayerProblem<Element>[] => layers.check(),
+      renderNow(): void {
+        if (!isActive()) return
+        renderFrame(performance.now())
+      },
       readback(region?: ReadbackRegion): Promise<ReadbackResult> {
         return new Promise<ReadbackResult>((resolve, reject) => {
-          if (backend === 'none') {
-            reject(new Error('[Glassium] 没有 GPU 后端，无法回读'))
+          // 不画的时候不会有下一帧 —— 不在这里拒绝的话，这个 Promise 会永远挂着
+          const why = inactiveReason()
+          if (why) {
+            reject(new Error(`[Glassium] ${why}，无法回读`))
             return
           }
           if (pendingReadback) {
@@ -563,8 +740,9 @@ export async function createGlassStage(options: GlassStageOptions = {}): Promise
       },
       probeOptics(index = 0): Promise<OpticsProbe> {
         return new Promise<OpticsProbe>((resolve, reject) => {
-          if (backend === 'none') {
-            reject(new Error('[Glassium] 没有 GPU 后端，无法探针'))
+          const why = inactiveReason()
+          if (why) {
+            reject(new Error(`[Glassium] ${why}，无法探针`))
             return
           }
           if (pendingProbe) {
@@ -591,7 +769,16 @@ export async function createGlassStage(options: GlassStageOptions = {}): Promise
       }
     },
     register(element: HTMLElement, material: GlassMaterial = {}): GlassPanel {
-      return panels.register(element, material)
+      const handle = panels.register(element, material)
+      layers.watch(element)
+      return {
+        element: handle.element,
+        setMaterial: handle.setMaterial,
+        unregister(): void {
+          handle.unregister()
+          layers.unwatch(element)
+        }
+      }
     },
     requestRender,
     dispose(): void {
@@ -603,16 +790,21 @@ export async function createGlassStage(options: GlassStageOptions = {}): Promise
       resizeObserver.disconnect()
       motionQuery.removeEventListener('change', onMotionChange)
       onReducedMotionOverrideChange = null
+      forcedColorsQuery.removeEventListener('change', onForcedColorsChange)
+      onForcedColorsOverrideChange = null
+      layers.dispose()
       rejectPending('stage 已销毁')
       gpu?.destroy()
       gpu = null
       canvas.remove()
       releaseDevice() // 主动释放：device.ts 不会把它记成丢失
       activeStage = null
+      notifyStageChange()
     }
   }
 
   activeStage = stage
+  notifyStageChange()
   return stage
 }
 
@@ -639,6 +831,7 @@ function makeInertStage(
   let disposed = false
   return {
     backend: 'none',
+    active: false,
     canvas,
     debug: {
       probe: null,
@@ -648,6 +841,8 @@ function makeInertStage(
       setPanelDebug(): void {},
       probeOptics: (): Promise<OpticsProbe> =>
         Promise.reject(new Error('[Glassium] 没有 GPU 后端，无法探针')),
+      checkLayers: (): LayerProblem<Element>[] => [],
+      renderNow(): void {},
       stats: (): GlassStats => ({
         backend: 'none',
         fps: 0,
@@ -658,8 +853,11 @@ function makeInertStage(
         blurLevels: 0,
         panels: 0,
         deviceLosses: 0,
+        pipelineCreations: 0,
+        bindGroupCreations: 0,
         viewport: null,
-        reducedMotion: window.matchMedia('(prefers-reduced-motion: reduce)').matches
+        reducedMotion: prefersReducedMotion(),
+        forcedColors: forcedColorsOverride ?? window.matchMedia('(forced-colors: active)').matches
       })
     },
     // 没有 GPU 时面板照样可以注册 —— 元素本身照常显示，只是后面没有玻璃。
@@ -673,6 +871,7 @@ function makeInertStage(
       disposed = true
       canvas.remove()
       activeStage = null
+      notifyStageChange()
     }
   }
 }

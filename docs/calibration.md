@@ -331,6 +331,110 @@ RangeError。汇总函数改成了循环。
 降级时画布不冻结，靠的是 `context.unconfigure()`：解除配置后画布恢复透明，它自己的 CSS 背景
 （兜底底色）就露出来了。
 
+## 组件与层级检查（T9）
+
+测量在 Claude 桌面端的浏览器面板里做，视口用 `resize_window` 固定成 820×900 或 820×1200
+（DPR 1）。面板隐藏时浏览器不跑 rAF，所以全部回读都经 `stage.debug.renderNow()` 同步出帧；
+按钮动画用一个 16ms 的定时器替换页面的 `requestAnimationFrame` 来驱动 —— 实测 `setTimeout`
+在隐藏面板里不被节流，间隔 16–17ms。
+
+### 组件与手动注册画出的像素逐位相同
+
+同一页面、同一视口：先对组件版（材质写在 HTML 属性上）整帧回读取 SHA-256，再把三个组件
+就地换成普通 `div`、用同样的材质 `stage.register()`，再取一次：
+
+| | 整帧 SHA-256（820×900 @1x，画布 805×900） |
+|---|---|
+| `<glass-card>` / `<glass-button>` | `6fb533a8…c9a7` |
+| 手动注册的 `div` | `6fb533a8…c9a7` |
+
+三块面板的 `getBoundingClientRect` 完全相同，替换前后 `pipelineCreations` 都是 6。
+这也是第一次在 DPR 1 下渲染（此前只测过 1.5）。
+
+逐位相同靠的是：按钮在静止时调制出的材质与基础材质**逐位**一致（`x·1`、`x + 0` 在 IEEE 754
+下精确，tint 原样不动），`motion.test.ts` 对 `lowerMaterial` 的输出钉住了这一条。
+
+### 按钮动画：只改 uniform
+
+按下（`pointerenter` + `pointerdown`）后每约 30ms 回读一次按钮区域：14 帧的哈希各不相同，
+平均亮度单调爬升后走平；松开后单调回落，**505ms 时回到与按下前逐位相同的画面**。
+全程 `pipelineCreations` 6 → 6，`bindGroupCreations` 14 → 14。
+
+反馈强度调过一次。只调折射与高光时，thick 预设上的反馈几乎看不出来 —— σ 16dp 的重模糊
+把折射位移抹平了。加上按下时 tint alpha 的提亮（Apple 的交互玻璃按下时「从内部发光」的近似）：
+
+| 按钮区域 188×72 | 变化 > 4/255 的像素 | 变化 > 16/255 | 平均变化 | 最大变化 |
+|---|---|---|---|---|
+| 悬停，调整前 | 1.1% | 0 | — | 11 |
+| 按下，调整前 | 4.1% | 0.1% | — | 23 |
+| 悬停，调整后 | 35% | 0 | 4.1 | 15 |
+| 按下，调整后 | **79%** | **15%** | **10.0** | 34 |
+
+减少动效时：按下后立即是终态，没有中间帧（400ms 后画面不变）；松开逐位回到静止。
+
+键盘（真实按键）：Tab 从卡片里的输入框移到按钮，`:focus-visible` 成立；Enter 按下即激活；
+空格按下只显示按下态、松开才激活，且不滚动页面。禁用：点击被拦下、`tabindex` 去掉、
+`aria-disabled="true"`，玻璃按材质的 opacity 变淡；恢复后 `tabindex` 回到 0。
+
+`role` 最早经 ElementInternals 给出，浏览器面板的页面树把它报成 `generic` —— 那棵树是按
+DOM 属性推断的，看不到 ElementInternals。用一个写了 `role="button"` 属性的探针对照，
+它被报成 `button`。改成宿主上的属性之后，按钮报成 `button "胶囊按钮"`。
+
+### 卡片里的内容照常可用
+
+真实鼠标键盘输入（不是合成事件）：三击选中卡片里的整段文字；点进卡片里的输入框，焦点落在它上面，
+卡片 `:focus-within` 成立；键入的 `glass 玻璃` 原样进入输入框。
+
+**输入法没有测到。** 工具的键入是直接插入文本，不走 `compositionstart` / `compositionend`。
+Glassium 不在 `<glass-card>` 上挂任何键盘或组合事件的监听器，没有理由出问题，但这不等于测过。
+
+### 层级检查
+
+| 情形 | 结果 |
+|---|---|
+| 初始的 playground | 无问题 |
+| `main.content` 加不透明背景（playground 的「R1 反例」开关） | 三块面板都点名 `main.content`。改 class 自动触发，没有手动调 `checkLayers()` |
+| 只给 `body` 设背景 | 无问题（传播成根背景，画在画布下面） |
+| 只给 `html` 设背景 | 无问题 |
+| `html` 与 `body` 都设背景 | 三块面板都点名 `body` |
+| 与卡片重叠的 div，背景 `rgba(0, 0, 0, 0.3)` | 点名 `div.blocker`，关系是「重叠」而不是「祖先」 |
+| `main.content` 的 opacity 0.5 | 三块面板都报 opacity |
+| 面板带负的 z-index | 报画布盖在面板上 |
+| 卡片 `visibility: hidden` / 内容层 `opacity: 0` | 不报，面板直接不画（3 块 → 2 块 / 0 块） |
+
+「只给 body 设背景」那一行是沿祖先链查会误报的情形，重叠那一行是它会漏报的情形。
+
+写错的属性（`blur="8px"`、`tint="red"`）各报一次并被忽略，不抛，同一元素上的其它属性照常生效。
+
+### 高对比度（模拟）
+
+`simulateForcedColors(true)`：`active` 变 false，画布 `display: none`，三个组件都去掉
+`data-glassium-active`，卡片换上兜底表面（`rgba(255, 255, 255, 0.14)` + `blur(20px) saturate(1.5)`）；
+`renderNow()` 不出帧，`readback()` 明确拒绝（此前会永远挂着），层级检查不跑。
+恢复之后整帧哈希与之前逐位相同，管线数仍是 6。
+
+`@media (forced-colors: active)` 里补边框的那几条 CSS 没测到 —— 那要真的打开系统高对比度，
+是改系统设置。
+
+### stage 重建与并发创建
+
+`dispose()` 之后 `currentStage()` 为 null，组件去掉 active 属性；接着**同步**调两次
+`createGlassStage()`：拿到同一个 Promise、同一个 stage，一条警告，页面上一块画布。
+组件自动注册到新 stage 上；新设备上给同样的背景参数，整帧哈希与 dispose 之前逐位相同
+（管线 6 → 12：新设备上重建了一套）。
+
+### 画布的 z-index
+
+理由见 docs/limitations.md「画布为什么在 z-index: -1」。卡片中心的命中栈（上 → 下）：
+
+| 画布 z-index | 命中栈 | 一行不定位的文字 |
+|---|---|---|
+| 0（T5–T9） | glass-card, main.content, **canvas**, body, html | 被画布盖住 |
+| -1（现在） | glass-card, main.content, body, **canvas**, html | 正常显示 |
+
+z-index 不影响画布自身的内容，回读不受影响。playground 当前布局的整帧基线
+（820×1200 @1x，calibration 场景，色散 0.3、高光 0.7）：`d494d93c…9fc8`。
+
 ## 待补
 
 - [ ] 上游 playground 默认值的并列对比（需要 T7 之后才有可比的渲染结果）

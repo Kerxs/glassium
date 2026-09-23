@@ -122,12 +122,13 @@
       }
 
       /*
-        测试面板。背景必须透明（R1）—— 玻璃画在它后面的画布上，
-        元素自己只负责占位和承载文字。给它设不透明背景就等于把玻璃盖住。
+        玻璃组件。不要给它们设背景（R1）—— 玻璃画在它们后面的画布上，
+        元素自己只负责占位和承载文字。没有玻璃时的兜底表面由 glassium.css 负责，
+        玻璃生效时它自己会去掉。
       */
-      .panel {
+      glass-card,
+      glass-button {
         position: relative;
-        background: transparent;
         color: #fff;
       }
 
@@ -144,6 +145,35 @@
         margin: 0 0 6px;
         font-size: 20px;
         font-weight: 600;
+      }
+
+      .card-input {
+        width: 100%;
+        box-sizing: border-box;
+        margin-top: 4px;
+        padding: 6px 10px;
+        border-radius: 10px;
+        border: 1px solid rgba(255, 255, 255, 0.35);
+        background: rgba(255, 255, 255, 0.12);
+        color: #fff;
+        font: inherit;
+      }
+
+      .card-input::placeholder {
+        color: rgba(255, 255, 255, 0.6);
+      }
+
+      /*
+        兜底表面（没有 GPU、高对比度时）的圆角来自 CSS，不来自 corner-radius 属性 ——
+        CSS 算不出「短边的比例」这种圆角。四角不同的那块要让兜底表面也对上，就在这里再写一遍。
+      */
+      #pill2 {
+        border-radius: 4px 32px 8px 28px;
+      }
+
+      /* R1 反例：内容层加上不透明背景，玻璃被整块挡住。控制台会点名 main.content。 */
+      .content.r1-demo {
+        background: #0e1a2b;
       }
 
       .panel-pill {
@@ -177,27 +207,29 @@
     <main class="content">
       <h1>Glassium</h1>
       <p>
-        T5：画布、分辨率策略与帧循环。场景是一层渐变 —— 它只用来验证管线通不通，
-        <strong>不是</strong>用来判断玻璃好不好看的。
+        T9：<code>&lt;glass-card&gt;</code> 与 <code>&lt;glass-button&gt;</code>。下面三块玻璃都是组件，
+        材质写在 HTML 属性上；左下角的滑杆改的也是这些属性。按钮有悬停与按压反馈。
       </p>
       <p>
-        平滑渐变是检验折射最差的背景：透镜把采样点挪 24px，而渐变在 24px 内只变约
-        1/255，与没有透镜无从区分。真正的判据是 T12 的 calibration 场景。
+        默认场景是 calibration（棋盘格 + 硬对角线 + 黑白阶跃）—— 判断折射与色散只能用它。
+        gradient 好看，但平滑渐变在 24px 内只变约 1/255，折射挪了采样点也看不出来。
       </p>
       <p>
         这段文字在 L1（<code>z-index: 1</code>），画布在 L0（<code>z-index: 0</code>）。
         文字可以正常选中、聚焦、输入 —— 布局与命中测试始终归 DOM。
       </p>
 
-      <div class="panel panel-card" id="card">
+      <glass-card class="panel-card" id="card" preset="regular" corner-radius="0.5frac" dispersion="0.3" highlight="0.7">
         <h2>玻璃卡片</h2>
         <p>这段文字在 DOM 里，玻璃画在它正后方的画布上。滚动页面，玻璃应当牢牢跟住它。</p>
-      </div>
-      <div class="panel panel-pill" id="pill">胶囊按钮</div>
-      <div class="panel panel-pill" id="pill2">四角不同</div>
+        <input class="card-input" id="cardInput" placeholder="输入框：焦点与输入法都归 DOM" />
+      </glass-card>
+      <glass-button class="panel-pill" id="pill" preset="thick" dispersion="0.3" highlight="0.7">胶囊按钮</glass-button>
+      <glass-card class="panel-pill" id="pill2" preset="regular" corner-radius="4 32 8 28" dispersion="0.3" highlight="0.7">四角不同</glass-card>
       <p>
-        <code>?glassium.simulate=no-webgpu</code> 可以强制走降级阶梯，
-        用来验证探测与警告那条路径（本机只有 Edge，平时永远走不到）。
+        几个开关（本机平时走不到这些路径）：<code>?glassium.simulate=no-webgpu</code>
+        强制走降级阶梯，组件换成 CSS 兜底表面；<code>?glassium.forcedColors=1</code>
+        模拟高对比度模式；<code>?glassium.reducedMotion=1</code> 模拟减少动效。
       </p>
     </main>
 
@@ -247,6 +279,16 @@
         tint α
         <input id="tint" type="range" min="0" max="1" step="0.02" value="0" />
         <output id="tintOut">0.00</output>
+      </label>
+      <label>
+        R1 反例
+        <input id="r1" type="checkbox" />
+        <output>挡住</output>
+      </label>
+      <label>
+        按钮禁用
+        <input id="disable" type="checkbox" />
+        <output></output>
       </label>
     </div>
 

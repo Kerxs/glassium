@@ -30,6 +30,8 @@ export type DeviceResult =
 let current: AcquiredDevice | null = null
 let pending: Promise<DeviceResult> | null = null
 let lossCount = 0
+let pipelinesCreated = 0
+let bindGroupsCreated = 0
 
 /**
  * 主动释放过的设备。它们的 lost 也会触发（reason 为 'destroyed'），但那不是丢失 ——
@@ -49,6 +51,48 @@ let simulateMissing = false
  */
 export function simulateNoWebGpu(on: boolean): void {
   simulateMissing = on
+}
+
+/**
+ * 在设备上数「一共建了多少条管线、多少个 bind group」。
+ *
+ * 数在设备上，而不是在各个已知的创建点上：这两个数存在的意义是抓住**意料之外**的创建 ——
+ * 比如某处拿逐面板的值当了管线的 key，于是每帧、每块面板新建一条。只在已知的创建点计数的话，
+ * 恰好漏掉的就是要抓的那一种。
+ *
+ * 预热之后两个数都应当走平：管线只在建设备时建，bind group 只在视口尺寸变化时重建。
+ */
+function countCreations(device: GPUDevice): void {
+  const renderPipeline = device.createRenderPipeline.bind(device)
+  const renderPipelineAsync = device.createRenderPipelineAsync.bind(device)
+  const computePipeline = device.createComputePipeline.bind(device)
+  const computePipelineAsync = device.createComputePipelineAsync.bind(device)
+  const bindGroup = device.createBindGroup.bind(device)
+  device.createRenderPipeline = (d) => {
+    pipelinesCreated++
+    return renderPipeline(d)
+  }
+  device.createRenderPipelineAsync = (d) => {
+    pipelinesCreated++
+    return renderPipelineAsync(d)
+  }
+  device.createComputePipeline = (d) => {
+    pipelinesCreated++
+    return computePipeline(d)
+  }
+  device.createComputePipelineAsync = (d) => {
+    pipelinesCreated++
+    return computePipelineAsync(d)
+  }
+  device.createBindGroup = (d) => {
+    bindGroupsCreated++
+    return bindGroup(d)
+  }
+}
+
+/** 本会话（跨设备累计）建过的管线与 bind group 总数。见 countCreations。 */
+export function gpuCreationCounts(): { readonly pipelines: number; readonly bindGroups: number } {
+  return { pipelines: pipelinesCreated, bindGroups: bindGroupsCreated }
 }
 
 function describeLimits(adapter: GPUAdapter, device: GPUDevice): void {
@@ -120,6 +164,7 @@ export async function acquireDevice(): Promise<DeviceResult> {
     }
 
     const format = navigator.gpu.getPreferredCanvasFormat()
+    countCreations(device)
     describeLimits(adapter, device)
 
     // 设备丢失在 Windows 笔记本上是常态（睡眠/唤醒会触发驱动重置），

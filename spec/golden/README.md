@@ -19,6 +19,10 @@ Dawn/SwiftShader 的软件 WebGPU，而软件光栅化与真实驱动（开发�
 `readback()` + `joinProbeAndColors()`，按扇区统计高光与色散。这是唯一能证明 WGSL 与 TS
 没有漂移的手段，而且它比截图比对**更强** —— 它比的是数值，不是渲染出来的样子。
 
+标签页或面板被隐藏时浏览器不跑 rAF，回读会一直等下去（`document.visibilityState` 不一定
+报 hidden，从页面里看不出来）。在 `readback()` / `probeOptics()` 之后调一次
+`stage.debug.renderNow()`，请求就在同步出的这一帧里被服务。
+
 判据是 T7 实测之后定的：**零个非有限值、采样偏移 p99 在 1e-4 像素以下、最大误差只出现在
 |sd| < 0.01 处**。原先写的「1e-5 绝对误差」在面板边界上做不到也不该要求 —— circleMap 在那里
 斜率发散，f32 的舍入会被放大（见 docs/calibration.md）。

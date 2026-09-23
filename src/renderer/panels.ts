@@ -38,6 +38,28 @@ export interface PanelRecord {
   cached: { readonly w: number; readonly h: number; readonly chain: EffectChain } | null
 }
 
+/**
+ * 材质能不能降级。不能就在**调用处**抛。
+ *
+ * 不提前校验的话，写错的 tint 要等到帧循环里 lowerMaterial 才抛 —— 那里抛出的异常会让
+ * 下一帧的 requestAnimationFrame 排不上，整个 stage 就此冻住，报错位置还离写错的地方很远。
+ */
+function assertLowerable(material: GlassMaterial): void {
+  lowerMaterial(material, [100, 100])
+}
+
+/**
+ * 元素是不是真的画出来了。
+ *
+ * `visibility: hidden` 与 `opacity: 0`（自身或任一祖先）的元素照样有盒子，
+ * getBoundingClientRect 量得到 —— 不跳过的话，DOM 已经看不见了，玻璃还留在原地。
+ * 渐隐收起的菜单就是这样。部分透明（0 < opacity < 1）玻璃跟不上，那由 layering.ts 警告。
+ */
+function isRendered(element: HTMLElement): boolean {
+  if (typeof element.checkVisibility !== 'function') return true
+  return element.checkVisibility({ visibilityProperty: true, opacityProperty: true })
+}
+
 /** 抗锯齿需要在面板矩形外多画的像素。sd 的覆盖率过渡宽 1px，留 2px 足够。 */
 const AA_MARGIN_PX = 2
 
@@ -62,6 +84,7 @@ export class PanelRegistry {
   }
 
   register(element: HTMLElement, material: GlassMaterial): GlassPanel {
+    assertLowerable(material)
     const existing = this.#records.find((r) => r.element === element)
     if (existing) {
       console.warn('[Glassium] 这个元素已经注册过了，更新材质而不是重复注册：', element)
@@ -80,6 +103,7 @@ export class PanelRegistry {
     return {
       element: record.element,
       setMaterial: (material: GlassMaterial): void => {
+        assertLowerable(material)
         record.material = material
         record.cached = null
         this.#onChange()
@@ -109,6 +133,7 @@ export class PanelRegistry {
     const out: MeasuredPanel[] = []
     for (const record of this.#records) {
       if (!record.element.isConnected) continue
+      if (!isRendered(record.element)) continue
       const r = record.element.getBoundingClientRect()
       if (r.width <= 0 || r.height <= 0) continue
 

@@ -63,8 +63,11 @@ export interface GlassMaterial {
  * refraction / distortion 取 0.2，与上游 playground 的
  * refractionHeightFrac / refractionAmountFrac 默认值一致 —— 这样两边的校准结果
  * 可以直接对比（见 docs/calibration.md）。
+ *
+ * 导出是给要在默认值之上做调制的代码用的（`<glass-button>` 的按压动画要知道
+ * 「没写 highlight 时 highlight 是多少」）。
  */
-const DEFAULTS = {
+export const MATERIAL_DEFAULTS: Readonly<Required<GlassMaterial>> = Object.freeze({
   blur: 8,
   refraction: 0.2,
   distortion: 0.2,
@@ -73,10 +76,10 @@ const DEFAULTS = {
   saturation: 1.4,
   tint: 'rgba(255, 255, 255, 0.18)',
   opacity: 1,
-  cornerRadius: '0.5frac' as CornerRadius,
+  cornerRadius: '0.5frac',
   squircle: 2,
   depthEffect: 1
-} satisfies Required<GlassMaterial>
+})
 
 /**
  * 预设。
@@ -170,7 +173,7 @@ export function resolveCornerRadii(radius: CornerRadius, size: Vec2): Radii4 {
  * `chain.effects` 读起来就是「这块玻璃实际做了什么」。
  */
 export function lowerMaterial(material: GlassMaterial, size: Vec2): EffectChain {
-  const m = { ...DEFAULTS, ...material }
+  const m = { ...MATERIAL_DEFAULTS, ...material }
   const minDimension = Math.min(size[0], size[1])
   const effects: GlassEffect[] = []
 

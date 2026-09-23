@@ -4,10 +4,13 @@
  * 第一期按 T1→T12 逐步填充。每个 export 在其对应任务完成时加上，不提前占位 ——
  * 空壳 export 会让 playground 编译通过却在运行时崩，比缺失更难查。
  *
- * 现在有的是**核心**：光学数学、单位与分辨率策略、有序效果管线与声明式材质立面。
- * 还没有的是**渲染器**（stage / WebGPU / WebGL2 后端 / 组件）—— 那从 T5 开始。
+ * 现在有的：光学核心、有序效果管线与材质立面（T1–T4），WebGPU 渲染器（T5–T8），
+ * `<glass-card>` / `<glass-button>` 组件与层级诊断（T9）。
+ * 还没有的：`<glass-container>` 的合并（T10）与 WebGL2 后端（T11）——
+ * 没有 WebGPU 的浏览器现在直接退到 CSS 兜底。
  *
- * 也就是说：现在可以用这个包算出「该画什么」，但还不能把它画出来。
+ * 在 Node 里 import 整个包是安全的（SSR）：模块顶层不碰任何浏览器全局，
+ * defineGlassElements() 在没有 customElements 时什么都不做。
  */
 
 export const VERSION = '0.0.0'
@@ -60,6 +63,7 @@ export {
 // —— 声明式材质立面 ——
 export {
   GlassPresets,
+  MATERIAL_DEFAULTS,
   glass,
   lowerMaterial,
   parseTint,
@@ -75,10 +79,13 @@ export { OPTICS_WGSL } from './shaders/optics.wgsl.ts'
 export { OPTICS_GLSL } from './shaders/generated/optics.glsl.ts'
 
 // —— 渲染器（T5 起）——
-// T7 起有了 stage.register()：把一个 DOM 元素注册成玻璃面板。
-// 组件（<glass-card> 等）要到 T9 —— 现在只能手动 register。
+// stage.register() 把任意 DOM 元素注册成玻璃面板；组件（下面）就是在它之上的一层。
 export {
   createGlassStage,
+  currentStage,
+  onStageChange,
+  prefersReducedMotion,
+  simulateForcedColors,
   simulateReducedMotion,
   type Backend,
   type DegradeReason,
@@ -89,8 +96,25 @@ export {
   type ReadbackResult
 } from './renderer/stage.ts'
 
-export { deviceLossCount, simulateDeviceLoss, simulateNoWebGpu } from './webgpu/device.ts'
+export {
+  deviceLossCount,
+  gpuCreationCounts,
+  simulateDeviceLoss,
+  simulateNoWebGpu
+} from './webgpu/device.ts'
 export type { ProbeReport } from './webgpu/probe.ts'
+
+// —— 层级诊断（T9 起）——
+// 面板与画布之间有东西挡着时点名警告。stage 自动触发，这里导出的是给调试读结果用的。
+export { describeElement, describeProblem, type LayerProblem } from './renderer/layering.ts'
+
+// —— 组件（T9 起）——
+// 样式兜底在 src/components/glassium.css，要用 <link> 放进 <head>。
+export { defineGlassElements } from './components/register.ts'
+export { GlassElement } from './components/base.ts'
+export { GlassCard } from './components/glass-card.ts'
+export { GlassButton } from './components/glass-button.ts'
+export { MATERIAL_ATTRIBUTES, parseMaterialAttributes } from './components/attributes.ts'
 
 // —— 玻璃面板（T7 起）——
 export type { GlassPanel } from './renderer/panels.ts'

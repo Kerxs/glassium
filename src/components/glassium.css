@@ -1,0 +1,75 @@
+/*
+ * Glassium 组件的兜底外观。
+ *
+ * 用 <link rel="stylesheet"> 放在 <head> 里：它要在 JS 执行之前就生效，
+ * 否则元素 upgrade 之前会先以「行内、全透明」的样子闪一下。
+ *
+ * 所有选择器都包在 :where() 里，优先级为 0 —— 作者写的任何样式都能覆盖它们。
+ */
+
+/* 布局默认值。upgrade 前后一致，避免 upgrade 那一刻跳一下。
+   组件的影子树里也有同样的 :host 规则，没引这份 CSS 时由那边兜底。 */
+:where(glass-card) {
+  display: block;
+  border-radius: 24px;
+}
+
+:where(glass-button) {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+}
+
+/*
+ * 没有玻璃的时候，给一层可读的表面。
+ *
+ * 「没有玻璃」= 没有 data-glassium-active 属性，这一条同时覆盖：
+ *   - upgrade 之前（:not(:defined) 的元素当然没有这个属性）
+ *   - 已经 upgrade 但 stage 还没建好（createGlassStage 要等 GPU 设备）
+ *   - 没有 GPU 后端
+ *   - 高对比度模式（stage 主动停用）
+ *
+ * 玻璃生效时组件加上这个属性，表面随之去掉 —— 否则它自己就会挡住后面的玻璃（R1）。
+ *
+ * 圆角来自上面的 border-radius，不来自 corner-radius 属性：CSS 算不出「短边的比例」
+ * 这种圆角。改了 corner-radius 又想让兜底表面跟上，就同时写 border-radius。
+ */
+:where(
+    glass-card:not([data-glassium-active]),
+    glass-button:not([data-glassium-active])
+  ) {
+  background-color: rgba(255, 255, 255, 0.14);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.22);
+  -webkit-backdrop-filter: blur(20px) saturate(1.5);
+  backdrop-filter: blur(20px) saturate(1.5);
+}
+
+/* 连 backdrop-filter 都没有：换成近乎不透明的深色表面，保证上面的浅色文字可读。 */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  :where(
+      glass-card:not([data-glassium-active]),
+      glass-button:not([data-glassium-active])
+    ) {
+    background-color: rgba(18, 30, 50, 0.82);
+  }
+}
+
+/*
+ * 高对比度模式。
+ *
+ * 背景色和文字色由浏览器强制成系统色（背景的 alpha 保留），所以这里不写颜色，
+ * 只补一圈边框 —— 强制配色会去掉 box-shadow，不补的话卡片和按钮就没有边界了。
+ *
+ * 不写 forced-color-adjust: none：它会被子元素继承，卡片里作者写的
+ * `color: #fff` 就不再被强制，浅色主题的高对比度下白字压在白底上。
+ */
+@media (forced-colors: active) {
+  :where(glass-card) {
+    border: 1px solid CanvasText;
+  }
+
+  :where(glass-button) {
+    border: 1px solid ButtonText;
+  }
+}

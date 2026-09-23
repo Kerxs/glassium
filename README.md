@@ -83,11 +83,18 @@ GPU 输出靠 `stage.debug.probeOptics()` + `compareOptics()` 与 CPU 实现逐�
       R − B 四个角都是 +5.70/255，没有一个像素反向；高光只点亮朝光一侧并补上暗边 ——
       右下扇区一个发亮的像素都没有。关掉两者时与 T7 **整帧逐位相同**（SHA-256 一致）
 
+- [x] **T9** `<glass-card>` / `<glass-button>` 组件（`src/components/`）与层级检查
+      （`src/renderer/layering.ts`）。材质写在 HTML 属性上，组件与手动 `stage.register()`
+      画出的整帧**逐位相同**；按钮的悬停与按压只改 uniform —— 实测动画全程管线与
+      bind group 一个都没新建，松开后画面逐位回到按下前。R1 被违反时控制台点名具体元素。
+      顺带撤回了一条错误的规划结论：画布从 `z-index: 0` 改回 `-1`，内容不再需要包进
+      `z-index: 1` 的容器，见 [docs/limitations.md](docs/limitations.md)
+
 GPU 设备丢失时会在新设备上整套重建（实测约 30 ms，恢复后画面逐位相同），第二次丢失则降级。
 T5 到 T8 期间这一点是坏的：日志说会重新初始化，实际上画布会冻住 —— 现已修复，
 见 [docs/limitations.md](docs/limitations.md)。
 
-**104 条测试全绿**，playground 可跑（`npm run dev`）。
+**136 条测试全绿**，playground 可跑（`npm run dev`）。
 
 T5 顺带把两个计划阶段悬着的硬件问题测掉了，结果记在
 [docs/calibration.md](docs/calibration.md)：`minUniformBufferOffsetAlignment` 实测 256
@@ -98,6 +105,38 @@ T5 顺带把两个计划阶段悬着的硬件问题测掉了，结果记在
 与上游的偏离逐条记在 [docs/porting-notes.md](docs/porting-notes.md)：色散的象限变号、
 高光缺暗边、以及 `radiusAt` 传错坐标系导致四角半径塌缩。早期版本还声称上游的采样余量
 欠补 2 倍 —— 那是错的，已在同一份文档里撤回并说明原因。
+
+---
+
+## 用法
+
+```html
+<!-- 兜底样式放进 <head>：没有玻璃时（upgrade 之前、没有 GPU、高对比度）给组件一层可读的表面 -->
+<link rel="stylesheet" href="glassium/src/components/glassium.css" />
+
+<glass-card preset="regular" corner-radius="24">
+  <h2>标题</h2>
+  <p>正文照常选中、聚焦、输入 —— 内容全在 DOM 里。</p>
+</glass-card>
+<glass-button preset="thick" dispersion="0.3">确定</glass-button>
+
+<script type="module">
+  import { createGlassStage, defineGlassElements } from 'glassium'
+
+  defineGlassElements() // 组件可以先于 stage upgrade，stage 建好时统一注册
+  await createGlassStage()
+</script>
+```
+
+属性与 `GlassMaterial` 一一对应：`preset`（ultraThin / thin / regular / thick / clear）、
+`blur`（dp）、`refraction`、`distortion`、`highlight`、`dispersion`、`saturation`、`tint`
+（hex 或 rgb()/rgba()）、`opacity`、`corner-radius`（`16`、`0.5frac` 或四个数 `4 32 8 28`）、
+`squircle`、`depth-effect`。写错的属性会在控制台报出来并被忽略，不会让整块面板失效。
+
+不用组件也行：`stage.register(element, material)` 可以把任意元素注册成玻璃面板。
+
+还不是 npm 包（第一期不发布），上面的 `glassium` 指的是 `src/index.ts`，
+playground 里是 Vite 的别名。
 
 ---
 
