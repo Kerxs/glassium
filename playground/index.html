@@ -121,6 +121,42 @@
         color: #aed5f3;
       }
 
+      /*
+        测试面板。背景必须透明（R1）—— 玻璃画在它后面的画布上，
+        元素自己只负责占位和承载文字。给它设不透明背景就等于把玻璃盖住。
+      */
+      .panel {
+        position: relative;
+        background: transparent;
+        color: #fff;
+      }
+
+      .panel-card {
+        width: min(360px, 80vw);
+        height: 220px;
+        margin: 28px 0;
+        padding: 22px 24px;
+        box-sizing: border-box;
+        border-radius: 28px;
+      }
+
+      .panel-card h2 {
+        margin: 0 0 6px;
+        font-size: 20px;
+        font-weight: 600;
+      }
+
+      .panel-pill {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 180px;
+        height: 64px;
+        margin: 0 12px 12px 0;
+        font-weight: 600;
+        user-select: none;
+      }
+
       /* L2：预留给 T13+ 的 glass-above-DOM。现在是空的。 */
       #glassium-overlay {
         position: fixed;
@@ -152,6 +188,13 @@
         这段文字在 L1（<code>z-index: 1</code>），画布在 L0（<code>z-index: 0</code>）。
         文字可以正常选中、聚焦、输入 —— 布局与命中测试始终归 DOM。
       </p>
+
+      <div class="panel panel-card" id="card">
+        <h2>玻璃卡片</h2>
+        <p>这段文字在 DOM 里，玻璃画在它正后方的画布上。滚动页面，玻璃应当牢牢跟住它。</p>
+      </div>
+      <div class="panel panel-pill" id="pill">胶囊按钮</div>
+      <div class="panel panel-pill" id="pill2">四角不同</div>
       <p>
         <code>?glassium.simulate=no-webgpu</code> 可以强制走降级阶梯，
         用来验证探测与警告那条路径（本机只有 Edge，平时永远走不到）。
@@ -164,6 +207,17 @@
         <select id="scene">
           <option value="calibration">calibration</option>
           <option value="gradient">gradient</option>
+        </select>
+        <output></output>
+      </label>
+      <label>
+        debug
+        <select id="debug">
+          <option value="off">off</option>
+          <option value="sdf">sdf</option>
+          <option value="mask">mask</option>
+          <option value="grad">grad</option>
+          <option value="displacement">displacement</option>
         </select>
         <output></output>
       </label>

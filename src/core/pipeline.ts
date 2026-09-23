@@ -40,8 +40,6 @@ export type GlassEffect =
       readonly heightDp: number
       /** 位移幅值，dp。决定把采样点往面板**内部**拉多远。 */
       readonly amountDp: number
-      /** 四角半径，TL/TR/BR/BL，dp。 */
-      readonly cornerRadiiDp: Radii4
       /** 倒角剖面的超椭圆指数。2 = 圆形倒角；更大 = 中心更平、过渡更柔。 */
       readonly squircle: number
       /** 色散强度，0 关闭。关闭时与无色散路径逐位相同。 */
@@ -53,6 +51,14 @@ export type GlassEffect =
     }
 
 export interface EffectChain {
+  /**
+   * 面板形状：四角半径，TL/TR/BR/BL，dp。
+   *
+   * **形状属于面板，不属于任何一个效果。** 它曾经挂在 lens 效果上，那是个建模错误：
+   * refraction 为 0 时 lens 会被省略，于是一块只有模糊、没有折射的玻璃连圆角都没了。
+   * 上游也是这样分的 —— shape 是 drawBackdrop 的独立参数，不在 effects 里。
+   */
+  readonly cornerRadiiDp: Radii4
   /** 有序。降级保证顺序恒为 colorFilter → blur → lens，且无操作的效果会被省略。 */
   readonly effects: readonly GlassEffect[]
   /** 整条链需要的采样余量，dp。图层要按这个值向外扩张，否则边缘硬裁切。 */

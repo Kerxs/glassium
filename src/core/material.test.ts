@@ -31,7 +31,6 @@ test('lens 的采样余量为 0 —— 折射只向面板内部采样', () => {
     kind: 'lens',
     heightDp: 20,
     amountDp: 40,
-    cornerRadiiDp: [10, 10, 10, 10],
     squircle: 2,
     dispersion: 0,
     highlight: 0.6,
@@ -59,7 +58,6 @@ test('整条链的余量目前只来自模糊', () => {
       kind: 'lens',
       heightDp: 20,
       amountDp: 40,
-      cornerRadiiDp: [10, 10, 10, 10],
       squircle: 2,
       dispersion: 0,
       highlight: 0.6,
@@ -83,7 +81,7 @@ test('合法顺序及其子序列都通过', () => {
   const cf: GlassEffect = { kind: 'colorFilter', saturation: 1.2, tint: [1, 1, 1, 0.1] }
   const bl: GlassEffect = { kind: 'blur', sigmaDp: 4 }
   const ln: GlassEffect = {
-    kind: 'lens', heightDp: 10, amountDp: 20, cornerRadiiDp: [8, 8, 8, 8],
+    kind: 'lens', heightDp: 10, amountDp: 20,
     squircle: 2, dispersion: 0, highlight: 0.5, depthEffect: 1
   }
   assert.doesNotThrow(() => assertCanonicalOrder([cf, bl, ln]))
@@ -95,7 +93,7 @@ test('合法顺序及其子序列都通过', () => {
 test('顺序颠倒会抛，而不是默默出一个难看的结果', () => {
   const bl: GlassEffect = { kind: 'blur', sigmaDp: 4 }
   const ln: GlassEffect = {
-    kind: 'lens', heightDp: 10, amountDp: 20, cornerRadiiDp: [8, 8, 8, 8],
+    kind: 'lens', heightDp: 10, amountDp: 20,
     squircle: 2, dispersion: 0, highlight: 0.5, depthEffect: 1
   }
   // 先折射再模糊会把折射出来的边缘一起糊掉，那不是玻璃是毛玻璃贴纸。
@@ -146,7 +144,7 @@ test('lowerMaterial 的完整算例（200x120，与文档中的例子一致）',
   assert.equal(bl.sigmaDp, 4)
   assert.equal(ln.heightDp, 24, '0.4 × 120 × 0.5')
   assert.equal(ln.amountDp, 24, '0.2 × 120')
-  assert.deepEqual(ln.cornerRadiiDp, [30, 30, 30, 30], '0.5 × 120 / 2')
+  assert.deepEqual(chain.cornerRadiiDp, [30, 30, 30, 30], '0.5 × 120 / 2')
   assert.equal(chain.paddingDp, 12, 'ceil(3×4)，折射不向外读取')
 })
 
@@ -177,6 +175,24 @@ test('lowerMaterial 产出的链顺序恒合法', () => {
     assert.doesNotThrow(() => assertCanonicalOrder(chain.effects), `预设 ${name} 顺序非法`)
     assert.equal(chain.paddingDp, resolveMargins(chain.effects), `预设 ${name} 的 padding 不一致`)
   }
+})
+
+test('没有折射时圆角仍然在 —— 形状属于面板，不属于 lens', () => {
+  // 曾经形状挂在 lens 效果上。refraction 为 0 时 lens 被省略，
+  // 一块只有模糊的玻璃就连圆角都没了。
+  const chain = lowerMaterial(
+    { refraction: 0, distortion: 0, blur: 8, cornerRadius: 16 },
+    [200, 120]
+  )
+  assert.ok(!chain.effects.some((e) => e.kind === 'lens'), '这块玻璃确实没有折射')
+  assert.deepEqual(chain.cornerRadiiDp, [16, 16, 16, 16], '但圆角必须还在')
+})
+
+test('squircle 指数被钳到 ≥ 1（否则着色器里 1/n 发散出 NaN）', () => {
+  const chain = lowerMaterial({ squircle: 0 }, [200, 120])
+  const lens = chain.effects.find((e) => e.kind === 'lens')
+  assert.ok(lens && lens.kind === 'lens')
+  assert.equal(lens.squircle, 1)
 })
 
 test('opacity 被钳到 0–1', () => {
@@ -264,10 +280,8 @@ test('四角半径各不相同时能被完整保留（上游做不到这件事�
   // 实际上四角会塌缩成右下角那一个。修掉之后这个参数才真的可用。
   const size: Vec2 = [300, 200]
   const chain = lowerMaterial({ cornerRadius: [4, 8, 12, 16] }, size)
-  const lens = chain.effects.find((e) => e.kind === 'lens')
-  assert.ok(lens && lens.kind === 'lens')
-  assert.deepEqual(lens.cornerRadiiDp, [4, 8, 12, 16])
-  assert.equal(new Set(lens.cornerRadiiDp).size, 4, '四个值必须仍然互不相同')
+  assert.deepEqual(chain.cornerRadiiDp, [4, 8, 12, 16])
+  assert.equal(new Set(chain.cornerRadiiDp).size, 4, '四个值必须仍然互不相同')
 })
 
 test('resolveCornerRadii 钳到 minDimension/2', () => {

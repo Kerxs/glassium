@@ -123,10 +123,16 @@ export function gradSdRoundedRect(p: Vec2, halfSize: Vec2, radius: number): Vec2
 /**
  * 求梯度场使用的角半径 —— **放大 1.5 倍**，与 SDF 自身的半径解耦。
  *
- * 这是整份移植里最容易被当成笔误删掉的一行。放大之后角区变大，靠近边界的位移方向
- * 绕角时连续旋转，而不是在直边/圆弧接缝处打折；同时把 gradSdRoundedRect 内部分支
- * 那个 90° 跳变推到更深处。optics.test.ts 用一条**正反双向**的连续性测试钉住它：
- * 改回 1.0 之后那条测试必须失败，否则它什么也没测。
+ * 这是整份移植里最容易被当成笔误删掉的一行。它做两件事：
+ *
+ *   1. 角区变大，方向绕角的 90° 转弯分摊到更长的弧上 —— 峰值转向率从
+ *      1/(r − 深度) 降到 1/(1.5r − 深度)，实测平缓 1.66 倍（docs/calibration.md）。
+ *      要说清楚它**不**做什么：放不放大，方向场在接缝处都是连续的（两侧都给出轴向）；
+ *      接缝处转向率从 0 跳到 1/(gr − 深度) 这个一阶间断也仍然在，只是跳得小了。
+ *   2. 把 gradSdRoundedRect 内部分支那条 cy = cx 的 90° 跳变推到更深处，远离折射带。
+ *
+ * optics.test.ts 用一条**正反双向**的测试钉住第 1 点：改回 1.0 之后那条必须失败，
+ * 否则它什么也没测。
  */
 export function gradRadiusOf(radius: number, halfSize: Vec2): number {
   return Math.min(radius * 1.5, Math.min(halfSize[0], halfSize[1]))

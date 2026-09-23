@@ -48,7 +48,10 @@ export interface GlassMaterial {
   readonly opacity?: number
   /** 角半径，见 CornerRadius。 */
   readonly cornerRadius?: CornerRadius
-  /** 倒角剖面的超椭圆指数，2 = 圆形。更大 = 中心更平、过渡更柔。 */
+  /**
+   * 倒角剖面的超椭圆指数，2 = 圆形。更大 = 中心更平、过渡更柔。
+   * 钳到 ≥ 1：小于 1 时剖面不再单调，等于 0 时 1/n 发散，着色器里会得到 NaN。
+   */
   readonly squircle?: number
   /** 0 像倒角薄板，1 像整块厚透镜。 */
   readonly depthEffect?: number
@@ -192,8 +195,7 @@ export function lowerMaterial(material: GlassMaterial, size: Vec2): EffectChain 
       kind: 'lens',
       heightDp,
       amountDp,
-      cornerRadiiDp: resolveCornerRadii(m.cornerRadius, size),
-      squircle: m.squircle,
+      squircle: Math.max(m.squircle, 1),
       dispersion: m.dispersion,
       highlight: m.highlight,
       depthEffect: m.depthEffect
@@ -201,6 +203,7 @@ export function lowerMaterial(material: GlassMaterial, size: Vec2): EffectChain 
   }
 
   return {
+    cornerRadiiDp: resolveCornerRadii(m.cornerRadius, size),
     effects,
     paddingDp: resolveMargins(effects),
     opacity: Math.min(Math.max(m.opacity, 0), 1)

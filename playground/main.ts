@@ -7,10 +7,13 @@
 
 // 按包名引用，和外部使用者写法一致 —— 免得 demo 里全是 ../src/…
 import {
+  compareOptics,
   createGlassStage,
+  GlassPresets,
   simulateNoWebGpu,
   simulateReducedMotion,
-  type GlassStage
+  type GlassStage,
+  type PanelDebugMode
 } from 'glassium'
 
 const params = new URLSearchParams(location.search)
@@ -42,7 +45,8 @@ function render(stage: GlassStage): void {
     `<b>frames</b>   ${s.frames}`,
     `<b>draws</b>    ${s.drawCalls}`,
     `<b>allocs</b>   ${s.targetAllocations}`,
-    `<b>blur</b>     ${s.blurPasses} 趟 / ${s.blurLevels} 级`
+    `<b>blur</b>     ${s.blurPasses} 趟 / ${s.blurLevels} 级`,
+    `<b>panels</b>   ${s.panels}`
   ]
 
   if (v) {
@@ -70,6 +74,10 @@ function render(stage: GlassStage): void {
 
 function wireControls(stage: GlassStage): void {
   const scene = document.getElementById('scene') as HTMLSelectElement
+  const debug = document.getElementById('debug') as HTMLSelectElement
+  debug.addEventListener('change', () => {
+    stage.debug.setPanelDebug(debug.value as PanelDebugMode)
+  })
   const blur = document.getElementById('blur') as HTMLInputElement
   const sat = document.getElementById('sat') as HTMLInputElement
   const tint = document.getElementById('tint') as HTMLInputElement
@@ -104,6 +112,16 @@ async function main(): Promise<void> {
 
   // 供浏览器面板的 javascript_tool 读取 —— 验证靠读数值，不靠看截图猜。
   Object.assign(window as unknown as Record<string, unknown>, { glassiumStage: stage })
+
+  // 注册测试面板。四角不同的那块专门用来看 radiusAt 的修正：
+  // 上游把原始坐标传给 radiusAt，四角会塌缩成右下角那一个。
+  stage.register(document.getElementById('card')!, GlassPresets.regular)
+  stage.register(document.getElementById('pill')!, { ...GlassPresets.thick, cornerRadius: '1frac' })
+  stage.register(document.getElementById('pill2')!, {
+    ...GlassPresets.regular,
+    cornerRadius: [4, 32, 8, 28]
+  })
+  Object.assign(window as unknown as Record<string, unknown>, { glassiumCompareOptics: compareOptics })
 
   wireControls(stage)
   render(stage)

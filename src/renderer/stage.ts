@@ -14,13 +14,22 @@
  * 放在 -1 会被任何带不透明 background 的祖先整块盖掉 —— 表现为完全不可见且无报错。
  */
 
-import { parseTint } from '../core/material.ts'
+import { parseTint, type GlassMaterial } from '../core/material.ts'
 import { describeViewport, resolveViewport, type ResolvedViewport } from '../core/units.ts'
 import { BACKDROP_WGSL, BLUR_WGSL } from '../shaders/blur.wgsl.ts'
 import { SCENE_WGSL } from '../shaders/scene.wgsl.ts'
 import { acquireDevice, releaseDevice, type DeviceFailure } from '../webgpu/device.ts'
 import { probeCapabilities, type ProbeReport } from '../webgpu/probe.ts'
+import {
+  GLASS_WGSL,
+  PANEL_STRIDE,
+  PANEL_STRIDE_FLOATS,
+  PANEL_STRUCT_BYTES,
+  type PanelDebugMode
+} from '../shaders/glass.wgsl.ts'
 import { BACKDROP_FORMAT, BlurChain, levelForSigma } from './blur.ts'
+import { PanelRegistry, packPanel, type GlassPanel, type MeasuredPanel } from './panels.ts'
+import type { OpticsProbe } from './verify.ts'
 
 export type Backend = 'webgpu' | 'webgl2' | 'none'
 
@@ -36,6 +45,8 @@ export interface GlassStats {
   readonly blurPasses: number
   /** 模糊链的级数 K。 */
   readonly blurLevels: number
+  /** 本帧实际画了的面板数（屏外的不算）。 */
+  readonly panels: number
   readonly viewport: ResolvedViewport | null
   readonly reducedMotion: boolean
 }
@@ -90,6 +101,16 @@ export interface BackdropDebugParams {
 export interface GlassStage {
   readonly backend: Backend
   readonly canvas: HTMLCanvasElement
+  /**
+   * 把一个 DOM 元素注册成玻璃面板。
+   *
+   * 元素负责占位、文字、点击与焦点；stage 每帧量它的 getBoundingClientRect，
+   * 在画布上它的正后方画玻璃。滚动、缩放、布局变化都自动跟上。
+   *
+   * R1：从这个元素到 stage 宿主之间的每个祖先都必须背景透明，
+   * 否则画布会被整块盖掉 —— 玻璃完全不可见，而且没有任何报错。
+   */
+  register(element: HTMLElement, material?: GlassMaterial): GlassPanel
   readonly debug: {
     stats(): GlassStats
     /** 能力探测结果。backend 不是 webgpu 时为 null。 */
@@ -105,6 +126,14 @@ export interface GlassStage {
      * 很容易被当成「渲染没出来」去查渲染，实际是读法不对。
      */
     readback(): Promise<Uint8Array>
+    /** 所有面板的调试视图：'sdf' / 'mask' / 'grad' / 'displacement'，'off' 恢复正常。 */
+    setPanelDebug(mode: PanelDebugMode): void
+    /**
+     * 把第 index 块面板的光学中间量（sd、方向、位移）原样渲进 rgba32float 并回读。
+     * 交给 compareOptics() 与 CPU 实现逐像素比对 —— 探针与正常渲染共用同一段
+     * evalOptics，所以验的就是实际渲染的那条路径。
+     */
+    probeOptics(index?: number): Promise<OpticsProbe>
   }
   /** 请求重绘一帧。reduced-motion 下由 resize 等事件驱动。 */
   requestRender(): void
@@ -276,6 +305,125 @@ export async function createGlassStage(options: GlassStageOptions = {}): Promise
 
   const blurChain = new BlurChain(device, blurPipeline, sampler)
 
+  // —— 玻璃 ——
+  // 显式的 bind group layout：'auto' 布局不支持 hasDynamicOffset，
+  // 而所有面板共用一条 uniform buffer、逐块只换动态偏移，正是整个设计的要点 ——
+  // 一条管线、一个 pass、N 次 draw，不为每块面板建 bind group。
+  const glassLayout = device.createBindGroupLayout({
+    label: 'glassium:glass',
+    entries: [
+      {
+        binding: 0,
+        visibility: GPUShaderStage.FRAGMENT,
+        buffer: { type: 'uniform', hasDynamicOffset: true, minBindingSize: PANEL_STRUCT_BYTES }
+      },
+      { binding: 1, visibility: GPUShaderStage.FRAGMENT, sampler: { type: 'filtering' } },
+      { binding: 2, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: 'float' } },
+      { binding: 3, visibility: GPUShaderStage.FRAGMENT, buffer: { type: 'uniform' } }
+    ]
+  })
+  const glassPipelineLayout = device.createPipelineLayout({
+    label: 'glassium:glass',
+    bindGroupLayouts: [glassLayout]
+  })
+  const glassModule = device.createShaderModule({ label: 'glassium:glass', code: GLASS_WGSL })
+  const glassPipeline = device.createRenderPipeline({
+    label: 'glassium:glass',
+    layout: glassPipelineLayout,
+    vertex: { module: glassModule, entryPoint: 'vs' },
+    fragment: {
+      module: glassModule,
+      entryPoint: 'fs',
+      targets: [
+        {
+          format,
+          // 片元输出预乘色，所以是 one / one-minus-src-alpha，不是 src-alpha。
+          // 用错成非预乘混合的话，玻璃边缘的抗锯齿会多乘一次 alpha，出现一圈暗边。
+          blend: {
+            color: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha', operation: 'add' },
+            alpha: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha', operation: 'add' }
+          }
+        }
+      ]
+    },
+    primitive: { topology: 'triangle-list' }
+  })
+  // 探针：同一个模块、另一个入口，写 rgba32float，不混合（32 位浮点默认不可混合）。
+  const probePipeline = device.createRenderPipeline({
+    label: 'glassium:glass-probe',
+    layout: glassPipelineLayout,
+    vertex: { module: glassModule, entryPoint: 'vs' },
+    fragment: { module: glassModule, entryPoint: 'fsProbe', targets: [{ format: 'rgba32float' }] },
+    primitive: { topology: 'triangle-list' }
+  })
+
+  // Stage: canvasSize + probeOrigin。正常 pass 与探针 pass 各一份 ——
+  // 共用一份的话，同一帧里两次 writeBuffer 只有后写的那次生效（T6 的模糊踩过同一个坑）。
+  const stageUniforms = device.createBuffer({
+    label: 'glassium:stage-uniforms',
+    size: 16,
+    usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
+  })
+  const probeStageUniforms = device.createBuffer({
+    label: 'glassium:probe-stage-uniforms',
+    size: 16,
+    usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
+  })
+
+  const panels = new PanelRegistry(() => requestRender())
+  let panelCapacity = 0
+  let panelBuffer: GPUBuffer | null = null
+  let panelData = new Float32Array(0)
+  let glassBindGroup: GPUBindGroup | null = null
+  let probeBindGroup: GPUBindGroup | null = null
+  let panelDebugMode: PanelDebugMode = 'off'
+  let panelsLastFrame = 0
+
+  const rebuildGlassBindGroups = (): void => {
+    const textures = blurChain.textures
+    if (!textures || !panelBuffer) return
+    const entries = (stageBuffer: GPUBuffer): GPUBindGroupEntry[] => [
+      { binding: 0, resource: { buffer: panelBuffer!, size: PANEL_STRUCT_BYTES } },
+      { binding: 1, resource: sampler },
+      { binding: 2, resource: textures.chainView },
+      { binding: 3, resource: { buffer: stageBuffer } }
+    ]
+    glassBindGroup = device.createBindGroup({
+      label: 'glassium:glass',
+      layout: glassLayout,
+      entries: entries(stageUniforms)
+    })
+    probeBindGroup = device.createBindGroup({
+      label: 'glassium:glass-probe',
+      layout: glassLayout,
+      entries: entries(probeStageUniforms)
+    })
+  }
+
+  /** 按需扩容面板 uniform buffer（翻倍），扩容后要重建 bind group。 */
+  const ensurePanelCapacity = (count: number): void => {
+    if (count <= panelCapacity && panelBuffer) return
+    let next = Math.max(16, panelCapacity)
+    while (next < count) next *= 2
+    panelBuffer?.destroy()
+    panelBuffer = device.createBuffer({
+      label: 'glassium:panels',
+      size: next * PANEL_STRIDE,
+      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
+    })
+    panelData = new Float32Array(next * PANEL_STRIDE_FLOATS)
+    panelCapacity = next
+    rebuildGlassBindGroups()
+  }
+  ensurePanelCapacity(16)
+
+  interface ProbeRequest {
+    readonly index: number
+    readonly resolve: (probe: OpticsProbe) => void
+    readonly reject: (err: Error) => void
+  }
+  let pendingProbe: ProbeRequest | null = null
+
   // —— 状态 ——
   let viewport: ResolvedViewport | null = null
   let backdropBindGroup: GPUBindGroup | null = null
@@ -307,8 +455,16 @@ export async function createGlassStage(options: GlassStageOptions = {}): Promise
   let reducedMotion = readReducedMotion()
 
   const syncViewport = (): void => {
-    const cssWidth = Math.max(1, Math.round(window.innerWidth))
-    const cssHeight = Math.max(1, Math.round(window.innerHeight))
+    // 用画布**自己的**盒子，不用 window.innerWidth。
+    //
+    // innerWidth 包含垂直滚动条，而 position:fixed; inset:0 的画布不包含。
+    // 实测 1024 宽视口、15px 滚动条、DPR 1.5：按 innerWidth 分配了 1536 个设备像素，
+    // 浏览器却把它们摊在 1008.67 个 CSS 像素上显示 —— 实际缩放 1.5228 而不是 1.5，
+    // 玻璃相对元素的错位随 x 线性增长，右侧到 7.5 CSS 像素（11 个设备像素）。
+    // 页面不滚动时没有滚动条，这个 bug 完全看不见。
+    const box = canvas.getBoundingClientRect()
+    const cssWidth = Math.max(1, box.width)
+    const cssHeight = Math.max(1, box.height)
     const dpr = window.devicePixelRatio || 1
     const next = resolveViewport(cssWidth, cssHeight, dpr, options.maxPixels, options.minSceneRatio)
 
@@ -340,6 +496,12 @@ export async function createGlassStage(options: GlassStageOptions = {}): Promise
         { binding: 2, resource: textures.chainView }
       ]
     })
+    device.queue.writeBuffer(
+      stageUniforms,
+      0,
+      new Float32Array([next.compositeWidth, next.compositeHeight, 0, 0])
+    )
+    rebuildGlassBindGroups()
   }
 
   const renderFrame = (now: number): void => {
@@ -367,6 +529,17 @@ export async function createGlassStage(options: GlassStageOptions = {}): Promise
     backdropUniformData[4] = backdropSaturation
     backdropUniformData[5] = levelForSigma(sigmaScenePx, textures.levels)
     device.queue.writeBuffer(backdropUniforms, 0, backdropUniformData)
+
+    // 所有面板在这里一次量完，帧内之后不再碰布局（避免 layout thrash）。
+    const canvasBox = canvas.getBoundingClientRect()
+    const measured: MeasuredPanel[] = panels.measure(viewport, canvasBox.left, canvasBox.top)
+    ensurePanelCapacity(measured.length)
+    for (let i = 0; i < measured.length; i++) {
+      packPanel(panelData, i, measured[i]!, viewport, textures.levels, panelDebugMode)
+    }
+    if (measured.length > 0 && panelBuffer) {
+      device.queue.writeBuffer(panelBuffer, 0, panelData, 0, measured.length * PANEL_STRIDE_FLOATS)
+    }
 
     const encoder = device.createCommandEncoder({ label: 'glassium:frame' })
 
@@ -406,7 +579,96 @@ export async function createGlassStage(options: GlassStageOptions = {}): Promise
     presentPass.setPipeline(backdropPipeline)
     presentPass.setBindGroup(0, backdropBindGroup)
     presentPass.draw(3)
+
+    // 4) 玻璃。和背景在同一个 pass 里：玻璃采样的是模糊链而不是画布，
+    //    所以没有读写冲突，也就不需要单独的合成目标。
+    if (measured.length > 0 && glassBindGroup) {
+      presentPass.setPipeline(glassPipeline)
+      for (let i = 0; i < measured.length; i++) {
+        const [sx, sy, sw, sh] = measured[i]!.scissor
+        presentPass.setScissorRect(sx, sy, sw, sh)
+        presentPass.setBindGroup(0, glassBindGroup, [i * PANEL_STRIDE])
+        presentPass.draw(3)
+      }
+    }
     presentPass.end()
+    panelsLastFrame = measured.length
+
+    // 5) 探针（调试用）：把某块面板的光学中间量原样渲进 rgba32float。
+    const probe = pendingProbe
+    let probeReadback: (() => void) | null = null
+    if (probe) {
+      pendingProbe = null
+      const target = measured[probe.index]
+      if (!target || !probeBindGroup) {
+        probe.reject(new Error(`[Glassium] 第 ${probe.index} 块面板不存在或不在屏上`))
+      } else {
+        const [ox, oy, w, h] = target.scissor
+        const tex = device.createTexture({
+          label: 'glassium:probe',
+          size: { width: w, height: h },
+          format: 'rgba32float',
+          usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC
+        })
+        device.queue.writeBuffer(
+          probeStageUniforms,
+          0,
+          new Float32Array([viewport.compositeWidth, viewport.compositeHeight, ox, oy])
+        )
+        const pass = encoder.beginRenderPass({
+          label: 'glassium:probe',
+          colorAttachments: [
+            {
+              view: tex.createView(),
+              clearValue: { r: 0, g: 0, b: 0, a: 0 },
+              loadOp: 'clear',
+              storeOp: 'store'
+            }
+          ]
+        })
+        pass.setPipeline(probePipeline)
+        pass.setBindGroup(0, probeBindGroup, [probe.index * PANEL_STRIDE])
+        pass.draw(3)
+        pass.end()
+
+        // bytesPerRow 必须是 256 的倍数；rgba32float 每像素 16 字节，一般要补齐。
+        const rowBytes = Math.ceil((w * 16) / 256) * 256
+        const staging = device.createBuffer({
+          label: 'glassium:probe-staging',
+          size: rowBytes * h,
+          usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ
+        })
+        encoder.copyTextureToBuffer(
+          { texture: tex },
+          { buffer: staging, bytesPerRow: rowBytes },
+          { width: w, height: h }
+        )
+
+        const o = probe.index * PANEL_STRIDE_FLOATS
+        const params = {
+          rect: [panelData[o]!, panelData[o + 1]!, panelData[o + 2]!, panelData[o + 3]!] as const,
+          radii: [panelData[o + 4]!, panelData[o + 5]!, panelData[o + 6]!, panelData[o + 7]!] as const,
+          heightPx: panelData[o + 12]!,
+          amountPx: panelData[o + 13]!,
+          squircle: panelData[o + 16]!,
+          depthEffect: panelData[o + 17]!
+        }
+        probeReadback = (): void => {
+          void staging.mapAsync(GPUMapMode.READ).then(() => {
+            const raw = new Float32Array(staging.getMappedRange())
+            const rowFloats = rowBytes / 4
+            const data = new Float32Array(w * h * 4)
+            for (let j = 0; j < h; j++) {
+              data.set(raw.subarray(j * rowFloats, j * rowFloats + w * 4), j * w * 4)
+            }
+            staging.unmap()
+            staging.destroy()
+            tex.destroy()
+            probe.resolve({ width: w, height: h, origin: [ox, oy], data, panel: params })
+          })
+        }
+      }
+    }
 
     // 回读要在 present 之后、submit 之前排进同一个 encoder。
     const readbackResolve = pendingReadback
@@ -423,6 +685,8 @@ export async function createGlassStage(options: GlassStageOptions = {}): Promise
 
     device.queue.submit([encoder.finish()])
 
+    probeReadback?.()
+
     if (readbackResolve) {
       void readbackBuffer.mapAsync(GPUMapMode.READ).then(() => {
         const copy = new Uint8Array(readbackBuffer.getMappedRange()).slice()
@@ -432,7 +696,7 @@ export async function createGlassStage(options: GlassStageOptions = {}): Promise
     }
 
     frames++
-    drawCalls = 2 + blurChain.passesLastFrame
+    drawCalls = 2 + blurChain.passesLastFrame + measured.length
 
     if (fpsWindowStart === 0) fpsWindowStart = now
     fpsWindowFrames++
@@ -498,6 +762,11 @@ export async function createGlassStage(options: GlassStageOptions = {}): Promise
   const onMotionChange = (): void => applyMotionPreference()
 
   window.addEventListener('resize', onResize)
+  // 滚动条出现或消失时画布宽度会变 15px 左右，但 window.resize **不会**触发。
+  // 帧循环在跑时每帧都会重新量，问题不大；reduced-motion 下循环不跑，
+  // 就只能靠它来唤醒重绘，否则会停在一张按旧宽度拉伸的画面上。
+  const resizeObserver = new ResizeObserver(() => onResize())
+  resizeObserver.observe(canvas)
   motionQuery.addEventListener('change', onMotionChange)
   onReducedMotionOverrideChange = applyMotionPreference
 
@@ -520,6 +789,7 @@ export async function createGlassStage(options: GlassStageOptions = {}): Promise
         targetAllocations: blurChain.allocations,
         blurPasses: blurChain.passesLastFrame,
         blurLevels: blurChain.textures?.levels ?? 0,
+        panels: panelsLastFrame,
         viewport,
         reducedMotion
       }),
@@ -533,6 +803,20 @@ export async function createGlassStage(options: GlassStageOptions = {}): Promise
           requestRender()
         })
       },
+      setPanelDebug(mode: PanelDebugMode): void {
+        panelDebugMode = mode
+        requestRender()
+      },
+      probeOptics(index = 0): Promise<OpticsProbe> {
+        return new Promise<OpticsProbe>((resolve, reject) => {
+          if (pendingProbe) {
+            reject(new Error('[Glassium] 上一次探针还没完成'))
+            return
+          }
+          pendingProbe = { index, resolve, reject }
+          requestRender()
+        })
+      },
       setBackdrop(params: BackdropDebugParams): void {
         if (params.blurDp !== undefined) backdropBlurDp = params.blurDp
         if (params.saturation !== undefined) backdropSaturation = params.saturation
@@ -541,6 +825,9 @@ export async function createGlassStage(options: GlassStageOptions = {}): Promise
         requestRender()
       }
     },
+    register(element: HTMLElement, material: GlassMaterial = {}): GlassPanel {
+      return panels.register(element, material)
+    },
     requestRender,
     dispose(): void {
       if (disposed) return
@@ -548,11 +835,15 @@ export async function createGlassStage(options: GlassStageOptions = {}): Promise
       stopLoop()
       if (pendingOneShot !== 0) cancelAnimationFrame(pendingOneShot)
       window.removeEventListener('resize', onResize)
+      resizeObserver.disconnect()
       motionQuery.removeEventListener('change', onMotionChange)
       onReducedMotionOverrideChange = null
       sceneUniforms.destroy()
       backdropUniforms.destroy()
       readbackBuffer.destroy()
+      stageUniforms.destroy()
+      probeStageUniforms.destroy()
+      panelBuffer?.destroy()
       blurChain.destroy()
       canvas.remove()
       releaseDevice()
@@ -592,6 +883,9 @@ function makeInertStage(
       probe: null,
       setBackdrop(): void {},
       readback: (): Promise<Uint8Array> => Promise.resolve(new Uint8Array(0)),
+      setPanelDebug(): void {},
+      probeOptics: (): Promise<OpticsProbe> =>
+        Promise.reject(new Error('[Glassium] 没有 GPU 后端，无法探针')),
       stats: (): GlassStats => ({
         backend: 'none',
         fps: 0,
@@ -600,9 +894,15 @@ function makeInertStage(
         targetAllocations: 0,
         blurPasses: 0,
         blurLevels: 0,
+        panels: 0,
         viewport: null,
         reducedMotion: window.matchMedia('(prefers-reduced-motion: reduce)').matches
       })
+    },
+    // 没有 GPU 时面板照样可以注册 —— 元素本身照常显示，只是后面没有玻璃。
+    // 返回一个什么都不做的句柄，而不是抛：页面不该因为拿不到 GPU 就挂掉。
+    register(element: HTMLElement): GlassPanel {
+      return { element, setMaterial(): void {}, unregister(): void {} }
     },
     requestRender(): void {},
     dispose(): void {

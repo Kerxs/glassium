@@ -44,7 +44,8 @@ Glassium 自己渲染的纹理。**面板背后的正文文字、图片、iframe
 
 `npm run typecheck` + `npm test` 只证明数学和类型是对的。GitHub runner 没有 GPU，软件
 WebGPU 与真实驱动的像素差距大到任何阈值都失去意义，所以**没有 golden-image 测试**。
-GPU 输出由 `playground/verify.html` 手工验证。绿色徽章不等于像素已验证 ——
+GPU 输出靠 `stage.debug.probeOptics()` + `compareOptics()` 与 CPU 实现逐像素比对，
+手工在浏览器里跑（T12 会把它做成 `playground/verify.html` 页面）。绿色徽章不等于像素已验证 ——
 理由与将来要补什么见 [spec/golden/README.md](spec/golden/README.md)。
 
 ---
@@ -72,7 +73,13 @@ GPU 输出由 `playground/verify.html` 手工验证。绿色徽章不等于像�
       顺带把 calibration 场景（棋盘格 + 硬对角线 + 黑白阶跃）从 T12 提前过来 ——
       线性渐变几乎是高斯模糊的不动点，没有高频图案就验不了模糊
 
-**80 条测试全绿**，playground 可跑（`npm run dev`）。玻璃本身从 T7 开始。
+- [x] **T7** 第一块真正的玻璃（`src/shaders/glass.wgsl.ts`、`src/renderer/panels.ts`）。
+      `stage.register(element, material)` 把 DOM 元素注册成面板，逐面板 256B uniform、
+      动态偏移、一条管线一个 pass。几何折射，**还没有色散和高光**（T8）。
+      GPU 与 CPU 逐像素比对 23.8 万个纹素：**零个 NaN**，偏移 p99 在 1e-4 以下；
+      DOM 对齐误差 **0**（修掉了一个滚动条导致的 7.5px 错位）
+
+**93 条测试全绿**，playground 可跑（`npm run dev`）。
 
 T5 顺带把两个计划阶段悬着的硬件问题测掉了，结果记在
 [docs/calibration.md](docs/calibration.md)：`minUniformBufferOffsetAlignment` 实测 256
@@ -106,7 +113,7 @@ Glassium 以 **Apache License 2.0** 发布。
 
 光学数学移植自 [`Kyant0/AndroidLiquidGlass`](https://github.com/Kyant0/AndroidLiquidGlass)
 （`io.github.kyant0:backdrop`，Apache-2.0，Copyright 2025 Kyant），并作了修改 ——
-色散、高光、采样余量三处是重写而非移植，逐条理由见 [docs/porting-notes.md](docs/porting-notes.md)。
+色散与高光是重写而非移植，`radiusAt` 修正了坐标系，逐条理由见 [docs/porting-notes.md](docs/porting-notes.md)。
 
 值得先知道的一件事：上游**已经不是 Android 专属**了。它的默认分支是 `kmp`，内部改名为
 Backdrop，用 Compose Multiplatform 覆盖了 Android / iOS / macOS / 桌面 JVM / JS / Wasm。

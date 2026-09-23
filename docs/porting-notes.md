@@ -29,8 +29,8 @@
 
 Glassium 没有 Skia，所以这条路不通。改为：WGSL 是唯一真源（`src/shaders/optics.wgsl.ts`），
 GLSL ES 3.0 由 `src/shaders/translate-glsl.ts` 生成；另有一份**独立的 TypeScript 实现**
-（`src/core/optics.ts`）作为 CPU 参考，用来在没有 GPU 的前提下证明数学，并在
-`playground/verify.html` 里与 GPU 浮点回读逐点比对。
+（`src/core/optics.ts`）作为 CPU 参考，用来在没有 GPU 的前提下证明数学，并与 GPU 的浮点
+回读逐像素比对（`stage.debug.probeOptics()` + `compareOptics()`，结果见 docs/calibration.md）。
 
 顺带记一个对未来 Android 渲染器重要的事实：**没有任何主流着色器转译器能产出 AGSL**
 （naga、Tint、SPIRV-Cross、Slang 都不支持）。AGSL 是 Skia SkSL 的受限子集，唯一的单源路径是
@@ -120,8 +120,9 @@ Glassium 传中心化坐标。象限到角的映射关系（`radii.y` 对应右�
 - `sdRoundedRect` / `radiusAt` —— 带逐角半径的圆角矩形有符号距离场
 - `gradSdRoundedRect` —— **闭式解析梯度**（不是有限差分）。更便宜，且无差分噪声
 - `gradRadius = min(radius * 1.5, min(halfSize.x, halfSize.y))` —— 法线场用**放大 1.5 倍**的
-  角半径求值，与 SDF 自身的半径解耦。这让位移方向绕角时连续旋转，而不是在直边/圆弧接缝处
-  打折。极易被漏掉，`optics.test.ts` 用一条**正反双向**的连续性测试钉住它
+  角半径求值，与 SDF 自身的半径解耦。它让位移方向绕角的转弯分摊到更长的弧上，峰值转向率
+  实测低 1.66 倍（方向场本身放不放大都连续，放大改变的是转得多急）。极易被漏掉，
+  `optics.test.ts` 用一条**正反双向**的测试钉住它
 - `circleMap(x) = 1 - sqrt(1 - x²)` —— 圆形（球面）倒角剖面。不是线性斜坡、不是高斯、
   也不是 Snell 定律，是个几何近似
 - **只在边缘成带 + 提前返回**：比 `refractionHeight` 更深的内部直通。这既是视觉特征
