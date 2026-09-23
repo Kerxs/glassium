@@ -231,7 +231,7 @@ export function union(a: Box, b: Box): Box {
 // —— DOM 侧 ——
 
 /** 渲染树上的父元素：被 slot 分配的元素按 slot 的位置渲染，影子根的父是宿主。 */
-function flatParent(el: Element): Element | null {
+export function flatParent(el: Element): Element | null {
   if (el.assignedSlot) return el.assignedSlot
   if (el.parentElement) return el.parentElement
   const root = el.getRootNode()

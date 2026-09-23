@@ -64,8 +64,11 @@ export type LayerProblem<E> =
       readonly value: string
     }
   | {
-      /** DOM 上的效果玻璃跟不上：opacity < 1、filter、旋转或倾斜。 */
-      readonly kind: 'opacity' | 'filter' | 'transform'
+      /**
+       * DOM 上的效果玻璃跟不上：filter、旋转或倾斜。
+       * （opacity 不在这里：玻璃跟着元素的实际不透明度一起淡，见 panels.ts 的 fade。）
+       */
+      readonly kind: 'filter' | 'transform'
       readonly panel: E
       readonly element: E
       readonly relation: Exclude<LayerRelation, 'overlap'>
@@ -194,7 +197,9 @@ export function analyzeHitStack<E>(
  * 沿祖先链查玻璃跟不上的 DOM 效果。
  *
  * @param chain 面板自己、父元素、……，到**第一个同时包含画布的祖先之前**为止。
- *   共同祖先上的 opacity / filter / transform 同时作用在画布和面板上，两边一致，不算问题。
+ *   共同祖先上的 filter / transform 同时作用在画布和面板上，两边一致，不算问题。
+ *
+ * opacity 不查：玻璃按元素的实际不透明度（自己与祖先的乘积）一起淡（panels.ts 的 fade）。
  */
 export function analyzeAncestors<E>(
   chain: readonly E[],
@@ -205,10 +210,6 @@ export function analyzeAncestors<E>(
   for (const element of chain) {
     const s = style(element)
     const relation = element === panel ? 'self' : 'ancestor'
-    const opacity = parseFloat(s.opacity)
-    if (Number.isFinite(opacity) && opacity < 1) {
-      out.push({ kind: 'opacity', panel, element, relation, value: s.opacity })
-    }
     if (s.filter.trim() !== '' && s.filter.trim() !== 'none') {
       out.push({ kind: 'filter', panel, element, relation, value: s.filter })
     }
@@ -261,12 +262,6 @@ export function describeProblem<E>(p: LayerProblem<E>, name: (e: E) => string): 
     return (
       `[Glassium] ${who} 有${what}，${effect}。` +
       'R1：面板与画布之间的每一层都必须背景透明 —— 页面背景属于场景，不属于 CSS。'
-    )
-  }
-  if (p.kind === 'opacity') {
-    return (
-      `[Glassium] ${who} 的 opacity 是 ${p.value}：DOM 内容会跟着变淡，玻璃不会。` +
-      '要让玻璃一起淡，用材质的 opacity。'
     )
   }
   if (p.kind === 'filter') {

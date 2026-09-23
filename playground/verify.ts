@@ -439,6 +439,45 @@ async function run(): Promise<void> {
     }
   })
 
+  await check('css-opacity', async () => {
+    // 玻璃跟着元素的实际不透明度一起淡：外层 opacity 0.5 时，玻璃相对「没有这块面板」的改变量
+    // 应当正好减半 —— 预乘混合下 out = 玻璃·a + 背景·(1 − a)，a 减半，改变量就减半
+    const wrap = document.createElement('div')
+    Object.assign(wrap.style, { position: 'absolute', left: '440px', top: '480px', width: '200px', height: '100px' })
+    const card = document.createElement('glass-card')
+    card.setAttribute('corner-radius', '16')
+    // 浓的 tint 让改变量处处都大：8 位取整之后，平坦区域里每个像素的改变量相同，
+    // 改变量小时 round(d/2)/round(d) 会系统性地偏开 0.5（d≈22.6 时是 11/23 = 0.478）
+    card.setAttribute('tint', 'rgba(255, 0, 0, 0.6)')
+    Object.assign(card.style, { left: '0', top: '0', width: '200px', height: '100px' })
+    wrap.append(card)
+    document.body.append(wrap)
+    await sleep(0)
+    const region = regionOf([card], 0)
+    const full = await readback(region)
+    wrap.style.opacity = '0.5'
+    await sleep(0)
+    const half = await readback(region)
+    card.remove()
+    await sleep(0)
+    const none = await readback(region)
+    wrap.remove()
+    stage.debug.renderNow()
+    // 只看改变量大的通道（|满 − 无| > 48，取整误差不到 1%），比较（半 − 无）/（满 − 无）
+    let sum = 0
+    let n = 0
+    for (let i = 0; i < full.length; i++) {
+      if (i % 4 === 3) continue
+      const d = full[i]! - none[i]!
+      if (Math.abs(d) <= 48) continue
+      sum += (half[i]! - none[i]!) / d
+      n++
+    }
+    const ratio = n > 0 ? sum / n : NaN
+    const detail = `${n} 个通道值上，外层 opacity 0.5 时玻璃的改变量是完整的 ${ratio.toFixed(3)} 倍（应为 0.5）`
+    return n > 1000 && Math.abs(ratio - 0.5) < 0.03 ? pass(detail) : fail(detail)
+  })
+
   await check('component-equals-register', async () => {
     // 同一个位置先放组件、再放手动注册的 div，材质相同：区域哈希必须逐位相同
     const place = (el: HTMLElement): void => {

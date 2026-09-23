@@ -156,7 +156,7 @@ test('面板或画布不在命中栈里时判断不了，返回 null', () => {
   assert.equal(analyzeHitStack([card, body], card, canvas, contains, styleOf), null)
 })
 
-test('祖先链：opacity、filter、旋转被点名，平移不报', () => {
+test('祖先链：filter、旋转被点名；平移与 opacity 不报（玻璃跟着 CSS 的不透明度一起淡）', () => {
   const body = el('body', null)
   const fade = el('section.fade', body, { opacity: '0.5' })
   const tilt = el('div.tilt', fade, { transform: 'matrix(0.965926, 0.258819, -0.258819, 0.965926, 0, 0)' })
@@ -165,7 +165,7 @@ test('祖先链：opacity、filter、旋转被点名，平移不报', () => {
 
   const found = analyzeAncestors([card, shift, tilt, fade], card, styleOf)
   const summary = found.map((p) => `${p.kind}:${p.kind === 'canvas-above' ? '' : p.element.name}`)
-  assert.deepEqual(summary, ['filter:glass-card', 'transform:div.tilt', 'opacity:section.fade'])
+  assert.deepEqual(summary, ['filter:glass-card', 'transform:div.tilt'])
   assert.equal(found[0]!.kind !== 'canvas-above' && found[0]!.relation, 'self')
 })
 
@@ -190,8 +190,8 @@ test('警告文本点名具体元素', () => {
 
   assert.match(describeProblem({ kind: 'canvas-above', panel: card }, name), /glass-card#hero 被画布盖住了/)
   assert.match(
-    describeProblem({ kind: 'opacity', panel: card, element: card, relation: 'self', value: '0.5' }, name),
-    /^\[Glassium\] glass-card#hero 的 opacity 是 0\.5/
+    describeProblem({ kind: 'filter', panel: card, element: card, relation: 'self', value: 'blur(2px)' }, name),
+    /^\[Glassium\] glass-card#hero 有 filter: blur\(2px\)/
   )
 })
 
@@ -199,9 +199,9 @@ test('去重键：同一元素同一问题相同，值变了算新问题', () =>
   const body = el('body', null)
   const card = el('glass-card', body)
   const name = (e: Fake): string => e.name
-  const a = problemKey({ kind: 'opacity', panel: card, element: body, relation: 'ancestor', value: '0.5' }, name)
-  const b = problemKey({ kind: 'opacity', panel: card, element: body, relation: 'ancestor', value: '0.5' }, name)
-  const c = problemKey({ kind: 'opacity', panel: card, element: body, relation: 'ancestor', value: '0.3' }, name)
+  const a = problemKey({ kind: 'filter', panel: card, element: body, relation: 'ancestor', value: 'blur(2px)' }, name)
+  const b = problemKey({ kind: 'filter', panel: card, element: body, relation: 'ancestor', value: 'blur(2px)' }, name)
+  const c = problemKey({ kind: 'filter', panel: card, element: body, relation: 'ancestor', value: 'blur(3px)' }, name)
   assert.equal(a, b)
   assert.notEqual(a, c)
 })

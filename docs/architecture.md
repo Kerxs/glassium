@@ -71,7 +71,7 @@ stage 是**外壳**：画布、面板注册表、调试参数、帧循环、监�
 ## 一帧
 
 ```
-测量  所有面板一次 getBoundingClientRect（帧内之后不再碰布局）
+测量  所有面板一次 getBoundingClientRect（帧内之后不再碰布局），读一遍 CSS 上的实际不透明度
 打包  Panel / Group → uniform（256B / 768B 步长）
 场景  内置程序化场景，或用户的图片 / 视频 / 画布（按 object-fit 铺）→ 模糊链第 0 级
 模糊  每级两趟，2 × (K − 1) 趟，与面板数无关（共享链）

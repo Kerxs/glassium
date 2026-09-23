@@ -23,6 +23,7 @@ import {
   NO_CLIP,
   roundClipOf,
   findClipEntries,
+  flatParent,
   intersect,
   union,
   type Box,
@@ -107,6 +108,11 @@ export interface MeasuredPanel {
   readonly clipRadii: readonly [number, number, number, number]
   /** 按压处的光：中心 x、y 与 σ（画布设备像素）、强度（已乘 LIGHT_GAIN）。没有光时强度为 0。 */
   readonly light: readonly [number, number, number, number]
+  /**
+   * 元素在 CSS 上的实际不透明度：自己与祖先 opacity 的乘积（画布也在其中的共同祖先不算）。
+   * 乘进材质的 opacity —— CSS 的渐隐渐显（过渡、动画）玻璃跟着一起淡。
+   */
+  readonly fade: number
   readonly chain: EffectChain
 }
 
@@ -134,6 +140,9 @@ export interface PanelRecord {
   /** 材质变换的 key 与读它时的样式代数（见 MaterialFilter）。 */
   filterKey?: string
   filterGeneration?: number
+  /** 决定 CSS 不透明度的那几层的计算样式（活对象，每帧读 opacity）与找它们时的样式代数。 */
+  opacityStyles?: readonly CSSStyleDeclaration[]
+  opacityGeneration?: number
 }
 
 /**
@@ -153,6 +162,21 @@ function assertLowerable(material: GlassMaterial): void {
  * getBoundingClientRect 量得到 —— 不跳过的话，DOM 已经看不见了，玻璃还留在原地。
  * 渐隐收起的菜单就是这样。部分透明（0 < opacity < 1）玻璃跟不上，那由 layering.ts 警告。
  */
+/**
+ * 决定面板 CSS 不透明度的那几层：面板自己，以及往上直到（不含）同时包含画布的祖先。
+ * 共同祖先上的 opacity 同时作用在画布与面板上，两边一致，不用管。
+ * 返回计算样式的活对象：每帧读它们的 opacity 就跟得上过渡与动画，找这一串只在样式代数变了时做。
+ */
+function opacityChainOf(element: HTMLElement, canvas: Element | null): CSSStyleDeclaration[] {
+  if (typeof getComputedStyle !== 'function') return [] // 没有 DOM（Node 里的单元测试）
+  const out: CSSStyleDeclaration[] = []
+  for (let e: Element | null = element; e; e = flatParent(e)) {
+    if (canvas && e.contains(canvas)) break
+    out.push(getComputedStyle(e))
+  }
+  return out
+}
+
 export function isRendered(element: HTMLElement): boolean {
   if (typeof element.checkVisibility !== 'function') return true
   return element.checkVisibility({ visibilityProperty: true, opacityProperty: true })
@@ -291,7 +315,7 @@ export class PanelRegistry {
    * **所有 getBoundingClientRect 在这里一次读完，帧内之后不再碰布局。**
    * 读写交错会触发强制同步布局（layout thrash），面板一多就是实打实的掉帧。
    */
-  measure(viewport: ResolvedViewport, originX = 0, originY = 0): MeasureResult {
+  measure(viewport: ResolvedViewport, originX = 0, originY = 0, canvas: Element | null = null): MeasureResult {
     // CSS px → 画布设备像素。用合成目标尺寸除以 CSS 尺寸，而不是直接乘 dpr ——
     // 画布的像素数是取整过的，差那一点在 DPR 1.5 这类非整数倍率下会累积成可见的错位。
     const sx = viewport.compositeWidth / viewport.cssWidth
@@ -365,11 +389,21 @@ export class PanelRegistry {
         roundBox(clipBox)
       )
       const scissor = clip(own.x0, own.y0, own.x1, own.y1)
+      if (record.opacityStyles === undefined || record.opacityGeneration !== this.#styleGeneration) {
+        record.opacityStyles = opacityChainOf(record.element, canvas)
+        record.opacityGeneration = this.#styleGeneration
+      }
+      let fade = 1
+      for (const s of record.opacityStyles) {
+        const o = parseFloat(s.opacity)
+        if (Number.isFinite(o)) fade *= o
+      }
+
       const l = record.light
       const light: [number, number, number, number] = l
         ? [x + l.x * sx, y + l.y * sy, LIGHT_SIGMA_FRAC * Math.min(w, h), Math.min(1, Math.max(0, l.strength)) * LIGHT_GAIN]
         : [0, 0, 1, 0]
-      measured.set(record, { record, x, y, w, h, scissor, clip: clipBox, clipRadii, light, chain })
+      measured.set(record, { record, x, y, w, h, scissor, clip: clipBox, clipRadii, light, fade, chain })
     }
 
     // 2) 合并组。一块面板只能属于一个组（先到先得），一组最多 MAX_GROUP_MEMBERS 块。
@@ -553,7 +587,7 @@ function writePanel(
   data[o + 17] = depthEffect
   data[o + 18] = dispersion
   data[o + 19] = highlight
-  data[o + 20] = chain.opacity
+  data[o + 20] = chain.opacity * panel.fade // 材质的 opacity × CSS 上的实际不透明度
   data[o + 21] = DEBUG_MODES.indexOf(debugMode)
   data[o + 22] = RIM_WIDTH_DP * scale
   data[o + 23] = 0

@@ -693,7 +693,7 @@ async function buildStage(options: GlassStageOptions): Promise<GlassStage> {
 
     // 所有面板在这里一次量完，帧内之后不再碰布局（避免 layout thrash）。
     const canvasBox = canvas.getBoundingClientRect()
-    const measured = panels.measure(viewport, canvasBox.left, canvasBox.top)
+    const measured = panels.measure(viewport, canvasBox.left, canvasBox.top, canvas)
     const t1 = performance.now()
 
     const frame: FrameSnapshot = {

@@ -124,6 +124,8 @@ GPU 输出靠 `stage.debug.probeOptics()` + `compareOptics()` 与 CPU 实现逐�
 - [x] **静止时不画**（`src/renderer/idle.ts`）。每帧照样量面板，但这一帧画出来与上一帧逐像素相同时
       就不提交，浏览器继续显示上一帧。静态背景加不动的卡片：实测 1.5 秒 **0 帧**；滚动一下画 2 帧，
       按钮悬停只在补间期间画；视频场景只在出新帧时画
+- [x] **玻璃跟着 CSS 的 opacity 淡**：元素（或它的祖先）的 opacity 乘进玻璃的不透明度，每帧读计算样式 ——
+      渐隐渐显的菜单、提示条、对话框直接可用。实测外层 opacity 0.5 时玻璃的改变量正好减半（0.500）
 - [x] **按压处的光**：Apple 玻璃 `.interactive()` 的那种反馈 —— 按下时从按下的地方亮起来，按住拖动时跟着走，
       松开后随按压的补间淡掉（`GlassPanel.setLight()`，`<glass-button>` 自动用它）。没按下时逐位不变
 - [x] **`<glass-button>` 进表单**：表单关联的自定义元素，行为与原生 `<button>` 相同 —— 默认提交、
@@ -141,7 +143,7 @@ WebGL2（WebGL2 的上下文丢失同理，第二次降到 CSS 兜底）。T5 �
 
 **190 条测试全绿**，playground 可跑（`npm run dev`），只用公开 API 搭的示例页在 `/demo.html`，
 逐项自动验证在 `/verify.html`
-（现在 WebGPU 上 **PASS 21/21**、WebGL2 上 **PASS 20/20**）。
+（现在 WebGPU 上 **PASS 22/22**、WebGL2 上 **PASS 21/21**）。
 
 T5 顺带把两个计划阶段悬着的硬件问题测掉了，结果记在
 [docs/calibration.md](docs/calibration.md)：`minUniformBufferOffsetAlignment` 实测 256

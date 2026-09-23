@@ -96,6 +96,7 @@ test('packPanel 写入的每个字段都落在 WGSL struct 的对应偏移上', 
     clip: { x0: 5, y0: -Infinity, x1: 400, y1: Infinity },
     clipRadii: [1, 2, 3, 4],
     light: [50, 60, 25, 0.15],
+    fade: 0.5,
     chain
   }
 
@@ -134,7 +135,7 @@ test('packPanel 写入的每个字段都落在 WGSL struct 的对应偏移上', 
   near(at('depthEffect'), 0.7, 'depthEffect')
   near(at('dispersion'), 0.2, 'dispersion')
   near(at('highlight'), 0.55, 'highlight')
-  near(at('opacity'), 0.9, 'opacity')
+  near(at('opacity'), 0.9 * 0.5, 'opacity（材质 0.9 × CSS 上的 0.5）')
   near(at('debugMode'), 3, 'debugMode（grad 在 DEBUG_MODES 里排第 3）')
   near(at('rimPx'), RIM_WIDTH_DP * scale, 'rimPx')
   near(at('clip', 0), 5, 'clip.x0')
