@@ -221,12 +221,16 @@
     <main class="content">
       <h1>Glassium</h1>
       <p>
-        T9：<code>&lt;glass-card&gt;</code> 与 <code>&lt;glass-button&gt;</code>。下面三块玻璃都是组件，
-        材质写在 HTML 属性上；左下角的滑杆改的也是这些属性。按钮有悬停与按压反馈。
+        调试台。下面的玻璃都是组件（<code>&lt;glass-card&gt;</code>、<code>&lt;glass-button&gt;</code>、
+        <code>&lt;glass-container&gt;</code>），材质写在 HTML 属性上，左下角的滑杆改的也是这些属性。
+        按钮有悬停与按压反馈，按下时光从按下的地方亮起来。想看正常页面的样子，去
+        <a href="./demo.html" style="color: #aed5f3">demo.html</a>。
       </p>
       <p>
         默认场景是 calibration（棋盘格 + 硬对角线 + 黑白阶跃）—— 判断折射与色散只能用它。
         gradient 好看，但平滑渐变在 24px 内只变约 1/255，折射挪了采样点也看不出来。
+        scene 下拉框里的 photo / canvas / video / 本地图片走的是 <code>stage.setScene()</code>，
+        fit 与 CSS 的 object-fit 同义；「减少透明度」开关模拟系统设置，玻璃换成磨砂。
       </p>
       <p>
         这段文字在 L1，画布在 L0（<code>z-index: -1</code>）。
@@ -247,8 +251,9 @@
       <p>
         几个开关（本机平时走不到这些路径）：<code>?glassium.simulate=no-webgpu</code>
         强制走降级阶梯，组件换成 CSS 兜底表面；<code>?glassium.forcedColors=1</code>
-        模拟高对比度模式；<code>?glassium.reducedMotion=1</code> 模拟减少动效；
-        <code>?glassium.backend=webgl2</code> 强制 WebGL2。逐项自动验证在
+        模拟强制配色；<code>?glassium.reducedMotion=1</code> 模拟减少动效；
+        <code>?glassium.reducedTransparency=1</code>、<code>?glassium.moreContrast=1</code> 模拟减少透明度、更高对比度；
+        <code>?glassium.backend=webgl2</code> 强制 WebGL2；<code>?scene=user:photo</code> 直接从某个场景开始。逐项自动验证在
         <a href="./verify.html" style="color: #aed5f3">verify.html</a>。
       </p>
     </main>
