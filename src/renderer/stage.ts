@@ -55,6 +55,7 @@ import type {
   Renderer
 } from './backend.ts'
 import { GpuRenderer } from './gpu.ts'
+import { unchangedFrame, type FrameSnapshot } from './idle.ts'
 import { LayerWatcher, type LayerProblem } from './layering.ts'
 import { PanelRegistry, type GlassGroup, type GlassPanel } from './panels.ts'
 import {
@@ -80,9 +81,15 @@ export type Backend = 'webgpu' | 'webgl2' | 'none'
 
 export interface GlassStats {
   readonly backend: Backend
-  /** 最近一秒的帧率。prefers-reduced-motion 下恒为 0（循环根本没启动）。 */
+  /**
+   * 最近一秒实际画了几帧。什么都没变时不画（见 idle.ts），所以静止的页面上是 0；
+   * prefers-reduced-motion 下也恒为 0（循环根本没启动）。
+   */
   readonly fps: number
+  /** 画了的帧数。 */
   readonly frames: number
+  /** 因为与上一帧逐像素相同而没有画的帧数（循环照跑、面板照量，只是不提交）。 */
+  readonly skippedFrames: number
   readonly drawCalls: number
   /** 渲染目标分配次数（跨设备累计）。稳定后不应再增长。 */
   readonly targetAllocations: number
@@ -96,7 +103,7 @@ export interface GlassStats {
   readonly groups: number
   /**
    * 上一帧主线程上的耗时，毫秒：measure 是量所有面板（getBoundingClientRect 等）的那一段，
-   * total 是整帧（测量 + 打包 + 编码与提交）。不含 GPU 执行时间。
+   * total 是整帧（测量 + 打包 + 编码与提交）。不含 GPU 执行时间。没有画的帧只有测量与比较。
    */
   readonly cpuMs: { readonly measure: number; readonly total: number }
   /** 这个 stage 经历过的意外设备丢失次数（主动 dispose 不算）。 */
@@ -487,6 +494,10 @@ async function buildStage(options: GlassStageOptions): Promise<GlassStage> {
   let rafId = 0
   let pendingOneShot = 0
   let frames = 0
+  let skippedFrames = 0
+  /** 上一帧画的是什么、用哪个后端画的。与这一帧相同就不画（idle.ts）。 */
+  let lastFrame: FrameSnapshot | null = null
+  let lastRenderer: Renderer | null = null
   let drawCalls = 0
   let blurPasses = 0
   let panelsLastFrame = 0
@@ -561,7 +572,8 @@ async function buildStage(options: GlassStageOptions): Promise<GlassStage> {
     pendingReadback = null
   }
 
-  const syncViewport = (): void => {
+  /** 量画布、按需重新分配。返回这次有没有重新分配（重新分配会清空画布，这一帧必须画）。 */
+  const syncViewport = (): boolean => {
     // 用画布**自己的**盒子，不用 window.innerWidth。
     //
     // innerWidth 包含垂直滚动条，而 position:fixed; inset:0 的画布不包含。
@@ -584,7 +596,7 @@ async function buildStage(options: GlassStageOptions): Promise<GlassStage> {
       viewport.sceneHeight !== next.sceneHeight
 
     viewport = next
-    if (!changed || !renderer) return
+    if (!changed || !renderer) return false
     forceResize = false
 
     canvas.width = next.compositeWidth
@@ -597,12 +609,25 @@ async function buildStage(options: GlassStageOptions): Promise<GlassStage> {
           '这是定死的优先级，不是 bug，但大视口上会更吃 GPU。'
       )
     }
+    return true
   }
 
-  const renderFrame = (now: number): void => {
+  /** 帧率窗口每次循环都要推进 —— 只在画了的帧上推进的话，静止之后它会停在最后一个忙碌的值上。 */
+  const tickFps = (now: number, rendered: boolean): void => {
+    if (fpsWindowStart === 0) fpsWindowStart = now
+    if (rendered) fpsWindowFrames++
+    if (now - fpsWindowStart >= 1000) {
+      fps = Math.round((fpsWindowFrames * 1000) / (now - fpsWindowStart))
+      fpsWindowStart = now
+      fpsWindowFrames = 0
+    }
+  }
+
+  /** @param force 与上一帧相同也画（renderNow 用：它的意思就是「现在画一帧」）。 */
+  const renderFrame = (now: number, force = false): void => {
     if (disposed || !renderer) return
     const t0 = performance.now()
-    syncViewport()
+    const resized = syncViewport()
     if (!viewport) return
 
     // 所有面板在这里一次量完，帧内之后不再碰布局（避免 layout thrash）。
@@ -610,14 +635,7 @@ async function buildStage(options: GlassStageOptions): Promise<GlassStage> {
     const measured = panels.measure(viewport, canvasBox.left, canvasBox.top)
     const t1 = performance.now()
 
-    const probe = pendingProbe
-    const groupProbe = pendingGroupProbe
-    const readback = pendingReadback
-    pendingProbe = null
-    pendingGroupProbe = null
-    pendingReadback = null
-
-    const result = renderer.render({
+    const frame: FrameSnapshot = {
       // reduced-motion 下时间冻结在 0：循环不跑的同时画面也必须是确定的那一帧，
       // 否则 resize 触发的重绘会跳到另一个相位，看起来像闪烁。
       time: reducedMotion ? 0 : (now - startTime) / 1000,
@@ -626,18 +644,37 @@ async function buildStage(options: GlassStageOptions): Promise<GlassStage> {
       sceneImage: scene.frame(viewport),
       panels: measured.panels,
       groups: measured.groups,
-      panelDebugMode,
-      probe,
-      groupProbe,
-      readback
-    })
+      panelDebugMode
+    }
+
+    // 与上一帧逐像素相同就不画：浏览器继续显示上一帧。回读与探针要一帧来服务，照画。
+    const requested = pendingProbe !== null || pendingGroupProbe !== null || pendingReadback !== null
+    if (!force && !resized && !requested && renderer === lastRenderer && unchangedFrame(lastFrame, frame)) {
+      skippedFrames++
+      measureMs = t1 - t0
+      frameMs = performance.now() - t0
+      tickFps(now, false)
+      return
+    }
+
+    const probe = pendingProbe
+    const groupProbe = pendingGroupProbe
+    const readback = pendingReadback
+    pendingProbe = null
+    pendingGroupProbe = null
+    pendingReadback = null
+
+    const result = renderer.render({ ...frame, probe, groupProbe, readback })
     if (!result) {
       // 这一帧没画成（比如资源还没就绪、上下文刚丢）：请求放回去，下一帧再服务
       pendingProbe ??= probe
       pendingGroupProbe ??= groupProbe
       pendingReadback ??= readback
+      lastFrame = null
       return
     }
+    lastFrame = frame
+    lastRenderer = renderer
 
     frames++
     sceneUploads += result.sceneUploads
@@ -649,14 +686,7 @@ async function buildStage(options: GlassStageOptions): Promise<GlassStage> {
     for (const g of measured.groups) grouped += g.members.length
     panelsLastFrame = measured.panels.length + grouped
     groupsLastFrame = measured.groups.length
-
-    if (fpsWindowStart === 0) fpsWindowStart = now
-    fpsWindowFrames++
-    if (now - fpsWindowStart >= 1000) {
-      fps = Math.round((fpsWindowFrames * 1000) / (now - fpsWindowStart))
-      fpsWindowStart = now
-      fpsWindowFrames = 0
-    }
+    tickFps(now, true)
   }
 
   const loop = (now: number): void => {
@@ -951,6 +981,7 @@ async function buildStage(options: GlassStageOptions): Promise<GlassStage> {
           backend,
           fps,
           frames,
+          skippedFrames,
           drawCalls,
           targetAllocations: retiredAllocations + (renderer?.allocations ?? 0),
           blurPasses,
@@ -971,7 +1002,7 @@ async function buildStage(options: GlassStageOptions): Promise<GlassStage> {
       checkLayers: (): LayerProblem<Element>[] => layers.check(),
       renderNow(): void {
         if (!isActive()) return
-        renderFrame(performance.now())
+        renderFrame(performance.now(), true)
       },
       simulateContextLoss(): boolean {
         if (renderer instanceof GpuRenderer) return simulateDeviceLoss()
@@ -1167,6 +1198,7 @@ function makeInertStage(canvas: HTMLCanvasElement, options: GlassStageOptions): 
         backend: 'none',
         fps: 0,
         frames: 0,
+        skippedFrames: 0,
         drawCalls: 0,
         targetAllocations: 0,
         blurPasses: 0,

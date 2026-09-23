@@ -62,7 +62,7 @@ function render(stage: GlassStage): void {
   const lines = [
     `<b>backend</b>  ${s.backend}`,
     `<b>fps</b>      ${s.fps}${s.reducedMotion ? '  (reduced-motion：不启动循环)' : ''}`,
-    `<b>frames</b>   ${s.frames}`,
+    `<b>frames</b>   ${s.frames}  <b>skipped</b> ${s.skippedFrames}（没变，不画）`,
     `<b>draws</b>    ${s.drawCalls}`,
     `<b>allocs</b>   ${s.targetAllocations}`,
     `<b>blur</b>     ${s.blurPasses} 趟 / ${s.blurLevels} 级`,
