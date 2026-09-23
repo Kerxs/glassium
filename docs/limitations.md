@@ -77,15 +77,23 @@ CSS 动画不参与折射；`position: fixed` 被忽略。
 
 ## 其它已知限制
 
-### 预乘钳制会在低 opacity 下压平高光
+### 画布恒为不透明，所以玻璃输出不钳 `rgb ≤ a`
 
-画布用 `alphaMode: 'premultiplied'`（规范不允许 `'unpremultiplied'`；`'opaque'` 会把 alpha
-清成 1 并硬遮挡下方一切）。预乘的不变式要求逐通道 `rgb ≤ a`，否则合成结果**未定义**，
-而加性边光加 tint 在低 opacity 下极易违反。
+（这一节早先写的是「Glassium 钳制 `min(rgb, a)`，代价是低 opacity 时高光被压平」，
+并提到一个 `premultiplyViolations` 计数。钳制已在 T8 去掉，计数从未实现 —— 下面是现在的做法。）
 
-Glassium 在写出前钳制 `min(rgb, vec3(a))`。后果是 opacity 越低、高光越早被压平。
-这是 `alphaMode` 的固有后果，不是 bug。`debug.stats().premultiplyViolations` 把它变成一个数 ——
-非零意味着高光模型在过驱。
+预乘的不变式 `rgb ≤ a` 只在**画布与页面合成的那条边界**上才有意义：画布配成
+`alphaMode: 'premultiplied'` 时，违反它的像素合成结果未定义。
+
+但 Glassium 的画布上**每个像素的 alpha 都是 1**：背景 pass 写 alpha 1，玻璃用预乘混合
+（`one / one-minus-src-alpha`）叠上去，`a_out = a + 1·(1 − a) = 1`。实测整张画布
+1225×1352 个像素 alpha 全部是 255。所以那条边界上的约束天然成立，与 alphaMode 无关。
+
+而在 pass 内部，玻璃片元的 `rgb > a` 不是错误，是**加性光** —— 混合方程对它处理得完全正确，
+高光正是这么叠上去的。在这里钳 `min(rgb, a)` 不会防住任何东西，只会在低 opacity 时把高光压平。
+
+**什么时候要重新考虑：** 如果将来加一个「背景半透明、让页面 CSS 背景透上来」的模式，
+画布上就会出现 alpha < 1 的像素，那时候配 `'premultiplied'` 就必须保证 `rgb ≤ a`。
 
 ### 第一期在 sRGB 编码空间混合，不在线性空间
 

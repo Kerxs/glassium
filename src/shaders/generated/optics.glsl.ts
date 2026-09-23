@@ -84,8 +84,19 @@ vec3 spectralWeights(float k) {
   return vec3(1.0 - k, 1.0, 1.0 + k);
 }
 
-vec4 premultiplyClamp(vec3 rgb, float alpha) {
-  float a = clamp(alpha, 0.0, 1.0);
-  return vec4(min(rgb, vec3(a, a, a)), a);
+// 边缘高光的范围：边界处为 1，深入面板 rimPx 之后为 0，中间平滑过渡。
+// rimPx 下限 1e-6：smoothstep 两个端点相等时结果未定义。
+float rimMask(float sd, float rimPx) {
+  return 1.0 - smoothstep(0.0, max(rimPx, 1e-6), -sd);
+}
+
+// 返回 (受光强度, 背光强度)。
+// 与上游的区别：上游是 pow(abs(dot(n, L)), falloff)，abs() 让朝光与背光两条边等亮，
+// 等于两个光源。这里拆成两项 —— 只有朝光一侧发亮，背光一侧给出暗边的强度。
+vec2 highlightTerms(vec2 n, vec2 lightDir, float gloss) {
+  float ndl = dot(n, lightDir);
+  float lit = pow(max(ndl, 0.0), gloss);
+  float dark = pow(max(-ndl, 0.0), gloss);
+  return vec2(lit, dark);
 }
 `

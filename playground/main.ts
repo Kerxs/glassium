@@ -11,6 +11,7 @@ import {
   createGlassStage,
   GlassPresets,
   simulateNoWebGpu,
+  type GlassMaterial,
   simulateReducedMotion,
   type GlassStage,
   type PanelDebugMode
@@ -90,11 +91,15 @@ function wireControls(stage: GlassStage): void {
     blurOut.textContent = blur.value
     satOut.textContent = Number(sat.value).toFixed(2)
     tintOut.textContent = a.toFixed(2)
+    const card = document.getElementById('card')!.getBoundingClientRect()
     stage.debug.setBackdrop({
       blurDp: Number(blur.value),
       saturation: Number(sat.value),
       tint: `rgba(255, 255, 255, ${a})`,
-      scene: scene.value as 'gradient' | 'calibration'
+      scene: scene.value as 'gradient' | 'calibration' | 'radial' | 'flat',
+      // radial 以卡片中心为圆心：折射往里采就是往暗处采，色散让蓝比红更暗
+      radialCenter: [card.left + card.width / 2, card.top + card.height / 2],
+      radialRadius: 0.6
     })
   }
 
@@ -115,12 +120,39 @@ async function main(): Promise<void> {
 
   // 注册测试面板。四角不同的那块专门用来看 radiusAt 的修正：
   // 上游把原始坐标传给 radiusAt，四角会塌缩成右下角那一个。
-  stage.register(document.getElementById('card')!, GlassPresets.regular)
-  stage.register(document.getElementById('pill')!, { ...GlassPresets.thick, cornerRadius: '1frac' })
-  stage.register(document.getElementById('pill2')!, {
-    ...GlassPresets.regular,
-    cornerRadius: [4, 32, 8, 28]
-  })
+  const panels: [HTMLElement, GlassMaterial][] = [
+    [document.getElementById('card')!, GlassPresets.regular],
+    [document.getElementById('pill')!, { ...GlassPresets.thick, cornerRadius: '1frac' }],
+    [document.getElementById('pill2')!, { ...GlassPresets.regular, cornerRadius: [4, 32, 8, 28] }]
+  ]
+  const applyPanels = (overrides: GlassMaterial): void => {
+    for (const [el, base] of panels) stage.register(el, { ...base, ...overrides })
+  }
+  const disp = document.getElementById('disp') as HTMLInputElement
+  const hl = document.getElementById('hl') as HTMLInputElement
+  const dispOut = document.getElementById('dispOut') as HTMLOutputElement
+  const hlOut = document.getElementById('hlOut') as HTMLOutputElement
+  const syncPanels = (): void => {
+    dispOut.textContent = Number(disp.value).toFixed(2)
+    hlOut.textContent = Number(hl.value).toFixed(2)
+    applyPanels({ dispersion: Number(disp.value), highlight: Number(hl.value) })
+  }
+  // 首次注册不走 syncPanels，免得对同一元素「重复注册」触发警告
+  for (const [el, base] of panels) {
+    stage.register(el, { ...base, dispersion: Number(disp.value), highlight: Number(hl.value) })
+  }
+  const quietly = (fn: () => void): void => {
+    const warn = console.warn
+    console.warn = (...a: unknown[]) => {
+      if (!String(a[0]).includes('已经注册过了')) warn(...a)
+    }
+    try {
+      fn()
+    } finally {
+      console.warn = warn
+    }
+  }
+  for (const el of [disp, hl]) el.addEventListener('input', () => quietly(syncPanels))
   Object.assign(window as unknown as Record<string, unknown>, { glassiumCompareOptics: compareOptics })
 
   wireControls(stage)

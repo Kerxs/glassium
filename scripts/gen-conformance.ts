@@ -16,12 +16,15 @@ import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
 
 import {
+  channelSampleOffsets,
   circleMap,
   clampRadii,
   gradRadiusOf,
   gradSdRoundedRect,
+  highlightTerms,
   radiusAt,
   refractionProfile,
+  rimMask,
   sdRoundedRect,
   smin,
   sminGradient,
@@ -134,6 +137,33 @@ function buildMergeCases(): Case[] {
   return cases
 }
 
+function buildLightingCases(): Case[] {
+  const cases: Case[] = []
+  const light: Vec2 = [-Math.SQRT1_2, -Math.SQRT1_2]
+  for (let deg = 0; deg < 360; deg += 30) {
+    const a = (deg * Math.PI) / 180
+    const n: Vec2 = [Math.cos(a), Math.sin(a)]
+    for (const gloss of [1, 2]) {
+      cases.push({ input: { n, lightDir: light, gloss }, expect: highlightTerms(n, light, gloss) })
+    }
+  }
+  for (const sd of [0.5, 0, -0.3, -1, -1.5, -2.25, -4]) {
+    cases.push({ input: { sd, rimPx: 2.25 }, expect: { rimMask: rimMask(sd, 2.25) } })
+  }
+  return cases
+}
+
+function buildChannelOffsetCases(): Case[] {
+  const cases: Case[] = []
+  for (const k of [0, 0.25, 0.5]) {
+    for (const dir of [[1, 0], [0, -1], [Math.SQRT1_2, Math.SQRT1_2]] as Vec2[]) {
+      const off = channelSampleOffsets(dir, 20, k)
+      cases.push({ input: { dir, displacement: 20, k }, expect: off })
+    }
+  }
+  return cases
+}
+
 function buildDispersionCases(): Case[] {
   return [0, 0.25, 0.5, 1].map((k) => ({
     input: { k },
@@ -152,7 +182,9 @@ const doc = {
     refractionProfile: buildProfileCases(),
     cornerRadii: buildRadiiCases(),
     smoothMerge: buildMergeCases(),
-    dispersion: buildDispersionCases()
+    dispersion: buildDispersionCases(),
+    lighting: buildLightingCases(),
+    channelOffsets: buildChannelOffsetCases()
   }
 }
 

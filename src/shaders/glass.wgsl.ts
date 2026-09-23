@@ -54,9 +54,18 @@ struct Panel {
   highlight: f32,       // T8
   opacity: f32,
   debugMode: f32,
-  _pad0: f32,
+  rimPx: f32,           // 边缘高光的宽度，画布设备像素
   _pad1: f32,
 }
+
+// 光源方向：指向光源的单位向量，屏幕坐标（y 向下）。左上 45°。
+// 于是上边和左边受光、右边和下边背光；左上角最亮、右下角暗边最深、另两角居中。
+// 选 45° 是为了验证时四个角的预期各不相同，一眼能对上。
+const LIGHT_DIR: vec2f = vec2f(-0.70710678, -0.70710678);
+// 高光对入射角的集中程度。2 = 左上角满强度、上边与左边约一半。
+const GLOSS: f32 = 2.0;
+// 暗边相对亮边的强度。Apple 的那道暗边很淡，所以远小于 1。
+const DARK_RIM: f32 = 0.35;
 
 @group(0) @binding(0) var<uniform> panel: Panel;
 @group(0) @binding(1) var samp: sampler;
@@ -144,15 +153,45 @@ fn evalOptics(px: vec2f) -> Optics {
     discard;
   }
 
+  // —— 折射与色散 ——
   // 往里采样：dir 指向外侧，减掉它。
-  let samplePx = px - o.dir * o.displacement;
-  let uv = samplePx / stage.canvasSize;
-  let c = textureSampleLevel(chain, samp, uv, panel.blurLevel);
-  let rgb = applyColorFilter(c.rgb, panel.saturation, panel.tint);
+  let base = px - o.dir * o.displacement;
+  var sampled: vec3f;
+  if (panel.dispersion > 0.0) {
+    // 三个通道沿同一方向往里采，长度按 spectralWeights 缩放：蓝最长、红最短。
+    // 所以边缘每一点上蓝都比红采得更靠里 —— 四个角的关系完全一致。
+    // 上游用 (x·y)/(hx·hy) 调制色散，这个关系逐象限翻转。
+    let w = spectralWeights(panel.dispersion);
+    let sR = px - o.dir * (o.displacement * w.x);
+    let sB = px - o.dir * (o.displacement * w.z);
+    sampled = vec3f(
+      textureSampleLevel(chain, samp, sR / stage.canvasSize, panel.blurLevel).r,
+      textureSampleLevel(chain, samp, base / stage.canvasSize, panel.blurLevel).g,
+      textureSampleLevel(chain, samp, sB / stage.canvasSize, panel.blurLevel).b
+    );
+  } else {
+    // dispersion = 0 走单次采样。这一支与 T7 的代码逐字相同，
+    // 所以关掉色散时的输出与 T7 逐位一致（有整帧哈希比对为证）。
+    sampled = textureSampleLevel(chain, samp, base / stage.canvasSize, panel.blurLevel).rgb;
+  }
+  let rgb = applyColorFilter(sampled, panel.saturation, panel.tint);
+
+  // —— 高光 ——
+  // 法线用纯 SDF 梯度（放大后的角半径），不混 depthEffect —— 与上游一致，
+  // 高光描述的是面板轮廓的朝向，不是折射方向。
+  let n = safeNormalize(gradSdRoundedRect(o.centered, o.halfSize, gradRadiusOf(o.radius, o.halfSize)));
+  let terms = highlightTerms(n, LIGHT_DIR, GLOSS) * rimMask(o.sd, panel.rimPx) * panel.highlight;
+  let lit = terms.x;
+  let dark = terms.y * DARK_RIM;
 
   let a = coverage * panel.opacity;
-  // 输出预乘色。rgb ≤ 1 时 rgb·a ≤ a 天然成立，这个钳制在 T8 加上高光之后才真正起作用。
-  return premultiplyClamp(rgb * a, a);
+  // 暗边按比例压暗玻璃本身；亮边是加性光。
+  //
+  // **不钳 rgb ≤ a。** 原计划要钳，理由是预乘画布下 rgb > a 的合成结果未定义。
+  // 但整个画布的 alpha 恒为 1（背景写 1，预乘混合保持 1 —— 实测全画布 alpha 皆为 255），
+  // 所以画布边界上那条约束天然成立；而 pass 内部 rgb > a 就是加性光，混合方程处理得
+  // 完全正确。钳制只会在低 opacity 时把高光压平，别无作用。
+  return vec4f((rgb * (1.0 - dark) + vec3f(lit, lit, lit)) * a, a);
 }
 
 /**

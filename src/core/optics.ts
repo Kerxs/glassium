@@ -219,6 +219,57 @@ export function spectralWeights(k: number): { r: number; g: number; b: number } 
   return { r: 1 - k, g: 1, b: 1 + k }
 }
 
+/**
+ * 边缘高光的范围：边界处（sd = 0）为 1，深入面板 rimPx 之后为 0，中间是 smoothstep。
+ * 与 WGSL 侧逐点一致（smoothstep 展开为 t²(3 − 2t)）。
+ */
+export function rimMask(sd: number, rimPx: number): number {
+  const e1 = Math.max(rimPx, 1e-6)
+  const t = Math.min(Math.max(-sd / e1, 0), 1)
+  return 1 - t * t * (3 - 2 * t)
+}
+
+/**
+ * 高光：返回受光强度与背光强度。
+ *
+ * 上游是 `pow(abs(dot(n, L)), falloff)`。abs() 让朝光和背光两条边**等亮** ——
+ * 那等于两个光源，不是一个；而且没有暗边（上游 issue #118 在要这个）。
+ * 这里拆成两项：只有朝光一侧发亮（lit），背光一侧给出暗边强度（dark），
+ * 两者在任何一点上至多一个非零。
+ *
+ * @param lightDir 指向光源的单位向量，屏幕坐标（y 向下）。
+ */
+export function highlightTerms(
+  n: Vec2,
+  lightDir: Vec2,
+  gloss: number
+): { lit: number; dark: number } {
+  const ndl = n[0] * lightDir[0] + n[1] * lightDir[1]
+  return {
+    lit: Math.pow(Math.max(ndl, 0), gloss),
+    dark: Math.pow(Math.max(-ndl, 0), gloss)
+  }
+}
+
+/**
+ * 色散：三个通道各自的采样偏移（相对当前像素，像素单位）。
+ *
+ * 全部沿同一个方向 −dir（往面板内部），只是长度按 spectralWeights 缩放：
+ * 蓝 1+k 最长、红 1−k 最短。所以在边缘的每一点上，蓝通道都比红通道采得更靠里 ——
+ * **这个关系在四个角上完全一致**。上游用 (x·y)/(hx·hy) 调制色散，这个关系逐象限翻转。
+ *
+ * k = 0 时三个偏移完全相等（乘的都是精确的 1），与无色散路径逐位相同。
+ */
+export function channelSampleOffsets(
+  dir: Vec2,
+  displacement: number,
+  k: number
+): { r: Vec2; g: Vec2; b: Vec2 } {
+  const w = spectralWeights(k)
+  const at = (m: number): Vec2 => [-dir[0] * displacement * m, -dir[1] * displacement * m]
+  return { r: at(w.r), g: at(w.g), b: at(w.b) }
+}
+
 /** 归一化，零向量返回 (0,-1) —— 与 WGSL 侧的守卫一致。 */
 export function safeNormalize(v: Vec2): Vec2 {
   const len = Math.hypot(v[0], v[1])

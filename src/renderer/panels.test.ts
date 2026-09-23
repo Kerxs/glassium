@@ -10,7 +10,7 @@ import {
   PANEL_STRUCT_BYTES
 } from '../shaders/glass.wgsl.ts'
 import { levelForSigma } from './blur.ts'
-import { PanelRegistry, packPanel, type MeasuredPanel } from './panels.ts'
+import { PanelRegistry, RIM_WIDTH_DP, packPanel, type MeasuredPanel } from './panels.ts'
 import { compareOptics, type OpticsProbe } from './verify.ts'
 import {
   gradRadiusOf,
@@ -131,6 +131,7 @@ test('packPanel 写入的每个字段都落在 WGSL struct 的对应偏移上', 
   near(at('highlight'), 0.55, 'highlight')
   near(at('opacity'), 0.9, 'opacity')
   near(at('debugMode'), 3, 'debugMode（grad 在 DEBUG_MODES 里排第 3）')
+  near(at('rimPx'), RIM_WIDTH_DP * scale, 'rimPx')
 
   // 相邻槽位不能被写脏
   assert.ok(data.subarray(0, base).every((v) => v === 0), '写越界到了前一个槽位')

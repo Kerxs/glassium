@@ -49,7 +49,10 @@ export const SCENE_WGSL = /* wgsl */ `
 struct SceneUniforms {
   resolution: vec2f,
   time: f32,
-  mode: f32,        // 0 = gradient，1 = calibration
+  mode: f32,        // 0 gradient · 1 calibration · 2 radial · 3 flat
+  center: vec2f,    // radial 的中心，uv
+  radius: f32,      // radial 的半径，以视口高为单位
+  _pad: f32,
 }
 
 @group(0) @binding(0) var<uniform> scene: SceneUniforms;
@@ -85,7 +88,28 @@ fn calibration(uv: vec2f, res: vec2f) -> vec3f {
   return mix(vec3f(checker, checker, checker), right, halfPlane);
 }
 
+/**
+ * 两个验证用的场景，都不是给人看的。
+ *
+ * flat：处处 0.5 的灰。模糊与折射都改变不了一个常数场，所以边缘上出现的任何亮度差
+ *       都**只可能**来自高光 —— 用它验「只有朝光一侧发亮、背光一侧有暗边」。
+ *
+ * radial：亮度随到中心的距离单调增加。把中心放在某块面板的中心，折射往里采样就意味着
+ *       采到更暗的地方；色散让蓝通道采得比红通道更靠里，于是边缘上**蓝应当比红暗**。
+ *       这个关系在四个角上都成立，才说明色散方向是一致的 —— 上游的鞍面调制会让
+ *       相邻两个角给出相反的结论。
+ */
 @fragment fn fs(in: VsOut) -> @location(0) vec4f {
+  if (scene.mode > 2.5) {
+    return vec4f(0.5, 0.5, 0.5, 1.0);
+  }
+  if (scene.mode > 1.5) {
+    let aspect = scene.resolution.x / max(scene.resolution.y, 1.0);
+    let p = vec2f(in.uv.x * aspect, in.uv.y);
+    let c = vec2f(scene.center.x * aspect, scene.center.y);
+    let v = clamp(length(p - c) / max(scene.radius, 1e-6), 0.0, 1.0);
+    return vec4f(v, v, v, 1.0);
+  }
   if (scene.mode > 0.5) {
     return vec4f(calibration(in.uv, scene.resolution), 1.0);
   }

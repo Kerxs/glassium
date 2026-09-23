@@ -5,11 +5,14 @@ import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
 
 import {
+  channelSampleOffsets,
   circleMap,
   clampRadii,
   gradSdRoundedRect,
+  highlightTerms,
   radiusAt,
   refractionProfile,
+  rimMask,
   safeNormalize,
   sdRoundedRect,
   smin,
@@ -126,5 +129,39 @@ test('符合性向量：色散', () => {
     close(got.r, want.r, `#${i} r`)
     close(got.g, want.g, `#${i} g`)
     close(got.b, want.b, `#${i} b`)
+  }
+})
+
+test('符合性向量：高光与边缘带', () => {
+  const cases = doc.groups.lighting
+  assert.ok(cases && cases.length > 0, '向量组为空 —— 是不是忘了跑 gen:conformance')
+  for (const [i, c] of cases.entries()) {
+    if ('rimMask' in c.expect) {
+      close(rimMask(c.input.sd as number, c.input.rimPx as number), c.expect.rimMask as number, `#${i} rimMask`)
+    } else {
+      const got = highlightTerms(
+        c.input.n as unknown as Vec2,
+        c.input.lightDir as unknown as Vec2,
+        c.input.gloss as number
+      )
+      close(got.lit, c.expect.lit as number, `#${i} lit`)
+      close(got.dark, c.expect.dark as number, `#${i} dark`)
+    }
+  }
+})
+
+test('符合性向量：色散的逐通道偏移', () => {
+  const cases = doc.groups.channelOffsets
+  assert.ok(cases && cases.length > 0, '向量组为空 —— 是不是忘了跑 gen:conformance')
+  for (const [i, c] of cases.entries()) {
+    const got = channelSampleOffsets(
+      c.input.dir as unknown as Vec2,
+      c.input.displacement as number,
+      c.input.k as number
+    )
+    const want = c.expect as { r: number[]; g: number[]; b: number[] }
+    closeVec(got.r, want.r, `#${i} r`)
+    closeVec(got.g, want.g, `#${i} g`)
+    closeVec(got.b, want.b, `#${i} b`)
   }
 })

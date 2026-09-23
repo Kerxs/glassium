@@ -121,8 +121,19 @@ fn spectralWeights(k: f32) -> vec3f {
   return vec3f(1.0 - k, 1.0, 1.0 + k);
 }
 
-fn premultiplyClamp(rgb: vec3f, alpha: f32) -> vec4f {
-  let a: f32 = clamp(alpha, 0.0, 1.0);
-  return vec4f(min(rgb, vec3f(a, a, a)), a);
+// 边缘高光的范围：边界处为 1，深入面板 rimPx 之后为 0，中间平滑过渡。
+// rimPx 下限 1e-6：smoothstep 两个端点相等时结果未定义。
+fn rimMask(sd: f32, rimPx: f32) -> f32 {
+  return 1.0 - smoothstep(0.0, max(rimPx, 1e-6), -sd);
+}
+
+// 返回 (受光强度, 背光强度)。
+// 与上游的区别：上游是 pow(abs(dot(n, L)), falloff)，abs() 让朝光与背光两条边等亮，
+// 等于两个光源。这里拆成两项 —— 只有朝光一侧发亮，背光一侧给出暗边的强度。
+fn highlightTerms(n: vec2f, lightDir: vec2f, gloss: f32) -> vec2f {
+  let ndl: f32 = dot(n, lightDir);
+  let lit: f32 = pow(max(ndl, 0.0), gloss);
+  let dark: f32 = pow(max(-ndl, 0.0), gloss);
+  return vec2f(lit, dark);
 }
 `

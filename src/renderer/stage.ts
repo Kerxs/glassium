@@ -95,7 +95,11 @@ export interface BackdropDebugParams {
    * 'gradient' 好看，但线性渐变几乎是高斯模糊的不动点，也几乎看不出折射与色散，
    * 拿它验效果等于什么都没验。
    */
-  readonly scene?: 'gradient' | 'calibration'
+  readonly scene?: 'gradient' | 'calibration' | 'radial' | 'flat'
+  /** radial 场景的中心，画布 CSS 像素。 */
+  readonly radialCenter?: readonly [number, number]
+  /** radial 场景的半径，以视口高为单位。 */
+  readonly radialRadius?: number
 }
 
 export interface GlassStage {
@@ -118,14 +122,17 @@ export interface GlassStage {
     /** 调整全屏背景视图的参数。见 BackdropDebugParams。 */
     setBackdrop(params: BackdropDebugParams): void
     /**
-     * 回读画布中心的一块像素（RGBA8，边长 READBACK_SIZE）。
+     * 回读画布上一块区域的像素。不给 region 时取画布中心 READBACK_SIZE 见方。
+     *
+     * 返回的数据**一律是 RGBA 顺序**。画布的实际格式由 getPreferredCanvasFormat 决定，
+     * Windows 上是 bgra8unorm —— 原样返回的话，第 0 个字节是蓝不是红。任何比较 R 和 B 的
+     * 测量（比如色散的彩边次序）拿到原始字节都会把结论弄反，而且弄反了也看不出来。
      *
      * 必须走 GPU 侧的 copyTextureToBuffer —— **DOM 侧读不出来**：
      * 对 WebGPU 画布调 drawImage / createImageBitmap 得到的是全黑，即使
-     * 画面正常显示、即使 configure 时加了 COPY_SRC。画面明明在动而回读一片黑，
-     * 很容易被当成「渲染没出来」去查渲染，实际是读法不对。
+     * 画面正常显示、即使 configure 时加了 COPY_SRC。
      */
-    readback(): Promise<Uint8Array>
+    readback(region?: ReadbackRegion): Promise<ReadbackResult>
     /** 所有面板的调试视图：'sdf' / 'mask' / 'grad' / 'displacement'，'off' 恢复正常。 */
     setPanelDebug(mode: PanelDebugMode): void
     /**
@@ -147,6 +154,23 @@ export interface GlassStage {
  * 而 256 像素 × 4 字节 = 1024，正好整除。
  */
 export const READBACK_SIZE = 256
+
+/** 回读区域，画布设备像素。 */
+export interface ReadbackRegion {
+  readonly x: number
+  readonly y: number
+  readonly width: number
+  readonly height: number
+}
+
+export interface ReadbackResult {
+  /** 实际读到的区域（已与画布求交）。 */
+  readonly region: ReadbackRegion
+  /** 紧密排列的 RGBA8，已从画布格式换成 RGBA 顺序。 */
+  readonly rgba: Uint8Array
+  /** 画布的原始格式，留作核对。 */
+  readonly canvasFormat: GPUTextureFormat
+}
 
 /** 着色器没起来时的兜底底色，照 meshora 的做法：宁可退回 CSS，也不要白屏。 */
 const CSS_FALLBACK =
@@ -273,13 +297,13 @@ export async function createGlassStage(options: GlassStageOptions = {}): Promise
     primitive: { topology: 'triangle-list' }
   })
 
-  // SceneUniforms: vec2f resolution + f32 time + f32 pad = 16B
+  // SceneUniforms: resolution + time + mode + center + radius + pad = 32B
   const sceneUniforms = device.createBuffer({
     label: 'glassium:scene-uniforms',
-    size: 16,
+    size: 32,
     usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
   })
-  const sceneUniformData = new Float32Array(4)
+  const sceneUniformData = new Float32Array(8)
   const sceneBindGroup = device.createBindGroup({
     layout: scenePipeline.getBindGroupLayout(0),
     entries: [{ binding: 0, resource: { buffer: sceneUniforms } }]
@@ -437,18 +461,20 @@ export async function createGlassStage(options: GlassStageOptions = {}): Promise
   let fpsWindowFrames = 0
   const startTime = performance.now()
 
-  const readbackBuffer = device.createBuffer({
-    label: 'glassium:readback',
-    size: READBACK_SIZE * READBACK_SIZE * 4,
-    usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ
-  })
-  let pendingReadback: ((data: Uint8Array) => void) | null = null
+  interface ReadbackRequest {
+    readonly region: ReadbackRegion | undefined
+    readonly resolve: (result: ReadbackResult) => void
+    readonly reject: (err: Error) => void
+  }
+  let pendingReadback: ReadbackRequest | null = null
 
   // 背景调试参数（实验用，非正式 API）
   let backdropBlurDp = 0
   let backdropSaturation = 1
   let backdropTint: [number, number, number, number] = [1, 1, 1, 0]
   let sceneMode = 0
+  let radialCenterCss: readonly [number, number] = [0, 0]
+  let radialRadius = 0.5
 
   const motionQuery = window.matchMedia('(prefers-reduced-motion: reduce)')
   const readReducedMotion = (): boolean => reducedMotionOverride ?? motionQuery.matches
@@ -518,6 +544,10 @@ export async function createGlassStage(options: GlassStageOptions = {}): Promise
     // 否则 resize 触发的重绘会跳到另一个相位，看起来像闪烁。
     sceneUniformData[2] = reducedMotion ? 0 : elapsed
     sceneUniformData[3] = sceneMode
+    sceneUniformData[4] = radialCenterCss[0] / viewport.cssWidth
+    sceneUniformData[5] = radialCenterCss[1] / viewport.cssHeight
+    sceneUniformData[6] = radialRadius
+    sceneUniformData[7] = 0
     device.queue.writeBuffer(sceneUniforms, 0, sceneUniformData)
 
     // blur 的 dp 要换算到场景像素：场景目标通常不是 CSS 分辨率。
@@ -671,29 +701,64 @@ export async function createGlassStage(options: GlassStageOptions = {}): Promise
     }
 
     // 回读要在 present 之后、submit 之前排进同一个 encoder。
-    const readbackResolve = pendingReadback
-    if (readbackResolve) {
+    const readback = pendingReadback
+    let readbackFinish: (() => void) | null = null
+    if (readback) {
       pendingReadback = null
-      const ox = Math.max(0, Math.floor((canvasTexture.width - READBACK_SIZE) / 2))
-      const oy = Math.max(0, Math.floor((canvasTexture.height - READBACK_SIZE) / 2))
-      encoder.copyTextureToBuffer(
-        { texture: canvasTexture, origin: { x: ox, y: oy } },
-        { buffer: readbackBuffer, bytesPerRow: READBACK_SIZE * 4 },
-        { width: READBACK_SIZE, height: READBACK_SIZE }
-      )
+      const cw = canvasTexture.width
+      const ch = canvasTexture.height
+      const want = readback.region ?? {
+        x: Math.floor((cw - READBACK_SIZE) / 2),
+        y: Math.floor((ch - READBACK_SIZE) / 2),
+        width: READBACK_SIZE,
+        height: READBACK_SIZE
+      }
+      const x = Math.max(0, Math.floor(want.x))
+      const y = Math.max(0, Math.floor(want.y))
+      const w = Math.min(cw, Math.floor(want.x + want.width)) - x
+      const h = Math.min(ch, Math.floor(want.y + want.height)) - y
+      if (w <= 0 || h <= 0) {
+        readback.reject(new Error('[Glassium] 回读区域与画布没有交集'))
+      } else {
+        // bytesPerRow 必须是 256 的倍数，按行补齐，读完再剥掉。
+        const rowBytes = Math.ceil((w * 4) / 256) * 256
+        const staging = device.createBuffer({
+          label: 'glassium:readback',
+          size: rowBytes * h,
+          usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ
+        })
+        encoder.copyTextureToBuffer(
+          { texture: canvasTexture, origin: { x, y } },
+          { buffer: staging, bytesPerRow: rowBytes },
+          { width: w, height: h }
+        )
+        const bgra = format === 'bgra8unorm'
+        readbackFinish = (): void => {
+          void staging.mapAsync(GPUMapMode.READ).then(() => {
+            const raw = new Uint8Array(staging.getMappedRange())
+            const rgba = new Uint8Array(w * h * 4)
+            for (let j = 0; j < h; j++) {
+              for (let i = 0; i < w; i++) {
+                const s0 = j * rowBytes + i * 4
+                const d0 = (j * w + i) * 4
+                rgba[d0] = raw[s0 + (bgra ? 2 : 0)]!
+                rgba[d0 + 1] = raw[s0 + 1]!
+                rgba[d0 + 2] = raw[s0 + (bgra ? 0 : 2)]!
+                rgba[d0 + 3] = raw[s0 + 3]!
+              }
+            }
+            staging.unmap()
+            staging.destroy()
+            readback.resolve({ region: { x, y, width: w, height: h }, rgba, canvasFormat: format })
+          })
+        }
+      }
     }
 
     device.queue.submit([encoder.finish()])
 
     probeReadback?.()
-
-    if (readbackResolve) {
-      void readbackBuffer.mapAsync(GPUMapMode.READ).then(() => {
-        const copy = new Uint8Array(readbackBuffer.getMappedRange()).slice()
-        readbackBuffer.unmap()
-        readbackResolve(copy)
-      })
-    }
+    readbackFinish?.()
 
     frames++
     drawCalls = 2 + blurChain.passesLastFrame + measured.length
@@ -793,13 +858,13 @@ export async function createGlassStage(options: GlassStageOptions = {}): Promise
         viewport,
         reducedMotion
       }),
-      readback(): Promise<Uint8Array> {
-        return new Promise<Uint8Array>((resolve, reject) => {
+      readback(region?: ReadbackRegion): Promise<ReadbackResult> {
+        return new Promise<ReadbackResult>((resolve, reject) => {
           if (pendingReadback) {
             reject(new Error('[Glassium] 上一次回读还没完成'))
             return
           }
-          pendingReadback = resolve
+          pendingReadback = { region, resolve, reject }
           requestRender()
         })
       },
@@ -821,7 +886,11 @@ export async function createGlassStage(options: GlassStageOptions = {}): Promise
         if (params.blurDp !== undefined) backdropBlurDp = params.blurDp
         if (params.saturation !== undefined) backdropSaturation = params.saturation
         if (params.tint !== undefined) backdropTint = parseTint(params.tint)
-        if (params.scene !== undefined) sceneMode = params.scene === 'calibration' ? 1 : 0
+        if (params.scene !== undefined) {
+          sceneMode = { gradient: 0, calibration: 1, radial: 2, flat: 3 }[params.scene]
+        }
+        if (params.radialCenter !== undefined) radialCenterCss = params.radialCenter
+        if (params.radialRadius !== undefined) radialRadius = params.radialRadius
         requestRender()
       }
     },
@@ -840,7 +909,6 @@ export async function createGlassStage(options: GlassStageOptions = {}): Promise
       onReducedMotionOverrideChange = null
       sceneUniforms.destroy()
       backdropUniforms.destroy()
-      readbackBuffer.destroy()
       stageUniforms.destroy()
       probeStageUniforms.destroy()
       panelBuffer?.destroy()
@@ -882,7 +950,8 @@ function makeInertStage(
     debug: {
       probe: null,
       setBackdrop(): void {},
-      readback: (): Promise<Uint8Array> => Promise.resolve(new Uint8Array(0)),
+      readback: (): Promise<ReadbackResult> =>
+        Promise.reject(new Error('[Glassium] 没有 GPU 后端，无法回读')),
       setPanelDebug(): void {},
       probeOptics: (): Promise<OpticsProbe> =>
         Promise.reject(new Error('[Glassium] 没有 GPU 后端，无法探针')),

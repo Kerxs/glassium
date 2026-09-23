@@ -14,13 +14,16 @@ export const VERSION = '0.0.0'
 
 // —— 光学核心（CPU 参考实现，与 WGSL 侧逐点一致）——
 export {
+  channelSampleOffsets,
   circleMap,
   clampRadii,
   gradRadiusOf,
   gradSdRoundedRect,
+  highlightTerms,
   radiusAt,
   refractionDirection,
   refractionProfile,
+  rimMask,
   safeNormalize,
   sdRoundedRect,
   smin,
@@ -81,7 +84,9 @@ export {
   type DegradeReason,
   type GlassStage,
   type GlassStageOptions,
-  type GlassStats
+  type GlassStats,
+  type ReadbackRegion,
+  type ReadbackResult
 } from './renderer/stage.ts'
 
 export { deviceLossCount, simulateNoWebGpu } from './webgpu/device.ts'
@@ -91,7 +96,14 @@ export type { ProbeReport } from './webgpu/probe.ts'
 export type { GlassPanel } from './renderer/panels.ts'
 export { DEBUG_MODES, type PanelDebugMode } from './shaders/glass.wgsl.ts'
 export {
+  SECTORS,
   compareOptics,
+  joinProbeAndColors,
+  sectorOf,
+  summarizeBySector,
+  type JoinedPixel,
   type OpticsComparison,
-  type OpticsProbe
+  type OpticsProbe,
+  type Sector,
+  type SectorStat
 } from './renderer/verify.ts'

@@ -41,6 +41,14 @@ export interface PanelRecord {
 /** 抗锯齿需要在面板矩形外多画的像素。sd 的覆盖率过渡宽 1px，留 2px 足够。 */
 const AA_MARGIN_PX = 2
 
+/**
+ * 边缘高光的宽度，dp。
+ *
+ * 上游 Highlight 默认 0.5dp、再按宽度的一半模糊 —— 那基本就是抗锯齿那一个像素。
+ * Apple 的高光是细线但肉眼能分辨，这里取 1.5dp。
+ */
+export const RIM_WIDTH_DP = 1.5
+
 export class PanelRegistry {
   readonly #records: PanelRecord[] = []
   readonly #onChange: () => void
@@ -205,6 +213,6 @@ export function packPanel(
   data[o + 19] = highlight
   data[o + 20] = chain.opacity
   data[o + 21] = DEBUG_MODES.indexOf(debugMode)
-  data[o + 22] = 0
+  data[o + 22] = RIM_WIDTH_DP * scale
   data[o + 23] = 0
 }
