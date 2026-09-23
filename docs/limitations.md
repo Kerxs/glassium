@@ -228,10 +228,17 @@ scissor 求交（`src/renderer/clipping.ts`）。面板在滚动容器里被滚�
   这是刻意的（悬停时提亮的高光会沿颈部平滑地过渡过去），但想要两边颜色泾渭分明就别放进同一个容器。
 - 没有玻璃时（兜底表面）每个成员各显示各的，不会连起来 —— CSS 做不到合并。
 
-### `<glass-button>` 不参与表单提交
+### `<glass-button>` 在表单里：与原生按钮相同，两处例外
 
-它是 `role="button"` 的宿主元素，不是原生 `<button>`，没有 `type="submit"`。
-需要提交表单的话，在点击处理里自己调 `form.requestSubmit()`。
+它是表单关联的自定义元素：在表单里默认 `type="submit"`（还有 `reset`、`button`），`name` / `value`
+只在它被按下时进表单数据，`formaction` 一类的覆盖属性生效，祖先 `<fieldset disabled>` 让它禁用，
+click 里 `preventDefault()` 能阻止提交。两处与原生按钮不同：
+
+- submit 事件的 `submitter` 是一个临时的原生提交按钮（带着同样的 name / value），不是 `<glass-button>` 本身。
+  规范的 `requestSubmit(submitter)` 只认原生提交按钮，传自定义元素会抛 TypeError。
+- 在表单的输入框里按回车，隐式提交只认原生提交按钮 —— 不会「按下」`<glass-button>`。表单里只有一个
+  输入框时浏览器照样提交（只是没有按钮的 name / value），有多个时什么都不做。需要回车提交的表单，
+  放一个隐藏的原生提交按钮。
 
 ### 高对比度模式下停用
 

@@ -356,6 +356,49 @@ async function run(): Promise<void> {
     return a === b ? pass(detail) : fail(detail)
   })
 
+  await check('button-form', async () => {
+    // <glass-button> 在表单里与原生按钮相同：默认提交，name / value 只在被按下时进表单数据；
+    // click 里 preventDefault() 就不提交；祖先 fieldset 禁用时不提交；type="reset" 重置
+    const form = document.createElement('form')
+    form.innerHTML =
+      '<input name="q" value="1">' +
+      '<glass-button name="action" value="save">保存</glass-button>' +
+      '<glass-button type="reset">重置</glass-button>' +
+      '<fieldset disabled><glass-button name="action" value="locked">锁定</glass-button></fieldset>'
+    Object.assign(form.style, { position: 'absolute', left: '40px', top: '620px' })
+    document.body.append(form)
+    await sleep(0)
+    const [save, reset, locked] = [...form.querySelectorAll('glass-button')] as HTMLElement[]
+    const submissions: string[] = []
+    form.addEventListener('submit', (e) => {
+      e.preventDefault()
+      const data = new FormData(form, (e as SubmitEvent).submitter)
+      submissions.push([...data].map(([k, v]) => `${k}=${String(v)}`).join('&'))
+    })
+    const settle = (): Promise<void> => sleep(20) // 激活在 click 派发完之后的下一个任务里
+    save!.click()
+    await settle()
+    const cancel = (e: Event): void => e.preventDefault()
+    save!.addEventListener('click', cancel)
+    save!.click()
+    await settle()
+    save!.removeEventListener('click', cancel)
+    locked!.click()
+    await settle()
+    const input = form.querySelector('input')!
+    input.value = '2'
+    reset!.click()
+    await settle()
+    const lockedAria = locked!.getAttribute('aria-disabled')
+    form.remove()
+    stage.debug.renderNow()
+    const detail =
+      `提交 ${submissions.length} 次（${submissions.join(' | ') || '无'}）· 改成 2 再重置后 q=${input.value}` +
+      ` · fieldset 里的按钮 aria-disabled=${lockedAria}`
+    const ok = submissions.length === 1 && submissions[0] === 'q=1&action=save' && input.value === '1' && lockedAria === 'true'
+    return ok ? pass(detail) : fail(detail)
+  })
+
   await check('group-merges', async () => {
     // 缝隙 10px：smoothing 24（> 2×缝宽）时缝隙中点被填上，0 时不填
     const [left, right] = duo.querySelectorAll('glass-button')

@@ -20,8 +20,16 @@
  * 无障碍树里：按 DOM 属性推断角色的工具看不到它（实测 Claude 浏览器面板的页面树就把它
  * 报成 generic），我们自己也就没法验证它。属性则在哪里都看得见。
  *
- * 不参与表单提交（没有 `type="submit"`）。需要的话用它包一个原生按钮的点击，
- * 或者等以后加 formAssociated。
+ * ## 表单
+ *
+ * 与原生 `<button>` 相同：在表单里默认 `type="submit"`，还有 `reset` 与 `button`；
+ * `name` / `value` 只在它被按下时进表单数据；`formaction` 一类的覆盖属性照样生效；
+ * 祖先 `<fieldset disabled>` 会让它禁用。激活发生在 click 事件派发完之后，
+ * 作者在 click 里 `preventDefault()` 就不提交 —— 也与原生按钮相同。
+ *
+ * 提交借一个临时的原生提交按钮当 submitter：规范的 `requestSubmit(submitter)` 只认原生提交按钮，
+ * 传自定义元素会抛 TypeError。所以 submit 事件的 `submitter` 是那个临时按钮（带着同样的
+ * name / value），不是宿主。另外，表单里回车的隐式提交只认原生提交按钮，不会「按下」它。
  */
 
 import type { GlassMaterial } from '../core/material.ts'
@@ -68,10 +76,44 @@ const CSS = `
 `
 const sheet = { sheet: null as CSSStyleSheet | null }
 
+/** 按钮的表单行为，与原生 `<button>` 的 type 相同。非法值按 submit 算（原生也是）。 */
+export type GlassButtonType = 'submit' | 'reset' | 'button'
+
+/** 提交时从宿主抄到临时提交按钮上的属性：它们决定进表单数据的内容与提交方式。 */
+const SUBMITTER_ATTRIBUTES = ['name', 'value', 'formaction', 'formenctype', 'formmethod', 'formnovalidate', 'formtarget']
+
+/**
+ * 用一个临时的原生提交按钮提交表单。它带着宿主的 name / value 与覆盖属性，
+ * 于是表单数据、校验、submit 事件都按原生的规则走。提交（含 submit 事件）是同步的，完了就拿掉。
+ */
+function submitWith(form: HTMLFormElement, host: HTMLElement): void {
+  const proxy = document.createElement('button')
+  proxy.type = 'submit'
+  proxy.hidden = true
+  for (const name of SUBMITTER_ATTRIBUTES) {
+    const value = host.getAttribute(name)
+    if (value !== null) proxy.setAttribute(name, value)
+  }
+  form.append(proxy)
+  try {
+    form.requestSubmit(proxy)
+  } finally {
+    proxy.remove()
+  }
+}
+
 export class GlassButton extends GlassElement {
   static override get observedAttributes(): string[] {
     return [...MATERIAL_ATTRIBUTES, 'disabled']
   }
+
+  /** 表单关联的自定义元素：有表单归属、响应 fieldset 的禁用、参与表单重置。 */
+  static readonly formAssociated = true
+
+  /** 没有 attachInternals 的环境（很老的浏览器）照常当普通按钮用，只是不关联表单。 */
+  readonly #internals: ElementInternals | null
+  /** 浏览器报来的禁用状态（disabled 属性或祖先 fieldset 的禁用），见 formDisabledCallback。 */
+  #formDisabled = false
 
   #hover = false
   #pressed = false
@@ -104,14 +146,58 @@ export class GlassButton extends GlassElement {
     this.addEventListener('blur', this.#onBlur)
     // 捕获阶段：禁用时在作者挂在按钮上的监听器之前拦下点击
     this.addEventListener('click', this.#onClickCapture, { capture: true })
+    this.addEventListener('click', this.#onClick)
+    this.#internals = typeof this.attachInternals === 'function' ? this.attachInternals() : null
   }
 
+  /** 反映 disabled 属性（与原生按钮一样，不含 fieldset 的禁用）。 */
   get disabled(): boolean {
     return this.hasAttribute('disabled')
   }
 
   set disabled(value: boolean) {
     this.toggleAttribute('disabled', value)
+  }
+
+  /** 表单归属：祖先 `<form>`，或 form 属性指定的那个。 */
+  get form(): HTMLFormElement | null {
+    return this.#internals?.form ?? null
+  }
+
+  get type(): GlassButtonType {
+    const t = (this.getAttribute('type') ?? '').toLowerCase()
+    return t === 'reset' || t === 'button' ? t : 'submit'
+  }
+
+  set type(value: string) {
+    this.setAttribute('type', value)
+  }
+
+  get name(): string {
+    return this.getAttribute('name') ?? ''
+  }
+
+  set name(value: string) {
+    this.setAttribute('name', value)
+  }
+
+  get value(): string {
+    return this.getAttribute('value') ?? ''
+  }
+
+  set value(value: string) {
+    this.setAttribute('value', value)
+  }
+
+  /** 浏览器在禁用状态（disabled 属性或祖先 fieldset）变化时调用。 */
+  formDisabledCallback(disabled: boolean): void {
+    this.#formDisabled = disabled
+    if (this.isConnected) this.#syncDisabled()
+  }
+
+  /** 实际是否禁用：自己的 disabled 属性，或者被祖先 fieldset 禁用。 */
+  #isDisabled(): boolean {
+    return this.disabled || this.#formDisabled
   }
 
   /** 按钮默认是胶囊（Apple 的玻璃按钮就是胶囊）。 */
@@ -121,7 +207,7 @@ export class GlassButton extends GlassElement {
 
   protected override present(material: GlassMaterial): GlassMaterial {
     const modulated = modulate(material, this.#energy)
-    return this.disabled ? dimmed(modulated) : modulated
+    return this.#isDisabled() ? dimmed(modulated) : modulated
   }
 
   override connectedCallback(): void {
@@ -151,7 +237,7 @@ export class GlassButton extends GlassElement {
   }
 
   #syncDisabled(): void {
-    const disabled = this.disabled
+    const disabled = this.#isDisabled()
     if (disabled) this.setAttribute('aria-disabled', 'true')
     else this.removeAttribute('aria-disabled')
     // 原生禁用按钮连点击聚焦都不行，所以是去掉 tabindex，而不是设成 -1
@@ -181,7 +267,7 @@ export class GlassButton extends GlassElement {
   }
 
   #onPointerDown = (e: PointerEvent): void => {
-    if (e.button !== 0 || this.disabled) return
+    if (e.button !== 0 || this.#isDisabled()) return
     this.#pressed = true
     this.#retarget()
   }
@@ -192,7 +278,7 @@ export class GlassButton extends GlassElement {
   }
 
   #onKeyDown = (e: KeyboardEvent): void => {
-    if (this.disabled || e.defaultPrevented) return
+    if (this.#isDisabled() || e.defaultPrevented) return
     if (e.key === 'Enter') {
       // 原生按钮：Enter 在按下时激活
       e.preventDefault()
@@ -209,7 +295,7 @@ export class GlassButton extends GlassElement {
     if (e.key !== ' ' || !this.#pressed) return
     this.#pressed = false
     this.#retarget()
-    if (!this.disabled) this.click()
+    if (!this.#isDisabled()) this.click()
   }
 
   #onFocus = (): void => {
@@ -225,9 +311,24 @@ export class GlassButton extends GlassElement {
   }
 
   #onClickCapture = (e: MouseEvent): void => {
-    if (!this.disabled) return
+    if (!this.#isDisabled()) return
     e.preventDefault()
     e.stopImmediatePropagation()
+  }
+
+  /**
+   * 激活：提交或重置表单。与原生按钮一样放在 click 派发完之后，作者在 click 里 preventDefault()
+   * 就不做。用下一个任务而不是微任务 —— 浏览器发起的派发里，微任务在两个监听器之间就执行了，
+   * 那时后面的监听器还没来得及 preventDefault。
+   */
+  #onClick = (e: MouseEvent): void => {
+    const form = this.form
+    if (!form || this.type === 'button' || this.#isDisabled()) return
+    setTimeout(() => {
+      if (e.defaultPrevented || this.#isDisabled() || this.form !== form) return
+      if (this.type === 'reset') form.reset()
+      else submitWith(form, this)
+    }, 0)
   }
 
   // —— 动画 ——
@@ -237,7 +338,7 @@ export class GlassButton extends GlassElement {
       hover: this.#hover,
       pressed: this.#pressed,
       focusVisible: this.#focusVisible,
-      disabled: this.disabled
+      disabled: this.#isDisabled()
     })
     if (prefersReducedMotion()) {
       // 不做过渡，直接落到目标态 —— 状态变化本身仍然可见，只是没有动画
