@@ -27,6 +27,7 @@ src/core/          纯数学与数据，没有 DOM、没有 GPU，全部在 Node
   material.ts        声明式材质 → 有序管线；预设
   units.ts           dp / CSS px / 设备像素；分辨率策略
   scene.ts           用户场景怎么铺进视口（object-fit 的 uv 变换、预缩放尺寸、CSS 兜底）
+  transparency.ts    减少透明度时的材质变换（磨砂、按文字颜色选深浅）
 
 src/shaders/       着色器源（字符串）
   optics.wgsl.ts     光学的 WGSL 唯一真源（带 Apache 头）
@@ -94,6 +95,10 @@ stage 是**外壳**：画布、面板注册表、调试参数、帧循环、监�
   玻璃生效时组件带上 `data-glassium-active`，表面去掉。
 - `<glass-button>` 的反馈只改材质的数值（uniform），不建管线、不建 bind group —— 有计数器在设备上钉住。
 - `<glass-container>` 按元素指定成员，每帧解析；成员照旧各自注册、各有材质。
+- `<glass-button>` 是表单关联的自定义元素，提交借一个临时的原生提交按钮当 submitter。
+
+三个系统设置都有反应：减少动效停帧循环（组件的补间直接落到终点），高对比度停用 stage、换 CSS 兜底表面，
+减少透明度给所有面板的材质多加一道磨砂变换（注册表级的 MaterialFilter，组件与手动注册的面板一视同仁）。
 
 ## 验证
 

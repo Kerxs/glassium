@@ -128,13 +128,16 @@ GPU 输出靠 `stage.debug.probeOptics()` + `compareOptics()` 与 CPU 实现逐�
       `name` / `value` 只在被按下时进表单数据、`type="reset"`、`formaction` 一类的覆盖属性、
       祖先 `<fieldset disabled>`、click 里 `preventDefault()` 能拦下。两处例外见
       [docs/limitations.md](docs/limitations.md)
+- [x] **减少透明度**（`prefers-reduced-transparency`，`src/core/transparency.ts`）。玻璃换成更实的磨砂：
+      模糊至少 24dp、关掉色散、按文字颜色选深色或浅色磨砂（保证与文字的对比度 ≥ 4.5:1），形状与高光保留。
+      实测卡片内部的图案起伏从 ±22.7 降到 ±0；关掉之后逐位复原。与减少动效、高对比度并列，三个系统设置都有反应
 
 GPU 设备丢失时会在新设备上整套重建（实测约 30 ms，恢复后画面逐位相同），第二次丢失则降到
 WebGL2（WebGL2 的上下文丢失同理，第二次降到 CSS 兜底）。T5 到 T8 期间这一点是坏的：
 日志说会重新初始化，实际上画布会冻住 —— 现已修复，见 [docs/limitations.md](docs/limitations.md)。
 
-**178 条测试全绿**，playground 可跑（`npm run dev`），逐项自动验证在 `/verify.html`
-（现在 WebGPU 上 **PASS 18/18**、WebGL2 上 **PASS 17/17**）。
+**182 条测试全绿**，playground 可跑（`npm run dev`），逐项自动验证在 `/verify.html`
+（现在 WebGPU 上 **PASS 19/19**、WebGL2 上 **PASS 18/18**）。
 
 T5 顺带把两个计划阶段悬着的硬件问题测掉了，结果记在
 [docs/calibration.md](docs/calibration.md)：`minUniformBufferOffsetAlignment` 实测 256

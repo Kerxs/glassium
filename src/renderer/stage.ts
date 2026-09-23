@@ -35,6 +35,7 @@
  */
 
 import { parseTint, type GlassMaterial } from '../core/material.ts'
+import { frostForColor, reduceTransparency, type Frost } from '../core/transparency.ts'
 import { describeViewport, resolveViewport, type ResolvedViewport } from '../core/units.ts'
 import type { PanelDebugMode } from '../shaders/glass.wgsl.ts'
 import {
@@ -57,7 +58,7 @@ import type {
 import { GpuRenderer } from './gpu.ts'
 import { unchangedFrame, type FrameSnapshot } from './idle.ts'
 import { LayerWatcher, type LayerProblem } from './layering.ts'
-import { PanelRegistry, type GlassGroup, type GlassPanel } from './panels.ts'
+import { PanelRegistry, type GlassGroup, type GlassPanel, type MaterialFilter } from './panels.ts'
 import {
   SceneSlot,
   sceneFallbackCss,
@@ -126,6 +127,8 @@ export interface GlassStats {
   readonly reducedMotion: boolean
   /** 高对比度模式（forced-colors: active）。开着时 stage 停用，画布隐藏。 */
   readonly forcedColors: boolean
+  /** 减少透明度（prefers-reduced-transparency: reduce）。开着时玻璃换成更实的磨砂（core/transparency.ts）。 */
+  readonly reducedTransparency: boolean
 }
 
 export interface GlassStageOptions {
@@ -329,6 +332,32 @@ let onReducedMotionOverrideChange: (() => void) | null = null
 
 let forcedColorsOverride: boolean | null = null
 let onForcedColorsOverrideChange: (() => void) | null = null
+
+let reducedTransparencyOverride: boolean | null = null
+let onReducedTransparencyOverrideChange: (() => void) | null = null
+
+/** 当前是否减少透明度（尊重 simulateReducedTransparency）。 */
+export function prefersReducedTransparency(): boolean {
+  if (reducedTransparencyOverride !== null) return reducedTransparencyOverride
+  return typeof matchMedia === 'function' && matchMedia('(prefers-reduced-transparency: reduce)').matches
+}
+
+/**
+ * 强制减少透明度状态，传 null 恢复为读真实媒体查询。
+ *
+ * 理由同 simulateForcedColors：本机打开「减少透明度」要改系统设置，而验证的是 stage 的反应 ——
+ * 所有面板换成磨砂、关掉之后逐位回到原样。媒体查询本身求值对不对是浏览器的事。
+ */
+export function simulateReducedTransparency(on: boolean | null): void {
+  reducedTransparencyOverride = on
+  onReducedTransparencyOverrideChange?.()
+}
+
+/** 减少透明度时的材质变换：按面板的文字颜色选深色或浅色磨砂。 */
+const REDUCED_TRANSPARENCY_FILTER: MaterialFilter = {
+  key: (element) => frostForColor(getComputedStyle(element).color),
+  apply: (material, key) => reduceTransparency(material, key as Frost)
+}
 
 /** 当前是否减少动效（尊重 simulateReducedMotion）。组件的交互动画也看它。 */
 export function prefersReducedMotion(): boolean {
@@ -546,6 +575,12 @@ async function buildStage(options: GlassStageOptions): Promise<GlassStage> {
   const readForcedColors = (): boolean => forcedColorsOverride ?? forcedColorsQuery.matches
   let forcedColors = readForcedColors()
   if (forcedColors) canvas.style.display = 'none'
+
+  // 减少透明度：玻璃换成更实的磨砂。stage 照常画，只是所有面板的材质多过一道变换。
+  const transparencyQuery = window.matchMedia('(prefers-reduced-transparency: reduce)')
+  const readReducedTransparency = (): boolean => reducedTransparencyOverride ?? transparencyQuery.matches
+  let reducedTransparency = readReducedTransparency()
+  panels.setMaterialFilter(reducedTransparency ? REDUCED_TRANSPARENCY_FILTER : null)
 
   /** 此刻为什么不画玻璃；在画时返回 null。 */
   const inactiveReason = (): string | null =>
@@ -885,15 +920,16 @@ async function buildStage(options: GlassStageOptions): Promise<GlassStage> {
 
   const onResize = (): void => {
     if (disposed) return
-    panels.invalidateClips() // 媒体查询可能改了哪个祖先的 overflow
+    panels.invalidateStyles() // 媒体查询可能改了哪个祖先的 overflow、面板的文字颜色
     if (rafId === 0) requestRender() // 循环没在跑时，resize 也必须能触发重绘
   }
 
-  // DOM 或样式变了：面板的裁剪祖先可能变了（被挪进 / 挪出滚动容器、某个祖先的 overflow 改了）。
-  // 这里只让缓存作废，重找推迟到下一帧；也请求一帧，reduced-motion 下循环不跑时才看得到变化。
+  // DOM 或样式变了：面板的裁剪祖先可能变了（被挪进 / 挪出滚动容器、某个祖先的 overflow 改了），
+  // 文字颜色也可能变了（减少透明度时磨砂按它选）。这里只让缓存作废，重读推迟到下一帧；
+  // 也请求一帧，reduced-motion 下循环不跑时才看得到变化。
   const clipObserver = new MutationObserver(() => {
     if (disposed) return
-    panels.invalidateClips()
+    panels.invalidateStyles()
     if (rafId === 0) requestRender()
   })
   clipObserver.observe(document.documentElement, {
@@ -939,6 +975,18 @@ async function buildStage(options: GlassStageOptions): Promise<GlassStage> {
 
   const onForcedColorsChange = (): void => applyForcedColors()
 
+  const applyReducedTransparency = (): void => {
+    const next = readReducedTransparency()
+    if (next === reducedTransparency) return
+    reducedTransparency = next
+    console.info(
+      `[Glassium] prefers-reduced-transparency 变为 ${reducedTransparency ? 'reduce，玻璃换成磨砂' : 'no-preference，恢复通透'}`
+    )
+    panels.setMaterialFilter(reducedTransparency ? REDUCED_TRANSPARENCY_FILTER : null)
+  }
+
+  const onTransparencyChange = (): void => applyReducedTransparency()
+
   window.addEventListener('resize', onResize)
   // 滚动条出现或消失时画布宽度会变 15px 左右，但 window.resize **不会**触发。
   // 帧循环在跑时每帧都会重新量，问题不大；reduced-motion 下循环不跑，
@@ -950,6 +998,8 @@ async function buildStage(options: GlassStageOptions): Promise<GlassStage> {
   onReducedMotionOverrideChange = applyMotionPreference
   forcedColorsQuery.addEventListener('change', onForcedColorsChange)
   onForcedColorsOverrideChange = applyForcedColors
+  transparencyQuery.addEventListener('change', onTransparencyChange)
+  onReducedTransparencyOverrideChange = applyReducedTransparency
 
   syncViewport()
   if (reducedMotion) {
@@ -996,7 +1046,8 @@ async function buildStage(options: GlassStageOptions): Promise<GlassStage> {
           sceneUploads,
           viewport,
           reducedMotion,
-          forcedColors
+          forcedColors,
+          reducedTransparency
         }
       },
       checkLayers: (): LayerProblem<Element>[] => layers.check(),
@@ -1120,6 +1171,8 @@ async function buildStage(options: GlassStageOptions): Promise<GlassStage> {
       onReducedMotionOverrideChange = null
       forcedColorsQuery.removeEventListener('change', onForcedColorsChange)
       onForcedColorsOverrideChange = null
+      transparencyQuery.removeEventListener('change', onTransparencyChange)
+      onReducedTransparencyOverrideChange = null
       layers.dispose()
       rejectPending('stage 已销毁')
       const wasWebGpu = renderer instanceof GpuRenderer
@@ -1213,7 +1266,8 @@ function makeInertStage(canvas: HTMLCanvasElement, options: GlassStageOptions): 
         sceneUploads: 0,
         viewport: null,
         reducedMotion: prefersReducedMotion(),
-        forcedColors: forcedColorsOverride ?? window.matchMedia('(forced-colors: active)').matches
+        forcedColors: forcedColorsOverride ?? window.matchMedia('(forced-colors: active)').matches,
+        reducedTransparency: prefersReducedTransparency()
       })
     },
     // 没有 GPU 时面板照样可以注册 —— 元素本身照常显示，只是后面没有玻璃。

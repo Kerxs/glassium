@@ -17,6 +17,7 @@ import {
   simulateForcedColors,
   simulateNoWebGpu,
   simulateReducedMotion,
+  simulateReducedTransparency,
   type GlassStage,
   type PanelDebugMode,
   type SceneFit
@@ -51,6 +52,12 @@ if (params.get('glassium.forcedColors') === '1') {
   simulateForcedColors(true)
 }
 
+// 同理：系统的「减少透明度」。左下角也有开关。
+if (params.get('glassium.reducedTransparency') === '1') {
+  console.info('[Playground] 强制 prefers-reduced-transparency: reduce')
+  simulateReducedTransparency(true)
+}
+
 const statsEl = document.getElementById('stats')!
 let clicks = 0
 
@@ -70,7 +77,9 @@ function render(stage: GlassStage): void {
     `<b>cpu</b>      ${s.cpuMs.total.toFixed(2)} ms（测量 ${s.cpuMs.measure.toFixed(2)}）`,
     `<b>pipelines</b> ${s.pipelineCreations}  <b>bindGroups</b> ${s.bindGroupCreations}`,
     `<b>source</b>   ${s.scene}  <b>uploads</b> ${s.sceneUploads}`,
-    `<b>clicks</b>   ${clicks}${s.forcedColors ? '  (forced-colors：stage 停用)' : ''}`
+    `<b>clicks</b>   ${clicks}${s.forcedColors ? '  (forced-colors：stage 停用)' : ''}${
+      s.reducedTransparency ? '  (reduced-transparency：磨砂)' : ''
+    }`
   ]
 
   if (v) {
@@ -237,6 +246,11 @@ ${r.detail}`
   })
   const disable = document.getElementById('disable') as HTMLInputElement
   disable.addEventListener('change', () => pill.toggleAttribute('disabled', disable.checked))
+
+  // 减少透明度：勾上是强制打开，去掉勾是回到系统设置（不是强制关闭）
+  const rt = document.getElementById('rt') as HTMLInputElement
+  rt.checked = params.get('glassium.reducedTransparency') === '1'
+  rt.addEventListener('change', () => simulateReducedTransparency(rt.checked ? true : null))
 
   // 合并：smoothing 滑杆改的是 <glass-container> 的属性
   const duo = document.getElementById('duo')!

@@ -18,6 +18,7 @@ import {
   defineGlassElements,
   GlassPresets,
   joinProbeAndColors,
+  simulateReducedTransparency,
   summarizeBySector,
   type GlassStage,
   type OpticsComparison,
@@ -329,6 +330,47 @@ async function run(): Promise<void> {
     } finally {
       calibrationScene()
     }
+  })
+
+  await check('reduced-transparency', async () => {
+    // 减少透明度：卡片内部（离边缘一个折射带以上、只剩模糊背景与 tint 的地方）的图案要被磨砂盖住 ——
+    // 亮度起伏大幅下降，整体变暗（卡片文字是白的 → 深色磨砂）；关掉之后逐位回到原样
+    const probe = probes.get('v-card')
+    if (!probe) return fail('没有探到卡片')
+    const inset = Math.ceil(probe.panel.heightPx) + 8
+    const region: ReadbackRegion = {
+      x: probe.origin[0] + inset,
+      y: probe.origin[1] + inset,
+      width: probe.width - 2 * inset,
+      height: probe.height - 2 * inset
+    }
+    const lumaStats = (rgba: Uint8Array): { mean: number; std: number } => {
+      let sum = 0
+      let sq = 0
+      const n = rgba.length / 4
+      for (let i = 0; i < rgba.length; i += 4) {
+        const l = 0.2126 * rgba[i]! + 0.7152 * rgba[i + 1]! + 0.0722 * rgba[i + 2]!
+        sum += l
+        sq += l * l
+      }
+      const mean = sum / n
+      return { mean, std: Math.sqrt(Math.max(0, sq / n - mean * mean)) }
+    }
+    const before = await readback(region)
+    simulateReducedTransparency(true)
+    await sleep(0)
+    const reduced = await readback(region)
+    const flag = stage.debug.stats().reducedTransparency
+    simulateReducedTransparency(null)
+    await sleep(0)
+    const after = await readback(region)
+    const a = lumaStats(before)
+    const b = lumaStats(reduced)
+    const restored = (await sha(before)) === (await sha(after))
+    const detail =
+      `卡片内部 ${region.width}×${region.height}：亮度 ${a.mean.toFixed(1)} ± ${a.std.toFixed(1)}` +
+      ` → ${b.mean.toFixed(1)} ± ${b.std.toFixed(1)} · stats ${flag} · 关掉后${restored ? '逐位复原' : '没有复原'}`
+    return flag && b.std < a.std * 0.25 && b.mean < 90 && restored ? pass(detail) : fail(detail)
   })
 
   await check('component-equals-register', async () => {

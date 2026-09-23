@@ -94,8 +94,10 @@ export {
   currentStage,
   onStageChange,
   prefersReducedMotion,
+  prefersReducedTransparency,
   simulateForcedColors,
   simulateReducedMotion,
+  simulateReducedTransparency,
   type Backend,
   type DegradeReason,
   type GlassStage,
@@ -109,6 +111,16 @@ export {
   type SceneKind,
   type SceneOptions
 } from './renderer/stage.ts'
+// 减少透明度时的材质变换（纯函数，别的渲染器也能用同一套规则）。
+export {
+  FROST,
+  frostFor,
+  frostForColor,
+  REDUCED_TRANSPARENCY,
+  reduceTransparency,
+  relativeLuminance,
+  type Frost
+} from './core/transparency.ts'
 // 用户场景怎么铺进视口（object-fit 语义）。纯函数，别的渲染器也能用同一套算法。
 export { sceneBitmapSize, sceneCssBackground, sceneUvTransform, type SceneFit, type UvTransform } from './core/scene.ts'
 export { gl2CreationCounts } from './webgl2/renderer.ts'

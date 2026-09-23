@@ -88,6 +88,17 @@ export interface MeasuredPanel {
   readonly chain: EffectChain
 }
 
+/**
+ * 注册表级的材质变换（比如减少透明度）。
+ *
+ * key 从元素上读出影响结果的东西（比如文字是深是浅），只在样式可能变了之后才重读；key 没变就不重新
+ * 降级 —— 降级结果还是同一个对象，「静止时不画」的比较（idle.ts）也就不受打扰。
+ */
+export interface MaterialFilter {
+  key(element: HTMLElement): string
+  apply(material: GlassMaterial, key: string): GlassMaterial
+}
+
 export interface PanelRecord {
   readonly element: HTMLElement
   material: GlassMaterial
@@ -96,6 +107,9 @@ export interface PanelRecord {
   /** 缓存的裁剪祖先（要读计算样式，所以不每帧重找）。clipGeneration 过期时重找。 */
   clips?: readonly ClipEntry[]
   clipGeneration?: number
+  /** 材质变换的 key 与读它时的样式代数（见 MaterialFilter）。 */
+  filterKey?: string
+  filterGeneration?: number
 }
 
 /**
@@ -144,7 +158,9 @@ export class PanelRegistry {
   readonly #records: PanelRecord[] = []
   readonly #groups: GroupRecord[] = []
   readonly #onChange: () => void
-  #clipGeneration = 0
+  /** 样式代数：DOM 或样式每变一次加一，从样式读出来的缓存（裁剪祖先、材质变换的 key）据此过期。 */
+  #styleGeneration = 0
+  #filter: MaterialFilter | null = null
 
   constructor(onChange: () => void) {
     this.#onChange = onChange
@@ -200,11 +216,24 @@ export class PanelRegistry {
   }
 
   /**
-   * DOM 或样式变了（stage 的 MutationObserver 调它）：裁剪祖先的缓存作废，下一帧重找。
-   * 只是把代数加一，不在这里读任何样式 —— 变化可能很频繁，重找推迟到真正要画的那一帧。
+   * DOM 或样式变了（stage 的 MutationObserver 调它）：从样式读出来的缓存作废 —— 裁剪祖先、
+   * 材质变换的 key —— 下一帧重读。只是把代数加一，不在这里读任何样式：变化可能很频繁，
+   * 重读推迟到真正要画的那一帧。
    */
-  invalidateClips(): void {
-    this.#clipGeneration++
+  invalidateStyles(): void {
+    this.#styleGeneration++
+  }
+
+  /** 换注册表级的材质变换（null 去掉）。所有面板下一帧重新降级。 */
+  setMaterialFilter(filter: MaterialFilter | null): void {
+    if (filter === this.#filter) return
+    this.#filter = filter
+    for (const record of this.#records) {
+      record.cached = null
+      delete record.filterKey
+      delete record.filterGeneration
+    }
+    this.#onChange()
   }
 
   #handle(record: PanelRecord): GlassPanel {
@@ -269,6 +298,17 @@ export class PanelRegistry {
       const w = r.width * sx
       const h = r.height * sy
 
+      // 材质变换的 key 只在样式可能变了之后重读；变了才让降级缓存作废
+      const filter = this.#filter
+      if (filter && record.filterGeneration !== this.#styleGeneration) {
+        const key = filter.key(record.element)
+        if (key !== record.filterKey) {
+          record.filterKey = key
+          record.cached = null
+        }
+        record.filterGeneration = this.#styleGeneration
+      }
+
       // 降级按 CSS 尺寸缓存：材质的分数参数（refraction / distortion / 'frac' 圆角）
       // 是按短边算的，尺寸不变就不必重算。
       const cached = record.cached
@@ -276,13 +316,14 @@ export class PanelRegistry {
       if (cached && cached.w === r.width && cached.h === r.height) {
         chain = cached.chain
       } else {
-        chain = lowerMaterial(record.material, [r.width, r.height])
+        const material = filter ? filter.apply(record.material, record.filterKey ?? '') : record.material
+        chain = lowerMaterial(material, [r.width, r.height])
         record.cached = { w: r.width, h: r.height, chain }
       }
 
-      if (record.clips === undefined || record.clipGeneration !== this.#clipGeneration) {
+      if (record.clips === undefined || record.clipGeneration !== this.#styleGeneration) {
         record.clips = findClipEntries(record.element)
-        record.clipGeneration = this.#clipGeneration
+        record.clipGeneration = this.#styleGeneration
       }
       const clipBox = record.clips.length > 0 ? toDevice(clipBoxOf(record.clips, clipRects)) : UNBOUNDED
       const own = intersect(

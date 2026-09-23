@@ -61,6 +61,22 @@
 }
 
 /*
+ * 减少透明度：兜底表面也换成更实的深色磨砂，与玻璃在这个设置下的样子一致
+ * （src/core/transparency.ts：浅色文字配 rgba(28, 28, 32, 0.8)）。兜底表面的文字默认是浅色的，
+ * 所以这里只写深色一种；作者给了深色文字的话，自己在同一个媒体查询里覆盖成浅色。
+ */
+@media (prefers-reduced-transparency: reduce) {
+  :where(
+      glass-card:not([data-glassium-active]),
+      glass-button:not([data-glassium-active])
+    ) {
+    background-color: rgba(28, 28, 32, 0.9);
+    -webkit-backdrop-filter: blur(24px);
+    backdrop-filter: blur(24px);
+  }
+}
+
+/*
  * 高对比度模式。
  *
  * 背景色和文字色由浏览器强制成系统色（背景的 alpha 保留），所以这里不写颜色，
