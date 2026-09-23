@@ -26,8 +26,10 @@ Apache-2.0 §4(b) 要求声明修改。完整逐条清单在 [docs/porting-notes
 - 重写为 WGSL / TypeScript（原文是 Kotlin 字符串常量里的 AGSL / SkSL）
 - 色散改为径向幅值、蓝光位移大于红光（原实现按 `(x·y)/(hx·hy)` 缩放，逐象限变号）
 - 高光改为不对称并新增暗边（原实现用 `abs()`，两侧等亮且无暗边）
-- 采样余量改为由 `amount` 推导（原实现按 `height` 编排，在其 playground 默认下欠补 2 倍）
 - 修正 `radiusAt` 的坐标系（原实现传左上原点的原始坐标，四角半径会塌缩成右下角那一个）
+
+早期版本这里还有一条「采样余量改为由 `amount` 推导，原实现欠补 2 倍」。那条说法是错的，
+已撤回，原因见 [docs/porting-notes.md](docs/porting-notes.md)。
 
 ### 关于 NOTICE
 

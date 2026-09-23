@@ -62,17 +62,29 @@ Glassium 改为：幅值取径向，沿与基础折射相同的内法线施加�
 Glassium 去掉 `abs()`，只点亮受光边，并减去一个背光侧的暗边项。明暗不对称这一对才是真正
 读起来有厚度的东西。
 
-### 4. 采样余量：按 height 编排 → 按 amount 推导
+### ~~4. 采样余量~~ —— 已撤回，这不是上游的 bug
 
-上游用一个可变的 `padding` 预算在各效果间协商：图层向外扩张 `padding`，`lens` 按
-`padding = max(padding - refractionHeight, 0)` 消费它。
+早期版本（提交 `7f210c9` 到 `bdaea48`）在这里声称：上游 lens 按 `refractionHeight`
+消费 `padding` 预算，而真正决定采样点推出去多远的是 `refractionAmount`；在上游 playground
+默认值下 amount 是 height 的 2 倍，所以余量欠补一半，面板边缘会出现一道硬亮缝。
 
-消费量取的是 `refractionHeight`，但实际把采样点推出去多远的是 `refractionAmount`。
-在上游自己 playground 的默认值下 `amount = 0.2·minDim` 而 `height = 0.2·minDim·0.5`，
-amount 正好是 height 的 **2 倍** —— 于是余量欠补一半，折射图像最外圈采到被 clamp 或
-透明的纹素，表现为紧贴面板边缘的一道硬亮缝。
+**这个说法是错的。** `Lens.kt` 在传给着色器之前把 refractionAmount 取了负号：
 
-Glassium 按 `ceil(amountPx)` 推导，并在 `src/core/optics.test.ts` 里用一条测试钉住这件事。
+```kotlin
+setFloatUniform("refractionAmount", -refractionAmount)
+```
+
+而 `gradSdRoundedRect` 指向外侧，于是着色器里的 `coord + d * grad` 是**往面板内部**走的。
+折射读到的永远是面板内部的像素，根本不会越出面板，也就谈不上欠补。这个方向也符合物理：
+视线在凸面的倾斜处向法线偏折，落点比入射点更靠近中心 —— 凸透镜在边缘的放大。
+
+这个结论来自规划阶段的推断，从没实际渲染验证过，却被当作已确认的事实写进了这份文档、
+`THIRD-PARTY-NOTICES.md`、`pipeline.ts` 的注释和测试、两个移植文件的许可头以及提交信息。
+写 T7 的折射着色器时要定采样方向，回头读 `Lens.kt` 才发现和它矛盾。
+
+现在的做法：Glassium 与上游一致向内采样，`sampleMargin(lens)` 为 0，需要读到面板外的
+只有模糊（3σ）。上游那套 `padding` 协议到底在协商什么，这里不再下判断 —— 它服务于上游
+按元素录制图层的架构，而 Glassium 的背景是整个视口共享的一张纹理，不需要逐面板外扩。
 
 ### 5. radiusAt 的坐标系（这是上游的一个 bug，不是风格差异）
 

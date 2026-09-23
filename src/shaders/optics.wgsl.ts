@@ -5,8 +5,7 @@
    commit 65ab177e90e5c1d8c62e70cf7755841982da65f6
 
    已修改：重写为 WGSL；修正 radiusAt 的坐标系；色散改为径向、蓝光位移大于红光；
-   高光改为不对称并新增暗边；采样余量改为由 amount 推导。逐条说明见
-   docs/porting-notes.md。
+   高光改为不对称并新增暗边。逐条说明见 docs/porting-notes.md。
 
    上游未附带 NOTICE 文件，故本项目不承担 Apache-2.0 §4(d) 的转载义务；
    §4(a)–(c) 仍然适用。

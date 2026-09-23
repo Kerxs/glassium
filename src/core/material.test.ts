@@ -18,26 +18,26 @@ import {
 import type { Vec2 } from './optics.ts'
 
 /* ------------------------------------------------------------------ *
- * 采样余量 —— 上游欠补 bug 的回归测试
+ * 采样余量
  * ------------------------------------------------------------------ */
 
-test('lens 的采样余量由 amount 推导，不是由 height', () => {
-  // 这是上游的欠补 bug。amount 是把采样点推出去的距离，height 只决定衰减深度，
-  // 两者无关。上游按 height 编排预算，而它自己 playground 的默认值下
-  // amount = 0.2·minDim、height = 0.2·minDim·0.5，amount 恰是 height 的 2 倍,
-  // 于是余量欠补一半。表现为紧贴面板边缘的一道硬亮缝。
+test('lens 的采样余量为 0 —— 折射只向面板内部采样', () => {
+  // 上游在 Lens.kt 里把 refractionAmount 取负后才传给着色器，SDF 梯度又指向外侧，
+  // 所以采样点往里走，读到的永远是面板内部的像素。
+  //
+  // 这条测试曾经断言余量等于 amountDp，理由是「上游欠补 2 倍」。那是个没验证过的
+  // 推断，和上面的采样方向矛盾，已撤回（docs/porting-notes.md）。
   const lens: GlassEffect = {
     kind: 'lens',
     heightDp: 20,
-    amountDp: 40, // 故意取 height 的 2 倍，复现上游默认值的比例
+    amountDp: 40,
     cornerRadiiDp: [10, 10, 10, 10],
     squircle: 2,
     dispersion: 0,
     highlight: 0.6,
     depthEffect: 1
   }
-  assert.equal(sampleMargin(lens), 40, '必须是 amount 而不是 height')
-  assert.notEqual(sampleMargin(lens), 20, '取到 height 就是复刻了上游的欠补')
+  assert.equal(sampleMargin(lens), 0)
 })
 
 test('blur 的采样余量按 3σ 截断', () => {
@@ -51,7 +51,7 @@ test('colorFilter 不需要采样余量', () => {
   assert.equal(sampleMargin({ kind: 'colorFilter', saturation: 1.4, tint: [1, 1, 1, 0.2] }), 0)
 })
 
-test('边距累加而不是取最大值', () => {
+test('整条链的余量目前只来自模糊', () => {
   const effects: GlassEffect[] = [
     { kind: 'colorFilter', saturation: 1.4, tint: [1, 1, 1, 0.2] },
     { kind: 'blur', sigmaDp: 4 },
@@ -66,10 +66,9 @@ test('边距累加而不是取最大值', () => {
       depthEffect: 1
     }
   ]
-  // 模糊的输出要供折射去采，而折射最远采到 40dp 之外，
-  // 所以模糊自己的输入需要 40 + 12 那么宽。取 max 只会给 40，欠补 12。
-  assert.equal(resolveMargins(effects), 52, '应为 0 + 12 + 40')
-  assert.notEqual(resolveMargins(effects), 40, '取 max 就欠补了模糊那一份')
+  // 0 + ceil(3×4) + 0。在当前的效果集合里累加和取最大值给出同一个数，
+  // 「累加」这条规则要等出现第二个向外读取的效果才观察得到 —— 这里不假装测到了它。
+  assert.equal(resolveMargins(effects), 12)
 })
 
 test('空链的边距为 0', () => {
@@ -117,8 +116,6 @@ test('lowerMaterial 复现上游的两条缩放规则（300x200 面板，手算�
   assert.ok(lens && lens.kind === 'lens', '应当产出 lens')
   assert.equal(lens.heightDp, 20)
   assert.equal(lens.amountDp, 40)
-  // amount 恰是 height 的 2 倍 —— 这正是上游欠补 2 倍的那个比例
-  assert.equal(lens.amountDp / lens.heightDp, 2)
 })
 
 test('lowerMaterial 的完整算例（200x120，与文档中的例子一致）', () => {
@@ -150,7 +147,7 @@ test('lowerMaterial 的完整算例（200x120，与文档中的例子一致）',
   assert.equal(ln.heightDp, 24, '0.4 × 120 × 0.5')
   assert.equal(ln.amountDp, 24, '0.2 × 120')
   assert.deepEqual(ln.cornerRadiiDp, [30, 30, 30, 30], '0.5 × 120 / 2')
-  assert.equal(chain.paddingDp, 36, 'ceil(24) + ceil(3×4)')
+  assert.equal(chain.paddingDp, 12, 'ceil(3×4)，折射不向外读取')
 })
 
 test('lowerMaterial 省略无操作的效果', () => {
