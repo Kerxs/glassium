@@ -293,7 +293,7 @@ export class GlassButton extends GlassElement {
   #onPointerMove = (e: PointerEvent): void => {
     if (!this.#pressed || !this.#pressAt) return
     this.#pressAt = this.#local(e)
-    this.refresh()
+    this.refreshLight()
   }
 
   #local(e: PointerEvent): { x: number; y: number } {

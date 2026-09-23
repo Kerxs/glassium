@@ -61,9 +61,14 @@ interface Active {
   readonly backgroundCss: string
   /** 每帧上传：dynamic 的画布、没有 requestVideoFrameCallback 的视频。 */
   readonly everyFrame: boolean
-  /** 图片：缩放好的位图（我们建的，由我们关），以及它是按什么尺寸缩的。 */
+  /** 图片：缩放好的位图（我们建的，由我们关），以及它是按什么缩的（尺寸与 refresh 次数）。 */
   bitmap: ImageBitmap | null
   bitmapKey: string
+  /**
+   * 图片被 refresh() 了几次。算进 bitmapKey：后台缩放进行中又来一次 refresh 时，那次缩放完成后
+   * 写回的是旧次数的 key，下一帧对不上就再缩一次 —— 不会把这次 refresh 吞掉。
+   */
+  refreshed: number
   preparing: boolean
   version: number
   stop: () => void
@@ -327,7 +332,7 @@ export class SceneSlot {
           loaded.release()
           throw err
         }
-        bitmapKey = `${w}x${h}`
+        bitmapKey = `${w}x${h}#0`
         if (!settled()) {
           bitmap.close()
           loaded.release()
@@ -348,6 +353,7 @@ export class SceneSlot {
         everyFrame: dynamic && !frameCallbacks,
         bitmap,
         bitmapKey,
+        refreshed: 0,
         preparing: false,
         version: 0,
         stop: noop
@@ -378,7 +384,7 @@ export class SceneSlot {
   refresh(): void {
     const a = this.#current
     if (!a) return
-    if (a.loaded.kind === 'image') a.bitmapKey = ''
+    if (a.loaded.kind === 'image') a.refreshed++
     else a.version++
     this.#changed()
   }
@@ -430,7 +436,7 @@ export class SceneSlot {
   #refit(a: Active, viewport: ResolvedViewport, iw: number, ih: number): void {
     if (a.preparing) return
     const [w, h] = sceneBitmapSize(viewport.sceneWidth, viewport.sceneHeight, iw, ih, a.fit)
-    const key = `${w}x${h}`
+    const key = `${w}x${h}#${a.refreshed}`
     if (key === a.bitmapKey) return
     a.preparing = true
     prepareBitmap(a.loaded.source, w, h).then(

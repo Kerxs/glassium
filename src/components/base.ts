@@ -96,6 +96,11 @@ export class GlassElement extends HTMLElementBase {
     this.#panel?.setLight(this.light())
   }
 
+  /** 只有光变了（比如按住拖动）：不重推材质 —— 推材质会让面板重新降级。 */
+  protected refreshLight(): void {
+    this.#panel?.setLight(this.light())
+  }
+
   static #subscribe(): void {
     if (GlassElement.#subscribed) return
     GlassElement.#subscribed = true
