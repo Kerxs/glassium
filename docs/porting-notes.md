@@ -37,7 +37,7 @@ GLSL ES 3.0 由 `src/shaders/translate-glsl.ts` 生成（WebGL2 后端原样使�
 （naga、Tint、SPIRV-Cross、Slang 都不支持）。AGSL 是 Skia SkSL 的受限子集，唯一的单源路径是
 用 SkSL 写、并留在 AGSL 子集内。所以给未来渲染器的契约是**与语言无关的数值向量**
 （`spec/conformance/optics.json`，现在 238 条，含多块玻璃合并的 20 条），而不是一份可转译的着色器源。用文字写成的数学
-说明 `spec/optics.md` 计划在 T12 补上，现在还没有。
+说明在 [`spec/optics.md`](../spec/optics.md)，管线与 uniform 布局在 [`spec/pipeline.md`](../spec/pipeline.md)。
 
 ### 2. 色散：鞍面调制 → 径向幅值，且蓝光位移大于红光
 

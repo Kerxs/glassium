@@ -604,8 +604,64 @@ playground 的画布宽 805（有滚动条），W + H 为奇数，碰不到；ve
 各自那次提交的代码上可复现；画布宽为奇数时，T12 之后同样的视口会在这一列上不同。
 playground 在 820×1200 @1x 下的新基线：`d5bacf09…2874`。
 
+## 与上游 playground 的对照（T12）
+
+### 为什么是数学层面的对照，而不是截图
+
+上游没有 Web 演示：它的 catalog 只以 Android APK 的形式提供（README 里没有 JS / Wasm 构建或
+GitHub Pages）。在本机跑上游要装 JDK、Gradle、Android SDK 与模拟器，这台机器上都没有，装一整套
+工具链超出了这次的范围。所以对照做在**源码与数学**上：读上游在锁定 commit
+（`65ab177e`）上的 `GlassPlaygroundContent.kt`、`Lens.kt`、`Blur.kt`、`ColorFilter.kt`、
+`Highlight*.kt` 与 `Shaders.kt`，把它的折射着色器原样转写成 TS，与 Glassium 逐像素比
+（`src/core/upstream.test.ts`）。
+
+像素级的并列截图仍然是待补项（见下）。
+
+### 上游 playground 的真实配置
+
+规划阶段那张表有两处记错了，这里按源码更正：
+
+| 控件 | 默认 | 范围 | 进入效果链的方式 |
+|---|---|---|---|
+| Corner radius | 0.5 | **0–1**（计划写的 0–0.5） | `RoundedRectangle(256.dp / 2 · frac)`，玻璃是 256dp 的正方形 |
+| Blur radius | 0 | 0–32 dp | `blur(radius.dp.toPx())` —— **半径**，不是 σ |
+| Refraction height | 0.2 | 0–1 | `refractionHeight = frac · minDim · 0.5` |
+| Refraction amount | 0.2 | **0–1**（计划写的 −1–1） | `refractionAmount = frac · minDim` |
+| Chromatic aberration | 0 | 0–1 | `chromaticAberration = value > 0f` —— **一个开关**，滑杆只决定开或关 |
+
+此外固定叠着 `vibrancy()`（饱和度 1.5）、`depthEffect = true`、`Highlight.Plain`，没有表面 tint。
+效果顺序是 vibrancy → blur → lens，与 Glassium 的规范顺序一致。
+
+### 逐项对照
+
+| 项 | 结果 |
+|---|---|
+| 主玻璃的折射（默认配置：256×256、圆角 64、height 25.6、amount 51.2、depthEffect 开） | **逐像素相同**：65 536 个像素里 25 068 个在折射带内，采样偏移最大差 **0**（f64 下逐位） |
+| 控件面板的折射（`lens(16dp, 32dp)`、32dp 圆角、depthEffect 关） | **逐像素相同**：20 948 个折射像素，最大差 0 |
+| 四角半径不同（256×128，[4, 32, 8, 28]） | 最大差 **28.3 px** —— 上游 radiusAt 的坐标系 bug，四角塌缩成右下角 |
+| 材质降级 | `lowerMaterial({ refraction: 0.2, distortion: 0.2, cornerRadius: '0.5frac' })` 在 256×256 上得到的 height / amount / 四角半径与上游完全相同 —— 两条缩放规则就是照抄的 |
+| 饱和度 | 形式相同（`s·c + (1 − s)·luma`）。上游的亮度权重是 0.213 / 0.715 / 0.072，Glassium 用 Rec.709 的 0.2126 / 0.7152 / 0.0722；s = 1.5 时整个 RGB 立方体上最大通道差 **< 0.1/255** |
+| 模糊 | **量纲不同。** 上游的 `blur(r)` 是半径：Android 上 `RenderEffect.createBlurEffect` 经 hwui 的 `Blur::convertRadiusToSigma` 换成 **σ = 0.57735·r + 0.5**（像素）后交给 Skia（已从 AOSP 源码确认）。Glassium 的 `blur` 直接就是 σ（dp）。所以上游 `blur(4dp)` 在 density 1 下相当于 Glassium 的 `blur: 2.8` 左右。Compose 在非 Android 平台（skiko）上把 BlurEffect 交给平台实现，那边的换算没有核实 |
+| 色散 | **刻意不同。** 上游是开关（固定强度）、七次采样的离散谱、鞍面调制（相邻两角彩边方向相反）；Glassium 是连续的 `dispersion`、三通道、径向（四角一致）。见 porting-notes 第 2 条 |
+| 高光 | **刻意不同。** playground 用的 `Highlight.Plain` 是一圈 0.5dp 宽、0.25dp 模糊、0.38 白、Plus 混合的**无方向**描边；上游默认的 `Highlight.Default` 是 `abs()` 的对称高光。Glassium 是左上受光、右下暗边的不对称高光。三者之间没有数值对应 |
+| 表面 tint | 上游 playground 的主玻璃没有；Glassium 的 regular 预设默认有 0.18 的白色叠加。要对齐就写 `tint: 'rgba(0,0,0,0)'` |
+
+用 Glassium 的材质写出上游 playground 的默认玻璃，是：
+
+```ts
+{ cornerRadius: '0.5frac', refraction: 0.2, distortion: 0.2, depthEffect: 1,
+  blur: 0, saturation: 1.5, tint: 'rgba(0, 0, 0, 0)', dispersion: 0 }
+```
+
+折射部分与上游逐像素相同；高光与色散是刻意的重写，不追求一致。
+
 ## 待补
 
-- [ ] 上游 playground 默认值的并列对比（需要 T7 之后才有可比的渲染结果）
-- [ ] `1 dp → 1 CSS px` 与上游截图的实际吻合度（T12）
+- [x] ~~上游 playground 默认值的并列对比~~ —— 在数学与源码层面做了（上面一节）：折射逐像素相同，
+      其余差异逐项列出
+- [ ] 与上游**渲染结果**的像素级并列截图：要在装有 Android 工具链（或上游 skiko 桌面构建）的
+      机器上跑上游 catalog，截同样配置的图。本机没有这套工具链
+- [ ] `1 dp → 1 CSS px` 与上游截图的实际吻合度：同上，依赖上游的实际渲染结果
+- [ ] DPR 2 下的对齐与渲染（本机实测过 DPR 1 与 1.5）
+- [ ] 8 / 16 / 32 块面板时的帧开销
 - [x] ~~WebGL2 侧的 `UNIFORM_BUFFER_OFFSET_ALIGNMENT` 与 `EXT_color_buffer_float`（T11）~~ —— 256、有，见上

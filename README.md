@@ -2,7 +2,8 @@
 
 Web / TypeScript 的 Liquid Glass 渲染框架。GPU 折射、色散、边缘高光，WebGPU 优先、WebGL2 兜底。
 
-> **状态：第一期开发中。还不能用。** 下面「现在能做到什么」一节是逐条对照代码写的，不是路线图。
+> **状态：第一期（T1–T12）完成，还没有发布到 npm —— 现在只能从源码用。**
+> 下面「现在能做到什么」一节是逐条对照代码写的，不是路线图。
 
 ---
 
@@ -101,21 +102,30 @@ GPU 输出靠 `stage.debug.probeOptics()` + `compareOptics()` 与 CPU 实现逐�
       只有 1 个差 1/255**；WebGL2 上的光学探针同样零个非有限值、p99 在 1e-5 像素量级。
       后端阶梯 WebGPU → WebGL2 → CSS 兜底：启动时按这个顺序选，运行中 WebGPU 第二次丢失也降到 WebGL2
 
+- [x] **T12** 验证与文档。`playground/verify.html` 把前面手工做过的验证固化成一页，
+      WebGPU 上 **PASS 14/14**、WebGL2 上 **PASS 13/13**；它第一次跑就抓到校准场景的两条硬边
+      在某些视口尺寸下正好压着像素中心（与渲染器无关），已修。与上游 playground 做了源码与数学层面
+      的对照：默认配置下的折射**逐像素相同**，其余差异逐项列出（docs/calibration.md）。
+      数学规格 [spec/optics.md](spec/optics.md)、管线规格 [spec/pipeline.md](spec/pipeline.md)、
+      架构 [docs/architecture.md](docs/architecture.md)
+
 GPU 设备丢失时会在新设备上整套重建（实测约 30 ms，恢复后画面逐位相同），第二次丢失则降到
 WebGL2（WebGL2 的上下文丢失同理，第二次降到 CSS 兜底）。T5 到 T8 期间这一点是坏的：
 日志说会重新初始化，实际上画布会冻住 —— 现已修复，见 [docs/limitations.md](docs/limitations.md)。
 
-**153 条测试全绿**，playground 可跑（`npm run dev`）。
+**157 条测试全绿**，playground 可跑（`npm run dev`），逐项自动验证在 `/verify.html`。
 
 T5 顺带把两个计划阶段悬着的硬件问题测掉了，结果记在
 [docs/calibration.md](docs/calibration.md)：`minUniformBufferOffsetAlignment` 实测 256
 （256B stride 假设成立），以及 WGSL 的**动态层索引采样可用**（模糊分档不必退回静态绑定）。
 
-（其余任务完成后逐条勾上。没勾的就是没有。）
+第一期的十二项都在上面。还没做的（DPR 2 的实测、多面板的帧开销、与上游渲染结果的像素级截图对比）
+列在 [docs/calibration.md](docs/calibration.md) 的「待补」里。
 
 与上游的偏离逐条记在 [docs/porting-notes.md](docs/porting-notes.md)：色散的象限变号、
-高光缺暗边、以及 `radiusAt` 传错坐标系导致四角半径塌缩。早期版本还声称上游的采样余量
-欠补 2 倍 —— 那是错的，已在同一份文档里撤回并说明原因。
+高光缺暗边、以及 `radiusAt` 传错坐标系导致四角半径塌缩。规划阶段有两条结论后来被证明是错的，
+都在原处撤回并说明了原因：「上游的采样余量欠补 2 倍」（porting-notes）与
+「画布不能放在 z-index: -1」（limitations）。
 
 ---
 
@@ -161,7 +171,7 @@ playground 里是 Vite 的别名。
 
 ```bash
 npm ci
-npm run dev         # playground，http://localhost:5174
+npm run dev         # playground，http://localhost:5174；验证页 /verify.html
 npm run typecheck
 npm test
 ```
