@@ -64,6 +64,7 @@ function render(stage: GlassStage): void {
     `<b>allocs</b>   ${s.targetAllocations}`,
     `<b>blur</b>     ${s.blurPasses} 趟 / ${s.blurLevels} 级`,
     `<b>panels</b>   ${s.panels}  <b>groups</b> ${s.groups}`,
+    `<b>cpu</b>      ${s.cpuMs.total.toFixed(2)} ms（测量 ${s.cpuMs.measure.toFixed(2)}）`,
     `<b>pipelines</b> ${s.pipelineCreations}  <b>bindGroups</b> ${s.bindGroupCreations}`,
     `<b>clicks</b>   ${clicks}${s.forcedColors ? '  (forced-colors：stage 停用)' : ''}`
   ]

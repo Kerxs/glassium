@@ -85,6 +85,11 @@ export interface GlassStats {
   readonly panels: number
   /** 本帧画了几个合并组。每组一次 draw call，与成员数无关。 */
   readonly groups: number
+  /**
+   * 上一帧主线程上的耗时，毫秒：measure 是量所有面板（getBoundingClientRect 等）的那一段，
+   * total 是整帧（测量 + 打包 + 编码与提交）。不含 GPU 执行时间。
+   */
+  readonly cpuMs: { readonly measure: number; readonly total: number }
   /** 这个 stage 经历过的意外设备丢失次数（主动 dispose 不算）。 */
   readonly deviceLosses: number
   /**
@@ -450,6 +455,8 @@ async function buildStage(options: GlassStageOptions): Promise<GlassStage> {
   let blurPasses = 0
   let panelsLastFrame = 0
   let groupsLastFrame = 0
+  let measureMs = 0
+  let frameMs = 0
   let fps = 0
   let fpsWindowStart = 0
   let fpsWindowFrames = 0
@@ -548,12 +555,14 @@ async function buildStage(options: GlassStageOptions): Promise<GlassStage> {
 
   const renderFrame = (now: number): void => {
     if (disposed || !renderer) return
+    const t0 = performance.now()
     syncViewport()
     if (!viewport) return
 
     // 所有面板在这里一次量完，帧内之后不再碰布局（避免 layout thrash）。
     const canvasBox = canvas.getBoundingClientRect()
     const measured = panels.measure(viewport, canvasBox.left, canvasBox.top)
+    const t1 = performance.now()
 
     const probe = pendingProbe
     const groupProbe = pendingGroupProbe
@@ -584,6 +593,8 @@ async function buildStage(options: GlassStageOptions): Promise<GlassStage> {
     }
 
     frames++
+    measureMs = t1 - t0
+    frameMs = performance.now() - t0
     drawCalls = result.drawCalls
     blurPasses = result.blurPasses
     let grouped = 0
@@ -882,6 +893,7 @@ async function buildStage(options: GlassStageOptions): Promise<GlassStage> {
           blurLevels: renderer?.blurLevels ?? 0,
           panels: panelsLastFrame,
           groups: groupsLastFrame,
+          cpuMs: { measure: measureMs, total: frameMs },
           deviceLosses,
           pipelineCreations: gpuCreated.pipelines + glCreated.programs,
           bindGroupCreations: gpuCreated.bindGroups + glCreated.objects,
@@ -1053,6 +1065,7 @@ function makeInertStage(canvas: HTMLCanvasElement): GlassStage {
         blurLevels: 0,
         panels: 0,
         groups: 0,
+        cpuMs: { measure: 0, total: 0 },
         deviceLosses: 0,
         pipelineCreations: 0,
         bindGroupCreations: 0,
