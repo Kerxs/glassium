@@ -7,6 +7,7 @@
  */
 
 import { lowerMaterial, type GlassMaterial } from '../core/material.ts'
+import { frostForColor } from '../core/transparency.ts'
 import { MAX_GROUP_MEMBERS, mergeBleed } from '../core/merge.ts'
 import type { EffectChain } from '../core/pipeline.ts'
 import type { ResolvedViewport } from '../core/units.ts'
@@ -113,6 +114,8 @@ export interface MeasuredPanel {
    * 乘进材质的 opacity —— CSS 的渐隐渐显（过渡、动画）玻璃跟着一起淡。
    */
   readonly fade: number
+  /** 文字深浅：+1 浅色文字（背后太亮时压暗玻璃），−1 深色文字（背后太暗时提亮玻璃）。 */
+  readonly tone: number
   readonly chain: EffectChain
 }
 
@@ -143,6 +146,9 @@ export interface PanelRecord {
   /** 决定 CSS 不透明度的那几层的计算样式（活对象，每帧读 opacity）与找它们时的样式代数。 */
   opacityStyles?: readonly CSSStyleDeclaration[]
   opacityGeneration?: number
+  /** 文字深浅（自适应用）：+1 浅色文字，−1 深色文字；与读它时的样式代数。 */
+  tone?: number
+  toneGeneration?: number
 }
 
 /**
@@ -175,6 +181,15 @@ function opacityChainOf(element: HTMLElement, canvas: Element | null): CSSStyleD
     out.push(getComputedStyle(e))
   }
   return out
+}
+
+/**
+ * 文字深浅：按元素的计算颜色，与减少透明度时选磨砂同一个规则（core/transparency.ts）。
+ * 没有 DOM 时（Node 里的单元测试）当作浅色文字 —— 与那边解析不了颜色时的约定一致。
+ */
+function toneOf(element: HTMLElement): number {
+  if (typeof getComputedStyle !== 'function') return 1
+  return frostForColor(getComputedStyle(element).color) === 'dark' ? 1 : -1
 }
 
 export function isRendered(element: HTMLElement): boolean {
@@ -389,6 +404,11 @@ export class PanelRegistry {
         roundBox(clipBox)
       )
       const scissor = clip(own.x0, own.y0, own.x1, own.y1)
+      if (record.tone === undefined || record.toneGeneration !== this.#styleGeneration) {
+        record.tone = toneOf(record.element)
+        record.toneGeneration = this.#styleGeneration
+      }
+
       if (record.opacityStyles === undefined || record.opacityGeneration !== this.#styleGeneration) {
         record.opacityStyles = opacityChainOf(record.element, canvas)
         record.opacityGeneration = this.#styleGeneration
@@ -403,7 +423,7 @@ export class PanelRegistry {
       const light: [number, number, number, number] = l
         ? [x + l.x * sx, y + l.y * sy, LIGHT_SIGMA_FRAC * Math.min(w, h), Math.min(1, Math.max(0, l.strength)) * LIGHT_GAIN]
         : [0, 0, 1, 0]
-      measured.set(record, { record, x, y, w, h, scissor, clip: clipBox, clipRadii, light, fade, chain })
+      measured.set(record, { record, x, y, w, h, scissor, clip: clipBox, clipRadii, light, fade, tone: record.tone, chain })
     }
 
     // 2) 合并组。一块面板只能属于一个组（先到先得），一组最多 MAX_GROUP_MEMBERS 块。
@@ -590,7 +610,8 @@ function writePanel(
   data[o + 20] = chain.opacity * panel.fade // 材质的 opacity × CSS 上的实际不透明度
   data[o + 21] = DEBUG_MODES.indexOf(debugMode)
   data[o + 22] = RIM_WIDTH_DP * scale
-  data[o + 23] = 0
+  // adapt @ 92：自适应强度带上文字深浅的符号（> 0 浅色文字，< 0 深色文字，0 关掉）
+  data[o + 23] = chain.adaptive * panel.tone
   // clip: vec4f @ 96 —— 可见区域 x0, y0, x1, y1
   const bound = (v: number): number => Math.max(-CLIP_UNBOUNDED_PX, Math.min(CLIP_UNBOUNDED_PX, v))
   data[o + 24] = bound(panel.clip.x0)

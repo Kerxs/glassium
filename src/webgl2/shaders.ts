@@ -184,7 +184,7 @@ struct Panel {
   float opacity;
   float debugMode;
   float rimPx;
-  float _pad1;
+  float adapt;
   vec4 clip;
   vec4 clipRadii;
   vec4 light;
@@ -221,6 +221,7 @@ struct Shading {
   float opacity;
   float rimPx;
   float glow;
+  vec2 veil;
 };
 
 vec4 shade(vec2 px, Shading s) {
@@ -238,12 +239,53 @@ vec4 shade(vec2 px, Shading s) {
   } else {
     sampled = textureLod(chain, base / uStage.xy, s.blurLevel).rgb;
   }
-  vec3 rgb = applyColorFilter(sampled, s.saturation, s.tint);
+  vec3 filtered = applyColorFilter(sampled, s.saturation, s.tint);
+  vec3 rgb = filtered * s.veil.x + (vec3(1.0) - filtered * s.veil.x) * s.veil.y;
   vec2 terms = highlightTerms(s.normal, LIGHT_DIR, GLOSS) * rimMask(s.sd, s.rimPx) * s.highlight;
   float lit = terms.x + s.glow;
   float dark = terms.y * DARK_RIM;
   float a = s.coverage * s.opacity;
   return vec4((rgb * (1.0 - dark) + vec3(lit, lit, lit)) * a, a);
+}
+
+// 与 glass.wgsl.ts 的自适应对应。
+const float ADAPT_MAX_LUM = 0.3;
+const float ADAPT_MIN_LUM = 0.1;
+const float ADAPT_LEVEL = 4.0;
+
+float relLuminance(vec3 c) {
+  vec3 s = clamp(c, vec3(0.0), vec3(1.0));
+  vec3 lin = mix(pow((s + 0.055) / 1.055, vec3(2.4)), s / 12.92, vec3(lessThanEqual(s, vec3(0.04045))));
+  return dot(lin, vec3(0.2126, 0.7152, 0.0722));
+}
+
+vec2 adaptVeil(vec3 avg, float adapt, float saturation, vec4 tint) {
+  if (adapt == 0.0) {
+    return vec2(1.0, 0.0);
+  }
+  float lum = relLuminance(applyColorFilter(avg, saturation, tint));
+  float strength = abs(adapt);
+  if (adapt > 0.0 && lum > ADAPT_MAX_LUM) {
+    float scale = pow(ADAPT_MAX_LUM / lum, 1.0 / 2.2);
+    return vec2(1.0 - (1.0 - scale) * strength, 0.0);
+  }
+  if (adapt < 0.0 && lum < ADAPT_MIN_LUM) {
+    float e = pow(max(lum, 0.0), 1.0 / 2.2);
+    float goal = pow(ADAPT_MIN_LUM, 1.0 / 2.2);
+    return vec2(1.0, (goal - e) / max(1.0 - e, 1e-6) * strength);
+  }
+  return vec2(1.0, 0.0);
+}
+
+// 与 glass.wgsl.ts 的 panelAverage 对应。
+vec3 panelAverage(vec4 rect) {
+  vec2 spots[5] = vec2[5](vec2(0.5, 0.5), vec2(0.25, 0.25), vec2(0.75, 0.25), vec2(0.25, 0.75), vec2(0.75, 0.75));
+  vec3 sum = vec3(0.0);
+  for (int i = 0; i < 5; i++) {
+    vec2 p = rect.xy + rect.zw * spots[i];
+    sum += textureLod(chain, p / uStage.xy, ADAPT_LEVEL).rgb;
+  }
+  return sum / 5.0;
 }
 
 // 与 glass.wgsl.ts 的 lightAt 对应。
@@ -349,6 +391,7 @@ void main() {
   s.opacity = panel.opacity;
   s.rimPx = panel.rimPx;
   s.glow = lightAt(px, panel.light);
+  s.veil = adaptVeil(panelAverage(panel.rect), panel.adapt, panel.saturation, panel.tint);
   outColor = shade(px, s);
 }
 `
@@ -407,7 +450,16 @@ struct Merged {
   float highlight;
   float opacity;
   float rimPx;
+  vec2 veil;
 };
+
+vec2 blend2(vec2 a, vec2 b, float h) {
+  return a * (1.0 - h) + b * h;
+}
+
+vec2 memberVeil(Panel p) {
+  return adaptVeil(panelAverage(p.rect), p.adapt, p.saturation, p.tint);
+}
 
 Merged evalGroup(vec2 px) {
   int count = min(int(grp.header.x + 0.5), ${capacity});
@@ -429,6 +481,7 @@ Merged evalGroup(vec2 px) {
   m.highlight = first.highlight;
   m.opacity = first.opacity;
   m.rimPx = first.rimPx;
+  m.veil = memberVeil(first);
 
   bool blended = false;
   for (int i = 1; i < ${capacity}; i++) {
@@ -450,6 +503,7 @@ Merged evalGroup(vec2 px) {
     m.highlight = blend1(m.highlight, p.highlight, h);
     m.opacity = blend1(m.opacity, p.opacity, h);
     m.rimPx = blend1(m.rimPx, p.rimPx, h);
+    m.veil = blend2(m.veil, memberVeil(p), h);
     blended = blended || (h > 0.0 && h < 1.0);
   }
 
@@ -510,6 +564,7 @@ void main() {
   s.opacity = m.opacity;
   s.rimPx = m.rimPx;
   s.glow = groupGlow(px);
+  s.veil = m.veil;
   outColor = shade(px, s);
 }
 `

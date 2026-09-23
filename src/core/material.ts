@@ -55,6 +55,12 @@ export interface GlassMaterial {
   readonly squircle?: number
   /** 0 像倒角薄板，1 像整块厚透镜。 */
   readonly depthEffect?: number
+  /**
+   * 自适应，0–1：玻璃背后太亮（浅色文字）或太暗（深色文字）时给整块玻璃蒙一层纱，
+   * 让文字与玻璃之间至少有 3:1 的对比度。1 是完全保证，0 关掉 —— clear 预设就是 0。
+   * 文字深浅按面板元素的计算颜色判断（与减少透明度时选磨砂是同一个规则）。
+   */
+  readonly adaptive?: number
 }
 
 /**
@@ -78,7 +84,8 @@ export const MATERIAL_DEFAULTS: Readonly<Required<GlassMaterial>> = Object.freez
   opacity: 1,
   cornerRadius: '0.5frac',
   squircle: 2,
-  depthEffect: 1
+  depthEffect: 1,
+  adaptive: 1
 })
 
 /**
@@ -87,15 +94,16 @@ export const MATERIAL_DEFAULTS: Readonly<Required<GlassMaterial>> = Object.freez
  * 厚度梯度照 Apple 的说法走：玻璃变厚时「投下更深更浓的阴影、透镜与折射更明显、
  * 光的散射更柔」。所以 thick 不只是模糊更大，折射和 depthEffect 也一起上去。
  *
- * clear 对应 Apple 的 Clear 变体：**没有自适应行为**、更透，只该用在媒体内容上，
+ * clear 对应 Apple 的 Clear 变体：**没有自适应行为**（adaptive: 0）、更透，只该用在媒体内容上，
  * 而且需要调用方自己压一层遮罩来保证上面的内容可读。它不是「更淡的 regular」。
+ * 其余预设都自适应（默认 adaptive: 1）：背后太亮或太暗时玻璃自己蒙一层纱。
  */
 export const GlassPresets = {
   ultraThin: { blur: 2, refraction: 0.1, distortion: 0.1, saturation: 1.15, tint: 'rgba(255,255,255,0.1)', highlight: 0.4, depthEffect: 0.3 },
   thin: { blur: 4, refraction: 0.14, distortion: 0.14, saturation: 1.25, tint: 'rgba(255,255,255,0.14)', highlight: 0.5, depthEffect: 0.6 },
   regular: { blur: 8, refraction: 0.2, distortion: 0.2, saturation: 1.4, tint: 'rgba(255,255,255,0.18)', highlight: 0.6, depthEffect: 1 },
   thick: { blur: 16, refraction: 0.3, distortion: 0.28, saturation: 1.5, tint: 'rgba(255,255,255,0.22)', highlight: 0.7, depthEffect: 1 },
-  clear: { blur: 0, refraction: 0.2, distortion: 0.22, saturation: 1.1, tint: 'rgba(255,255,255,0)', highlight: 0.8, depthEffect: 1 }
+  clear: { blur: 0, refraction: 0.2, distortion: 0.22, saturation: 1.1, tint: 'rgba(255,255,255,0)', highlight: 0.8, depthEffect: 1, adaptive: 0 }
 } as const satisfies Record<string, GlassMaterial>
 
 export type GlassPresetName = keyof typeof GlassPresets
@@ -209,7 +217,8 @@ export function lowerMaterial(material: GlassMaterial, size: Vec2): EffectChain 
     cornerRadiiDp: resolveCornerRadii(m.cornerRadius, size),
     effects,
     paddingDp: resolveMargins(effects),
-    opacity: Math.min(Math.max(m.opacity, 0), 1)
+    opacity: Math.min(Math.max(m.opacity, 0), 1),
+    adaptive: Math.min(Math.max(m.adaptive, 0), 1)
   }
 }
 

@@ -478,6 +478,61 @@ async function run(): Promise<void> {
     return n > 1000 && Math.abs(ratio - 0.5) < 0.03 ? pass(detail) : fail(detail)
   })
 
+  await check('adaptive', async () => {
+    // 自适应：纯白场景上的白字卡片，玻璃要压暗到与白字 3:1（相对亮度 0.30）；
+    // 纯黑场景上的深色字卡片，玻璃要提亮到与黑字 3:1（0.10）。adaptive="0" 时不管。
+    const flat = (v: number): ImageData => {
+      const img = new ImageData(4, 4)
+      for (let i = 0; i < img.data.length; i += 4) img.data.set([v, v, v, 255], i)
+      return img
+    }
+    const card = document.createElement('glass-card')
+    card.setAttribute('corner-radius', '16')
+    Object.assign(card.style, { left: '440px', top: '480px', width: '200px', height: '100px' })
+    document.body.append(card)
+    await sleep(0)
+    // 离边缘 16px 以上：折射带（regular 在 100px 短边上是 10px）之外，只剩模糊背景、tint 与纱
+    const r = regionOf([card], -16)
+    const lumaOf = (rgba: Uint8Array): number => {
+      const lin = (c: number): number => {
+        const s = c / 255
+        return s <= 0.04045 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4
+      }
+      let sum = 0
+      for (let i = 0; i < rgba.length; i += 4) {
+        sum += 0.2126 * lin(rgba[i]!) + 0.7152 * lin(rgba[i + 1]!) + 0.0722 * lin(rgba[i + 2]!)
+      }
+      return sum / (rgba.length / 4)
+    }
+    const measure = async (adaptive: boolean): Promise<number> => {
+      if (adaptive) card.removeAttribute('adaptive')
+      else card.setAttribute('adaptive', '0')
+      await sleep(0)
+      return lumaOf(await readback(r))
+    }
+    try {
+      await stage.setScene(flat(255), { fit: 'fill' })
+      card.style.color = '#fff'
+      const whiteOff = await measure(false)
+      const whiteOn = await measure(true)
+      await stage.setScene(flat(0), { fit: 'fill' })
+      card.style.color = '#111'
+      await sleep(0)
+      const blackOff = await measure(false)
+      const blackOn = await measure(true)
+      const detail =
+        `白底白字：${whiteOff.toFixed(3)} → ${whiteOn.toFixed(3)}（目标 0.30）· ` +
+        `黑底深色字：${blackOff.toFixed(3)} → ${blackOn.toFixed(3)}（目标 0.10）`
+      const ok =
+        whiteOff > 0.9 && Math.abs(whiteOn - 0.3) < 0.03 && blackOff < 0.05 && Math.abs(blackOn - 0.1) < 0.02
+      return ok ? pass(detail) : fail(detail)
+    } finally {
+      card.remove()
+      await stage.setScene(null)
+      stage.debug.renderNow()
+    }
+  })
+
   await check('component-equals-register', async () => {
     // 同一个位置先放组件、再放手动注册的 div，材质相同：区域哈希必须逐位相同
     const place = (el: HTMLElement): void => {

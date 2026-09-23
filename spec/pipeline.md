@@ -54,7 +54,7 @@ Glassium 的背景是整个视口共享的一张纹理，模糊链按整个视�
 
 ```
 GlassMaterial = { blur?, refraction?, distortion?, highlight?, dispersion?, saturation?,
-                  tint?, opacity?, cornerRadius?, squircle?, depthEffect? }
+                  tint?, opacity?, cornerRadius?, squircle?, depthEffect?, adaptive? }
 ```
 
 | 字段 | 单位 / 取值 | 默认 | 降级到 |
@@ -70,6 +70,7 @@ GlassMaterial = { blur?, refraction?, distortion?, highlight?, dispersion?, satu
 | `cornerRadius` | `number`（dp）/ `` `${n}frac` `` / 四个 dp | `'0.5frac'` | `chain.cornerRadiiDp` |
 | `squircle` | 剖面指数，2 = 圆 | 2 | `lens.squircle`，钳到 ≥ 1 |
 | `depthEffect` | 0 薄板 – 1 厚透镜 | 1 | `lens.depthEffect` |
+| `adaptive` | 0–1 | 1（clear 预设是 0） | `chain.adaptive`，钳到 [0, 1]。见下面「自适应」 |
 
 - 两条缩放规则照抄上游 playground（`refractionHeight = frac · minDim · 0.5`、`refractionAmount = frac · minDim`），
   默认值也取上游 playground 的 0.2 —— 在上游 playground 的默认配置上，两边的采样偏移场逐点相同
@@ -93,7 +94,20 @@ GlassMaterial = { blur?, refraction?, distortion?, highlight?, dispersion?, satu
 | thick | 16 | 0.30 | 0.28 | 1.50 | 0.22 | 0.7 | 1 |
 | clear | 0 | 0.20 | 0.22 | 1.10 | 0 | 0.8 | 1 |
 
-tint 的颜色都是白色。clear 对应 Apple 的 Clear 变体：更透、没有自适应，只该用在媒体内容上。
+tint 的颜色都是白色。clear 对应 Apple 的 Clear 变体：更透、没有自适应（adaptive 0），只该用在媒体内容上。
+其余预设都自适应。
+
+### 自适应
+
+玻璃看起来有多亮：在模糊链第 4 级上取面板中心与四个象限中心五个点的平均，经过这块玻璃自己的调色
+（saturation、tint），算相对亮度 L。文字深浅按面板元素的计算颜色判断（与减少透明度选磨砂是同一个规则）。
+
+- 浅色文字：要求 L ≤ 0.30（与白字 3:1）。超出时整块玻璃的 sRGB 颜色乘 `(0.30 / L)^(1/2.2)`。
+- 深色文字：要求 L ≥ 0.10（与黑字 3:1）。不足时整块玻璃往白混，比例按编码后的明度（L 的 1/2.2 次方）算。
+- 强度按 `adaptive` 在「不处理」与「完全处理」之间插值；没超出时乘数是 1、混合比例是 0，逐位不变。
+- 纱是**整块一样**的，不按像素：按像素压的话会把玻璃里的图像压平。合并组逐个成员按单独绘制时的算法各算一份，
+  按 smin 的 h 混合 —— 没有发生混合的像素与单独绘制逐位相同。
+- 亮边（高光）加在纱之后，不被压暗。
 
 ## 4. 单位
 
@@ -123,7 +137,7 @@ WGSL 的 uniform 布局与 GLSL 的 std140 在这两个结构体上逐字节相�
 | 80 | `opacity` | |
 | 84 | `debugMode` | 0 关、1 sdf、2 mask、3 grad、4 displacement |
 | 88 | `rimPx` | 1.5 dp 换算成设备像素 |
-| 92 | `_pad` | |
+| 92 | `adapt` | 自适应强度，带文字深浅的符号：> 0 浅色文字、< 0 深色文字、0 关掉 |
 | 96 | `clip: vec4` | 裁剪祖先围出的可见区域 x0, y0, x1, y1（画布设备像素）；没有裁剪的方向写 ±65536，不写 ±∞ |
 | 112 | `clipRadii: vec4` | 可见区域四角的圆角 TL, TR, BR, BL（画布设备像素） |
 | 128 | `light: vec4` | 按压处的光：中心 x、y 与高斯 σ（画布设备像素，σ = 0.4 × 短边），强度（× 0.2；0 = 没有） |

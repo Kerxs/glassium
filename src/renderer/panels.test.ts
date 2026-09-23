@@ -97,6 +97,7 @@ test('packPanel 写入的每个字段都落在 WGSL struct 的对应偏移上', 
     clipRadii: [1, 2, 3, 4],
     light: [50, 60, 25, 0.15],
     fade: 0.5,
+    tone: -1,
     chain
   }
 
@@ -138,6 +139,7 @@ test('packPanel 写入的每个字段都落在 WGSL struct 的对应偏移上', 
   near(at('opacity'), 0.9 * 0.5, 'opacity（材质 0.9 × CSS 上的 0.5）')
   near(at('debugMode'), 3, 'debugMode（grad 在 DEBUG_MODES 里排第 3）')
   near(at('rimPx'), RIM_WIDTH_DP * scale, 'rimPx')
+  near(at('adapt'), -1, 'adapt（默认自适应 1 × 深色文字 −1）')
   near(at('clip', 0), 5, 'clip.x0')
   near(at('clip', 1), -CLIP_UNBOUNDED_PX, 'clip.y0（−∞ → −65536）')
   near(at('clip', 2), 400, 'clip.x1')

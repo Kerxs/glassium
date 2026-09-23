@@ -42,6 +42,7 @@ const panel = (over: Partial<MeasuredPanel> = {}): MeasuredPanel => ({
   clipRadii: [0, 0, 0, 0],
   light: [0, 0, 1, 0],
   fade: 1,
+  tone: 1,
   chain,
   ...over
 })
@@ -119,6 +120,7 @@ test('面板：动了、换了降级结果、换了裁剪、多一块少一块�
   assert.equal(unchangedFrame(frame(), frame({ panels: [panel({ clipRadii: [0, 12, 0, 0] })] })), false)
   assert.equal(unchangedFrame(frame(), frame({ panels: [panel({ light: [30, 40, 20, 0.2] })] })), false, '按压处的光')
   assert.equal(unchangedFrame(frame(), frame({ panels: [panel({ fade: 0.5 })] })), false, 'CSS 不透明度（渐隐中）')
+  assert.equal(unchangedFrame(frame(), frame({ panels: [panel({ tone: -1 })] })), false, '文字深浅')
   assert.equal(unchangedFrame(frame(), frame({ panels: [] })), false)
   assert.equal(unchangedFrame(frame(), frame({ panels: [panel({ record: { element: {} } as unknown as PanelRecord })] })), false)
 })

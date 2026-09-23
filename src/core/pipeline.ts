@@ -65,6 +65,8 @@ export interface EffectChain {
   readonly paddingDp: number
   /** 面板整体不透明度，0–1。不是效果，它作用在合成阶段。 */
   readonly opacity: number
+  /** 自适应强度，0–1（见 GlassMaterial.adaptive）。也不是效果：它看的是整块玻璃最后的样子。 */
+  readonly adaptive: number
 }
 
 /**

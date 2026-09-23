@@ -83,6 +83,15 @@ struct Merged {
   highlight: f32,
   opacity: f32,
   rimPx: f32,
+  veil: vec2f,          // 自适应的纱：各成员按单独绘制时的算法各算一份，按 h 混合
+}
+
+fn blend2(a: vec2f, b: vec2f, h: f32) -> vec2f {
+  return a * (1.0 - h) + b * h;
+}
+
+fn memberVeil(p: Panel) -> vec2f {
+  return adaptVeil(panelAverage(p.rect), p.adapt, p.saturation, p.tint);
 }
 
 fn evalGroup(px: vec2f) -> Merged {
@@ -105,6 +114,7 @@ fn evalGroup(px: vec2f) -> Merged {
   m.highlight = first.highlight;
   m.opacity = first.opacity;
   m.rimPx = first.rimPx;
+  m.veil = memberVeil(first);
 
   var blended = false;
   for (var i = 1u; i < count; i++) {
@@ -125,6 +135,7 @@ fn evalGroup(px: vec2f) -> Merged {
     m.highlight = blend1(m.highlight, p.highlight, h);
     m.opacity = blend1(m.opacity, p.opacity, h);
     m.rimPx = blend1(m.rimPx, p.rimPx, h);
+    m.veil = blend2(m.veil, memberVeil(p), h);
     blended = blended || (h > 0.0 && h < 1.0);
   }
 
@@ -185,6 +196,7 @@ fn groupClip(px: vec2f) -> f32 {
   s.opacity = m.opacity;
   s.rimPx = m.rimPx;
   s.glow = groupGlow(px);
+  s.veil = m.veil;
   return shade(px, s);
 }
 

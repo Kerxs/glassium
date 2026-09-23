@@ -62,7 +62,7 @@ struct Panel {
   opacity: f32,
   debugMode: f32,
   rimPx: f32,           // 边缘高光的宽度，画布设备像素
-  _pad1: f32,
+  adapt: f32,           // 自适应：强度带文字深浅的符号（> 0 浅色文字、< 0 深色文字、0 关掉）
   clip: vec4f,          // 裁剪祖先围出的可见区域 x0, y0, x1, y1 —— 画布设备像素；没有裁剪的方向是 ±65536
   clipRadii: vec4f,     // 可见区域四角的圆角 TL, TR, BR, BL
   light: vec4f,         // 按压处的光：中心 x、y，σ（画布设备像素），强度（0 = 没有）
@@ -144,6 +144,7 @@ struct Shading {
   opacity: f32,
   rimPx: f32,
   glow: f32,            // 按压处的光在这个像素上的亮度（lightAt 的结果）
+  veil: vec2f,          // 自适应的纱：(乘数, 往白混的比例)，(1, 0) 是没有
 }
 
 fn shade(px: vec2f, s: Shading) -> vec4f {
@@ -168,7 +169,8 @@ fn shade(px: vec2f, s: Shading) -> vec4f {
     // 所以关掉色散时的输出与 T7 逐位一致（有整帧哈希比对为证）。
     sampled = textureSampleLevel(chain, samp, base / stage.canvasSize, s.blurLevel).rgb;
   }
-  let rgb = applyColorFilter(sampled, s.saturation, s.tint);
+  let filtered = applyColorFilter(sampled, s.saturation, s.tint);
+  let rgb = filtered * s.veil.x + (vec3f(1.0) - filtered * s.veil.x) * s.veil.y;
 
   // —— 高光 ——
   // 法线用纯 SDF 梯度（放大后的角半径），不混 depthEffect —— 与上游一致，
@@ -185,6 +187,53 @@ fn shade(px: vec2f, s: Shading) -> vec4f {
   // 所以画布边界上那条约束天然成立；而 pass 内部 rgb > a 就是加性光，混合方程处理得
   // 完全正确。钳制只会在低 opacity 时把高光压平，别无作用。
   return vec4f((rgb * (1.0 - dark) + vec3f(lit, lit, lit)) * a, a);
+}
+
+// 自适应（文字可读性）。玻璃看起来有多亮，由它背后在面板范围里的平均颜色、经过这块玻璃自己的调色算出；
+// 浅色文字要求它不亮过 ADAPT_MAX_LUM，深色文字要求它不暗过 ADAPT_MIN_LUM（都按与文字 3:1 的对比度算）。
+// 超出时给整块玻璃蒙一层纱：压暗是乘一个系数，提亮是往白混 —— 整块一样、不按像素，
+// 否则会把玻璃里的图像压平。不超出时返回 (1, 0)，乘上去逐位不变。
+const ADAPT_MAX_LUM: f32 = 0.3;   // 白字 3:1：1.05 / 3 − 0.05
+const ADAPT_MIN_LUM: f32 = 0.1;   // 黑字 3:1：0.05 × 3 − 0.05
+const ADAPT_LEVEL: f32 = 4.0;     // 在模糊链的第 4 级取样：一个纹素是 16 个场景像素的模糊平均
+
+fn relLuminance(c: vec3f) -> f32 {
+  let s = clamp(c, vec3f(0.0), vec3f(1.0));
+  let lin = select(pow((s + 0.055) / 1.055, vec3f(2.4)), s / 12.92, s <= vec3f(0.04045));
+  return dot(lin, vec3f(0.2126, 0.7152, 0.0722));
+}
+
+// 返回 (乘数, 往白混的比例)。亮度的比较在「编码后的明度」上做（线性亮度的 1/2.2 次方），
+// 这样乘数与混合比例可以直接作用在 sRGB 编码的颜色上。
+fn adaptVeil(avg: vec3f, adapt: f32, saturation: f32, tint: vec4f) -> vec2f {
+  if (adapt == 0.0) {
+    return vec2f(1.0, 0.0);
+  }
+  let lum = relLuminance(applyColorFilter(avg, saturation, tint));
+  let strength = abs(adapt);
+  if (adapt > 0.0 && lum > ADAPT_MAX_LUM) {
+    let scale = pow(ADAPT_MAX_LUM / lum, 1.0 / 2.2);
+    return vec2f(1.0 - (1.0 - scale) * strength, 0.0);
+  }
+  if (adapt < 0.0 && lum < ADAPT_MIN_LUM) {
+    let e = pow(max(lum, 0.0), 1.0 / 2.2);
+    let goal = pow(ADAPT_MIN_LUM, 1.0 / 2.2);
+    return vec2f(1.0, (goal - e) / max(1.0 - e, 1e-6) * strength);
+  }
+  return vec2f(1.0, 0.0);
+}
+
+// 面板背后的平均颜色：中心与四个象限中心，在模糊链的粗级别上取样。单块面板与合并组共用
+// （合并组逐个成员算，与单独绘制时逐位相同）。chain / samp / stage 由各模块自己声明 ——
+// WGSL 模块作用域的声明与顺序无关。
+fn panelAverage(rect: vec4f) -> vec3f {
+  var sum = vec3f(0.0);
+  let spots = array<vec2f, 5>(vec2f(0.5, 0.5), vec2f(0.25, 0.25), vec2f(0.75, 0.25), vec2f(0.25, 0.75), vec2f(0.75, 0.75));
+  for (var i = 0; i < 5; i++) {
+    let p = rect.xy + rect.zw * spots[i];
+    sum += textureSampleLevel(chain, samp, p / stage.canvasSize, ADAPT_LEVEL).rgb;
+  }
+  return sum / 5.0;
 }
 
 // 调试视图，两个模块共用。mode 与 DEBUG_MODES 的下标一致；返回 alpha < 0 表示「不是调试模式」。
@@ -273,6 +322,7 @@ fn evalOptics(px: vec2f) -> Optics {
   s.opacity = panel.opacity;
   s.rimPx = panel.rimPx;
   s.glow = lightAt(px, panel.light);
+  s.veil = adaptVeil(panelAverage(panel.rect), panel.adapt, panel.saturation, panel.tint);
   return shade(px, s);
 }
 

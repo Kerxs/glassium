@@ -223,6 +223,9 @@ test('clear 预设不是「更淡的 regular」：不模糊但折射不减', () 
   assert.equal(GlassPresets.clear.blur, 0)
   assert.ok(GlassPresets.clear.distortion! >= GlassPresets.regular.distortion!)
   assert.equal(parseTint(GlassPresets.clear.tint!)[3], 0, 'clear 不该有叠加色')
+  // Clear 变体没有自适应；其余预设用默认值（自适应）
+  assert.equal(lowerMaterial(GlassPresets.clear, [200, 100]).adaptive, 0)
+  assert.equal(lowerMaterial(GlassPresets.regular, [200, 100]).adaptive, 1)
 })
 
 test('glass() 覆盖预设字段', () => {
@@ -288,4 +291,11 @@ test('resolveCornerRadii 钳到 minDimension/2', () => {
   const size: Vec2 = [200, 120]
   assert.deepEqual(resolveCornerRadii(999, size), [60, 60, 60, 60])
   assert.deepEqual(resolveCornerRadii('3frac', size), [60, 60, 60, 60])
+})
+
+test('adaptive 钳到 [0, 1]，没写时是 1', () => {
+  assert.equal(lowerMaterial({}, [100, 100]).adaptive, 1)
+  assert.equal(lowerMaterial({ adaptive: 0.4 }, [100, 100]).adaptive, 0.4)
+  assert.equal(lowerMaterial({ adaptive: -1 }, [100, 100]).adaptive, 0)
+  assert.equal(lowerMaterial({ adaptive: 3 }, [100, 100]).adaptive, 1)
 })
