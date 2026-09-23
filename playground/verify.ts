@@ -358,6 +358,51 @@ async function run(): Promise<void> {
     return clean.length === 0 && named ? pass(detail) : fail(detail)
   })
 
+  await check('clipping', async () => {
+    // 滚动容器 200×100，里面的卡片在 y 60–140：下面 40px 被容器裁掉。
+    // 容器外、卡片盒子延伸到的那一块，有卡片与删掉卡片必须逐位相同（那里不能有玻璃）；
+    // 容器里那一块必须不同（玻璃确实画了）。
+    const box = document.createElement('div')
+    Object.assign(box.style, { position: 'absolute', left: '40px', top: '480px', width: '200px', height: '100px', overflow: 'auto' })
+    const content = document.createElement('div')
+    content.style.height = '400px'
+    const clipped = document.createElement('glass-card')
+    Object.assign(clipped.style, { position: 'relative', left: '0', top: '0', display: 'block', width: '180px', height: '80px', marginTop: '60px' })
+    content.append(clipped)
+    box.append(content)
+    document.body.append(box)
+    await sleep(0)
+    const v = stage.debug.stats().viewport!
+    const s = v.compositeWidth / v.cssWidth
+    const canvas = stage.canvas.getBoundingClientRect()
+    const b = box.getBoundingClientRect()
+    const c = clipped.getBoundingClientRect()
+    const outside: ReadbackRegion = {
+      x: Math.floor((c.left - canvas.left) * s),
+      y: Math.ceil((b.bottom - canvas.top) * s) + 1,
+      width: Math.floor(c.width * s),
+      height: Math.floor((c.bottom - b.bottom) * s) - 2
+    }
+    const inside: ReadbackRegion = {
+      x: Math.floor((c.left - canvas.left) * s),
+      y: Math.floor((c.top - canvas.top) * s),
+      width: Math.floor(c.width * s),
+      height: Math.floor((b.bottom - c.top) * s) - 2
+    }
+    const outWith = await sha(await readback(outside))
+    const inWith = await sha(await readback(inside))
+    clipped.remove()
+    await sleep(0)
+    const outWithout = await sha(await readback(outside))
+    const inWithout = await sha(await readback(inside))
+    box.remove()
+    stage.debug.renderNow()
+    const detail =
+      `容器外 ${outside.width}×${outside.height}：${outWith === outWithout ? '没有玻璃' : '漏出了玻璃'}；` +
+      `容器内：${inWith !== inWithout ? '有玻璃' : '没有玻璃'}`
+    return outWith === outWithout && inWith !== inWithout ? pass(detail) : fail(detail)
+  })
+
   await check('cross-backend', async () => {
     if (stage.backend !== 'webgpu') return skip(`当前是 ${stage.backend}，只在 WebGPU 起步时比两个后端`)
     const full = { x: 0, y: 0, width: stage.canvas.width, height: stage.canvas.height }

@@ -10,6 +10,7 @@ import {
   PANEL_STRUCT_BYTES
 } from '../shaders/glass.wgsl.ts'
 import { levelForSigma } from './blur.ts'
+import { UNBOUNDED } from './clipping.ts'
 import { PanelRegistry, RIM_WIDTH_DP, packPanel, type MeasuredPanel } from './panels.ts'
 import { compareOptics, type OpticsProbe } from './verify.ts'
 import {
@@ -91,6 +92,7 @@ test('packPanel 写入的每个字段都落在 WGSL struct 的对应偏移上', 
     w: 333,
     h: 222,
     scissor: [9, 20, 337, 226],
+    clip: UNBOUNDED,
     chain
   }
 

@@ -18,6 +18,15 @@ import {
   type PanelDebugMode
 } from '../shaders/glass.wgsl.ts'
 import { levelForSigma } from './blur.ts'
+import {
+  UNBOUNDED,
+  clipBoxOf,
+  findClipEntries,
+  intersect,
+  union,
+  type Box,
+  type ClipEntry
+} from './clipping.ts'
 
 export interface GlassPanel {
   readonly element: HTMLElement
@@ -72,8 +81,10 @@ export interface MeasuredPanel {
   readonly y: number
   readonly w: number
   readonly h: number
-  /** 裁剪矩形（整数，已与画布求交）。完全在屏外的面板不会出现在列表里。 */
+  /** 裁剪矩形（整数，已与画布、与裁剪祖先求交）。完全看不见的面板不会出现在列表里。 */
   readonly scissor: readonly [number, number, number, number]
+  /** 裁剪祖先围出的可见区域，画布设备像素（没有裁剪的轴是 ±∞）。合并组要用它。 */
+  readonly clip: Box
   readonly chain: EffectChain
 }
 
@@ -82,6 +93,9 @@ export interface PanelRecord {
   material: GlassMaterial
   /** 按 CSS 尺寸缓存的降级结果。尺寸或材质变了才重算。 */
   cached: { readonly w: number; readonly h: number; readonly chain: EffectChain } | null
+  /** 缓存的裁剪祖先（要读计算样式，所以不每帧重找）。clipGeneration 过期时重找。 */
+  clips?: readonly ClipEntry[]
+  clipGeneration?: number
 }
 
 /**
@@ -106,6 +120,15 @@ function isRendered(element: HTMLElement): boolean {
   return element.checkVisibility({ visibilityProperty: true, opacityProperty: true })
 }
 
+/**
+ * 裁剪边界落在分数像素上时取最近的整数像素。DOM 在那条边上是精确裁的，
+ * 往外取整会漏出一条玻璃，往里取整会少一条，四舍五入两边各差不到半个像素。
+ */
+function roundBox(b: Box): Box {
+  const r = (v: number): number => (Number.isFinite(v) ? Math.round(v) : v)
+  return { x0: r(b.x0), y0: r(b.y0), x1: r(b.x1), y1: r(b.y1) }
+}
+
 /** 抗锯齿需要在面板矩形外多画的像素。sd 的覆盖率过渡宽 1px，留 2px 足够。 */
 const AA_MARGIN_PX = 2
 
@@ -121,6 +144,7 @@ export class PanelRegistry {
   readonly #records: PanelRecord[] = []
   readonly #groups: GroupRecord[] = []
   readonly #onChange: () => void
+  #clipGeneration = 0
 
   constructor(onChange: () => void) {
     this.#onChange = onChange
@@ -175,6 +199,14 @@ export class PanelRegistry {
     return this.#groups.length
   }
 
+  /**
+   * DOM 或样式变了（stage 的 MutationObserver 调它）：裁剪祖先的缓存作废，下一帧重找。
+   * 只是把代数加一，不在这里读任何样式 —— 变化可能很频繁，重找推迟到真正要画的那一帧。
+   */
+  invalidateClips(): void {
+    this.#clipGeneration++
+  }
+
   #handle(record: PanelRecord): GlassPanel {
     return {
       element: record.element,
@@ -213,6 +245,15 @@ export class PanelRegistry {
       return [cx0, cy0, Math.max(0, cx1 - cx0), Math.max(0, cy1 - cy0)]
     }
 
+    // 裁剪祖先的矩形这一帧只量一次，多块面板共用同一个滚动容器时不重复量
+    const clipRects = new Map<Element, DOMRect>()
+    const toDevice = (b: Box): Box => ({
+      x0: (b.x0 - originX) * sx,
+      y0: (b.y0 - originY) * sy,
+      x1: (b.x1 - originX) * sx,
+      y1: (b.y1 - originY) * sy
+    })
+
     // 1) 每块画出来了的面板都量一遍。屏外的也量 —— 它可能是某个组的成员，
     //    自己不在屏上，与邻居连起来的颈部却在。
     const measured = new Map<PanelRecord, MeasuredPanel>()
@@ -239,8 +280,17 @@ export class PanelRegistry {
         record.cached = { w: r.width, h: r.height, chain }
       }
 
-      const scissor = clip(x - AA_MARGIN_PX, y - AA_MARGIN_PX, x + w + AA_MARGIN_PX, y + h + AA_MARGIN_PX)
-      measured.set(record, { record, x, y, w, h, scissor, chain })
+      if (record.clips === undefined || record.clipGeneration !== this.#clipGeneration) {
+        record.clips = findClipEntries(record.element)
+        record.clipGeneration = this.#clipGeneration
+      }
+      const clipBox = record.clips.length > 0 ? toDevice(clipBoxOf(record.clips, clipRects)) : UNBOUNDED
+      const own = intersect(
+        { x0: x - AA_MARGIN_PX, y0: y - AA_MARGIN_PX, x1: x + w + AA_MARGIN_PX, y1: y + h + AA_MARGIN_PX },
+        roundBox(clipBox)
+      )
+      const scissor = clip(own.x0, own.y0, own.x1, own.y1)
+      measured.set(record, { record, x, y, w, h, scissor, clip: clipBox, chain })
     }
 
     // 2) 合并组。一块面板只能属于一个组（先到先得），一组最多 MAX_GROUP_MEMBERS 块。
@@ -278,13 +328,20 @@ export class PanelRegistry {
         let y0 = Infinity
         let x1 = -Infinity
         let y1 = -Infinity
+        // 成员各自的可见区域取并集：通常同在一个滚动容器里，那就是那个容器
+        let visible: Box | null = null
         for (const m of members) {
           x0 = Math.min(x0, m.x)
           y0 = Math.min(y0, m.y)
           x1 = Math.max(x1, m.x + m.w)
           y1 = Math.max(y1, m.y + m.h)
+          visible = visible ? union(visible, m.clip) : m.clip
         }
-        const scissor = clip(x0 - bleed, y0 - bleed, x1 + bleed, y1 + bleed)
+        const bounded = intersect(
+          { x0: x0 - bleed, y0: y0 - bleed, x1: x1 + bleed, y1: y1 + bleed },
+          roundBox(visible ?? UNBOUNDED)
+        )
+        const scissor = clip(bounded.x0, bounded.y0, bounded.x1, bounded.y1)
         if (scissor[2] === 0 || scissor[3] === 0) continue // 整组都在屏外
         groups.push({ members, smoothingPx: k, scissor })
       }

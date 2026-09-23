@@ -806,8 +806,23 @@ async function buildStage(options: GlassStageOptions): Promise<GlassStage> {
 
   const onResize = (): void => {
     if (disposed) return
+    panels.invalidateClips() // 媒体查询可能改了哪个祖先的 overflow
     if (rafId === 0) requestRender() // 循环没在跑时，resize 也必须能触发重绘
   }
+
+  // DOM 或样式变了：面板的裁剪祖先可能变了（被挪进 / 挪出滚动容器、某个祖先的 overflow 改了）。
+  // 这里只让缓存作废，重找推迟到下一帧；也请求一帧，reduced-motion 下循环不跑时才看得到变化。
+  const clipObserver = new MutationObserver(() => {
+    if (disposed) return
+    panels.invalidateClips()
+    if (rafId === 0) requestRender()
+  })
+  clipObserver.observe(document.documentElement, {
+    attributes: true,
+    attributeFilter: ['style', 'class'],
+    childList: true,
+    subtree: true
+  })
 
   const applyMotionPreference = (): void => {
     const next = readReducedMotion()
@@ -1008,6 +1023,7 @@ async function buildStage(options: GlassStageOptions): Promise<GlassStage> {
       if (pendingOneShot !== 0) cancelAnimationFrame(pendingOneShot)
       window.removeEventListener('resize', onResize)
       resizeObserver.disconnect()
+      clipObserver.disconnect()
       detachCanvasListeners(canvas)
       motionQuery.removeEventListener('change', onMotionChange)
       onReducedMotionOverrideChange = null
