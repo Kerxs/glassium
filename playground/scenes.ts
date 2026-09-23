@@ -28,7 +28,7 @@ function rng(seed: number): () => number {
  * 一张 3000×2000 的「照片」：黄昏的天空、太阳、三层山、前景一排亮着窗的楼。
  * 比视口大得多，正好验「先缩放再上传」；楼和窗给折射与色散提供硬边。
  */
-async function makePhoto(): Promise<Blob> {
+export async function makePhoto(): Promise<Blob> {
   const W = 3000
   const H = 2000
   const canvas = new OffscreenCanvas(W, H)

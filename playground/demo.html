@@ -1,0 +1,264 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Glassium Demo</title>
+    <style>
+      /*
+        一个「真实页面」的样子：只用公开 API（组件 + createGlassStage + 场景），没有调试控件。
+        R1：html / body 背景透明 —— 页面背景属于场景，交给 stage.setScene()。
+        玻璃不叠玻璃：面板折射的是场景，不是别的面板，按钮放进卡片里会在卡片的 tint 上开一个洞。
+      */
+      html,
+      body {
+        margin: 0;
+        background: transparent;
+      }
+
+      body {
+        font: 15px/1.6 system-ui, -apple-system, 'Segoe UI', 'PingFang SC', sans-serif;
+        color: #fff;
+        -webkit-font-smoothing: antialiased;
+      }
+
+      .page {
+        box-sizing: border-box;
+        max-width: 720px;
+        margin: 0 auto;
+        padding: 20px 16px 96px;
+        display: grid;
+        gap: 20px;
+      }
+
+      header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        flex-wrap: wrap;
+      }
+
+      .brand {
+        font-size: 20px;
+        font-weight: 700;
+        letter-spacing: -0.01em;
+        text-shadow: 0 1px 12px rgba(0, 0, 0, 0.35);
+      }
+
+      /* 三段式导航：三个按钮挨着，smoothing 把它们连成一条 */
+      .tabs {
+        display: flex;
+        gap: 4px;
+      }
+
+      .tabs glass-button {
+        height: 40px;
+        padding: 0 16px;
+        font-weight: 600;
+        font-size: 14px;
+      }
+
+      glass-card {
+        box-sizing: border-box;
+        padding: 22px 24px;
+      }
+
+      .hero h1 {
+        margin: 4px 0 10px;
+        font-size: clamp(24px, 6vw, 34px);
+        line-height: 1.2;
+        letter-spacing: -0.02em;
+      }
+
+      .hero p {
+        margin: 0;
+        color: rgba(255, 255, 255, 0.86);
+      }
+
+      .eyebrow {
+        font-size: 13px;
+        font-weight: 600;
+        letter-spacing: 0.04em;
+        color: rgba(255, 255, 255, 0.72) !important;
+      }
+
+      .tiles {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+        gap: 14px;
+      }
+
+      .tile {
+        padding: 16px 18px;
+      }
+
+      .tile .value {
+        display: block;
+        font-size: 30px;
+        font-weight: 700;
+        letter-spacing: -0.02em;
+      }
+
+      .tile .label {
+        font-size: 13px;
+        color: rgba(255, 255, 255, 0.75);
+      }
+
+      .player {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+        flex-wrap: wrap;
+      }
+
+      .track strong {
+        display: block;
+        font-size: 17px;
+      }
+
+      .track span {
+        font-size: 13px;
+        color: rgba(255, 255, 255, 0.75);
+      }
+
+      .transport {
+        display: flex;
+        gap: 6px;
+      }
+
+      .transport glass-button {
+        width: 52px;
+        height: 52px;
+        font-size: 18px;
+      }
+
+      /* 表单：输入框是普通 DOM（半透明底），提交按钮是玻璃 —— 它直接压在场景上，不在卡片里 */
+      form {
+        display: flex;
+        gap: 10px;
+        flex-wrap: wrap;
+      }
+
+      form input {
+        flex: 1 1 220px;
+        min-width: 0;
+        height: 48px;
+        box-sizing: border-box;
+        padding: 0 16px;
+        border-radius: 999px;
+        border: 1px solid rgba(255, 255, 255, 0.35);
+        background: rgba(10, 12, 30, 0.35);
+        color: #fff;
+        font: inherit;
+      }
+
+      form input::placeholder {
+        color: rgba(255, 255, 255, 0.65);
+      }
+
+      form glass-button {
+        height: 48px;
+        padding: 0 24px;
+        font-weight: 600;
+      }
+
+      .section-title {
+        margin: 8px 0 -8px;
+        font-size: 13px;
+        font-weight: 600;
+        letter-spacing: 0.06em;
+        color: rgba(255, 255, 255, 0.78);
+        text-shadow: 0 1px 10px rgba(0, 0, 0, 0.4);
+      }
+
+      .toast {
+        position: fixed;
+        left: 50%;
+        bottom: 24px;
+        transform: translateX(-50%);
+        padding: 12px 20px;
+        font-weight: 600;
+        white-space: nowrap;
+        transition: opacity 0.25s;
+      }
+
+      .toast[hidden] {
+        display: block;
+        opacity: 0;
+        pointer-events: none;
+      }
+
+      .fine {
+        margin: 12px 0 0;
+        font-size: 12px;
+        color: rgba(255, 255, 255, 0.7);
+        text-shadow: 0 1px 8px rgba(0, 0, 0, 0.5);
+      }
+
+      .fine a {
+        color: inherit;
+      }
+    </style>
+  </head>
+  <body>
+    <main class="page">
+      <header>
+        <span class="brand">Glassium</span>
+        <glass-container class="tabs" smoothing="16">
+          <glass-button preset="thin">今天</glass-button>
+          <glass-button preset="thin">探索</glass-button>
+          <glass-button preset="thin">资料库</glass-button>
+        </glass-container>
+      </header>
+
+      <glass-card class="hero" preset="regular" corner-radius="28" dispersion="0.25">
+        <p class="eyebrow">黄昏 · 18:42</p>
+        <h1>城市的灯一盏一盏亮起来</h1>
+        <p>
+          背后是一张 3000×2000 的照片，交给 <code>stage.setScene()</code>。玻璃折射的就是它 ——
+          滚动页面，卡片边缘的楼和窗会跟着弯。
+        </p>
+      </glass-card>
+
+      <p class="section-title">此刻</p>
+      <div class="tiles">
+        <glass-card class="tile" preset="thin" corner-radius="20">
+          <span class="value">23°</span><span class="label">体感温度</span>
+        </glass-card>
+        <glass-card class="tile" preset="thin" corner-radius="20">
+          <span class="value">3 级</span><span class="label">东南风</span>
+        </glass-card>
+        <glass-card class="tile" preset="thin" corner-radius="20">
+          <span class="value">19:07</span><span class="label">日落</span>
+        </glass-card>
+      </div>
+
+      <p class="section-title">正在播放</p>
+      <glass-card class="player" preset="thick" corner-radius="24">
+        <div class="track"><strong>Evening Lights</strong><span>Glassium · 城市黄昏</span></div>
+      </glass-card>
+      <glass-container class="transport" smoothing="14">
+        <glass-button preset="regular" type="button" aria-label="上一首">⏮</glass-button>
+        <glass-button preset="thick" type="button" aria-label="播放">▶</glass-button>
+        <glass-button preset="regular" type="button" aria-label="下一首">⏭</glass-button>
+      </glass-container>
+
+      <p class="section-title">订阅</p>
+      <form id="subscribe">
+        <input name="email" type="email" required placeholder="邮箱地址" autocomplete="email" />
+        <glass-button preset="thick" name="plan" value="weekly">每周订阅</glass-button>
+      </form>
+
+      <p class="fine">
+        按一下按钮：光从按下的地方亮起来。系统打开「减少透明度」或「更高对比度」时，玻璃换成磨砂。
+        调试用的页面在 <a href="./index.html">playground</a>，逐项验证在 <a href="./verify.html">verify.html</a>。
+      </p>
+    </main>
+
+    <glass-card class="toast" id="toast" preset="thick" corner-radius="1frac" hidden></glass-card>
+
+    <script type="module" src="./demo.ts"></script>
+  </body>
+</html>

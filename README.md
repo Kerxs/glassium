@@ -139,7 +139,8 @@ GPU 设备丢失时会在新设备上整套重建（实测约 30 ms，恢复后�
 WebGL2（WebGL2 的上下文丢失同理，第二次降到 CSS 兜底）。T5 到 T8 期间这一点是坏的：
 日志说会重新初始化，实际上画布会冻住 —— 现已修复，见 [docs/limitations.md](docs/limitations.md)。
 
-**190 条测试全绿**，playground 可跑（`npm run dev`），逐项自动验证在 `/verify.html`
+**190 条测试全绿**，playground 可跑（`npm run dev`），只用公开 API 搭的示例页在 `/demo.html`，
+逐项自动验证在 `/verify.html`
 （现在 WebGPU 上 **PASS 21/21**、WebGL2 上 **PASS 20/20**）。
 
 T5 顺带把两个计划阶段悬着的硬件问题测掉了，结果记在
@@ -215,7 +216,7 @@ playground 里是 Vite 的别名。
 
 ```bash
 npm ci
-npm run dev         # playground，http://localhost:5174；验证页 /verify.html
+npm run dev         # playground，http://localhost:5174；示例页 /demo.html；验证页 /verify.html
 npm run typecheck
 npm test
 ```

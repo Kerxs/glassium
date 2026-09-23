@@ -21,10 +21,11 @@ export default defineConfig({
     outDir: '../playground/dist',
     emptyOutDir: true,
     rollupOptions: {
-      // 两页：playground 本身，和把验证固化下来的 verify.html
+      // 三页：playground 本身、把验证固化下来的 verify.html、只用公开 API 的 demo.html
       input: {
         main: fileURLToPath(new URL('./playground/index.html', import.meta.url)),
-        verify: fileURLToPath(new URL('./playground/verify.html', import.meta.url))
+        verify: fileURLToPath(new URL('./playground/verify.html', import.meta.url)),
+        demo: fileURLToPath(new URL('./playground/demo.html', import.meta.url))
       }
     }
   }
