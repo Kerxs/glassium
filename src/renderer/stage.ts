@@ -950,6 +950,10 @@ async function buildStage(options: GlassStageOptions): Promise<GlassStage> {
     if (rafId === 0) requestRender() // 循环没在跑时，resize 也必须能触发重绘
   }
 
+  // 系统切换深浅色：页面用 prefers-color-scheme 换文字颜色时 DOM 一点没变，MutationObserver 不会响，
+  // 从文字颜色读出来的判断（自适应的深浅、减少透明度的磨砂）就会停在旧的上。与 resize 同样处理。
+  const colorSchemeQuery = window.matchMedia('(prefers-color-scheme: dark)')
+
   // DOM 或样式变了：面板的裁剪祖先可能变了（被挪进 / 挪出滚动容器、某个祖先的 overflow 改了），
   // 文字颜色也可能变了（减少透明度时磨砂按它选）。这里只让缓存作废，重读推迟到下一帧；
   // 也请求一帧，reduced-motion 下循环不跑时才看得到变化。
@@ -1021,6 +1025,7 @@ async function buildStage(options: GlassStageOptions): Promise<GlassStage> {
   const onFrostPreferenceChange = (): void => applyFrostPreferences()
 
   window.addEventListener('resize', onResize)
+  colorSchemeQuery.addEventListener('change', onResize)
   // 滚动条出现或消失时画布宽度会变 15px 左右，但 window.resize **不会**触发。
   // 帧循环在跑时每帧都会重新量，问题不大；reduced-motion 下循环不跑，
   // 就只能靠它来唤醒重绘，否则会停在一张按旧宽度拉伸的画面上。
@@ -1201,6 +1206,7 @@ async function buildStage(options: GlassStageOptions): Promise<GlassStage> {
       scene.dispose()
       if (pendingOneShot !== 0) cancelAnimationFrame(pendingOneShot)
       window.removeEventListener('resize', onResize)
+      colorSchemeQuery.removeEventListener('change', onResize)
       resizeObserver.disconnect()
       clipObserver.disconnect()
       detachCanvasListeners(canvas)
