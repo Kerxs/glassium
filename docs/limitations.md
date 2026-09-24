@@ -314,6 +314,14 @@ scissor，祖先的 `border-radius` 在着色器里按裁剪区域的 SDF 抹掉
 它的圆角来自 CSS 的 `border-radius`，不来自 `corner-radius` 属性 —— CSS 算不出
 「短边的比例」这种圆角。改了 `corner-radius` 又想让兜底表面跟上，就同时写 `border-radius`。
 
+### 变形（`<glass-container morph>`）的边界
+
+- 只有「从邻居分出来、融回邻居」：新成员从最近的成员边上出来，`dismiss()` 缩回最近的成员。两个不相干的形状之间的
+  变形（SwiftUI 用 `glassEffectID` 把这一块变成那一块）没有做 —— 需要知道「谁变成谁」，Web 这边没有对应的声明方式。
+- 动画用 Web Animations 动 `translate` 与 `scale`，覆盖成员自己写的这两个属性（`transform` 不受影响）。
+- 一组最多 4 块（下一节），分出来的成员算在里面。
+- 文字、图标跟着一起缩放（它们在成员里面），没有单独淡入。
+
 ### `<glass-container>` 的边界
 
 - **一组最多合并 4 块。** 多出来的单独绘制、不参与合并，控制台警告一次。上限来自 uniform

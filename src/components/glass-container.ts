@@ -19,10 +19,14 @@
  * - 容器自己没有玻璃，只负责分组。
  * - `smoothing`（dp）：缝隙小于它的一半时两块玻璃连成一片；0 是硬并集。默认 20。
  * - 最多合并 4 块，多出来的单独绘制并警告一次。
+ * - `morph`：成员像水滴一样分出来、融回去（GlassEffectContainer 的第三项能力）。新加进来的成员从离它最近的
+ *   成员边上、以一滴的大小出现，一边长大一边移到自己的位置 —— 离得近时 smin 把它和邻居连着，颈部拉长、
+ *   断开；`dismiss(member)` 反过来缩回最近的成员再移除。动的是 `translate` 与 `scale`（玻璃跟得上）；
+ *   成员自己别再写这两个属性。减少动效时直接出现、直接移除。
  */
 
 import { DEFAULT_SMOOTHING_DP, type GlassGroup } from '../renderer/panels.ts'
-import { currentStage, onStageChange, type GlassStage } from '../renderer/stage.ts'
+import { currentStage, onStageChange, prefersReducedMotion, type GlassStage } from '../renderer/stage.ts'
 import { describeElement } from '../renderer/layering.ts'
 import { strictNumber } from './attributes.ts'
 import { sharedSheet } from './base.ts'
@@ -34,7 +38,45 @@ const CSS = ':host { display: block; }'
 const sheet = { sheet: null as CSSStyleSheet | null }
 
 /** 算成员的选择器。新的玻璃组件要加进来。 */
-const MEMBER_SELECTOR = 'glass-card, glass-button'
+const MEMBER_SELECTOR = 'glass-card, glass-button, glass-tab-bar'
+
+/** 一滴的大小（相对成员自己）与变形的时长、缓动（略微过冲，像液体）。 */
+export const MORPH_DROPLET = 0.2
+export const MORPH_MS = 450
+export const MORPH_EASING = 'cubic-bezier(0.3, 1.2, 0.5, 1)'
+
+/**
+ * 一滴从哪里出来：`from` 这块玻璃的边上离 `to` 的中心最近的那一点（`to` 的中心就在 `from` 里面时是那个中心）。
+ * 返回让 `to` 的中心挪到那里要的平移（CSS 像素）。纯函数，矩形都是视口坐标。
+ */
+export function dropletOffset(
+  from: { readonly left: number; readonly top: number; readonly right: number; readonly bottom: number },
+  to: { readonly left: number; readonly top: number; readonly right: number; readonly bottom: number }
+): [number, number] {
+  const cx = (to.left + to.right) / 2
+  const cy = (to.top + to.bottom) / 2
+  const px = Math.min(from.right, Math.max(from.left, cx))
+  const py = Math.min(from.bottom, Math.max(from.top, cy))
+  return [px - cx, py - cy]
+}
+
+/** 离 el 的中心最近的那一个（按中心距离）。 */
+function nearest(el: Element, others: readonly Element[]): Element | null {
+  const r = el.getBoundingClientRect()
+  const cx = (r.left + r.right) / 2
+  const cy = (r.top + r.bottom) / 2
+  let best: Element | null = null
+  let bestD = Infinity
+  for (const o of others) {
+    const q = o.getBoundingClientRect()
+    const d = Math.hypot((q.left + q.right) / 2 - cx, (q.top + q.bottom) / 2 - cy)
+    if (d < bestD) {
+      bestD = d
+      best = o
+    }
+  }
+  return best
+}
 
 export class GlassContainer extends HTMLElementBase {
   static get observedAttributes(): string[] {
@@ -47,6 +89,8 @@ export class GlassContainer extends HTMLElementBase {
   #observer: MutationObserver | null = null
   #refreshQueued = false
   #warnedSmoothing: string | null = null
+  /** 上一次刷新时的成员：多出来的就是新加进来的（morph 时让它们像水滴一样分出来）。 */
+  #known = new Set<HTMLElement>()
 
   constructor() {
     super()
@@ -101,6 +145,7 @@ export class GlassContainer extends HTMLElementBase {
     this.#group?.dissolve()
     this.#group = null
     this.#stage = null
+    this.#known = new Set() // 再进文档时，已有的成员不算新加进来的
   }
 
   attributeChangedCallback(name: string, oldValue: string | null, newValue: string | null): void {
@@ -129,6 +174,55 @@ export class GlassContainer extends HTMLElementBase {
   }
 
   #refresh(): void {
-    this.#group?.setMembers(this.members)
+    const members = this.members
+    const added = this.#known.size > 0 ? members.filter((m) => !this.#known.has(m)) : []
+    const old = members.filter((m) => this.#known.has(m))
+    this.#known = new Set(members)
+    this.#group?.setMembers(members)
+    if (added.length > 0 && old.length > 0 && this.hasAttribute('morph') && !prefersReducedMotion()) {
+      for (const m of added) this.#emerge(m, old)
+    }
+  }
+
+  /** 新成员从最近的老成员边上、以一滴的大小出现，长大、移到自己的位置。 */
+  #emerge(member: HTMLElement, from: readonly HTMLElement[]): void {
+    const source = nearest(member, from)
+    if (!source) return
+    const [dx, dy] = dropletOffset(source.getBoundingClientRect(), member.getBoundingClientRect())
+    member.animate(
+      [
+        { translate: `${dx}px ${dy}px`, scale: `${MORPH_DROPLET}` },
+        { translate: '0px 0px', scale: '1' }
+      ],
+      { duration: MORPH_MS, easing: MORPH_EASING }
+    )
+  }
+
+  /**
+   * 把一个成员融回离它最近的成员里，再把它从文档里拿掉。返回的 Promise 在拿掉之后 resolve。
+   * 没有 morph 属性、没有别的成员、减少动效时直接拿掉。
+   */
+  dismiss(member: HTMLElement): Promise<void> {
+    const others = this.members.filter((m) => m !== member)
+    const target = this.hasAttribute('morph') && !prefersReducedMotion() ? nearest(member, others) : null
+    if (!target || !member.isConnected) {
+      member.remove()
+      return Promise.resolve()
+    }
+    const [dx, dy] = dropletOffset(target.getBoundingClientRect(), member.getBoundingClientRect())
+    const animation = member.animate(
+      [
+        { translate: '0px 0px', scale: '1' },
+        { translate: `${dx}px ${dy}px`, scale: `${MORPH_DROPLET}` }
+      ],
+      { duration: MORPH_MS, easing: 'cubic-bezier(0.5, 0, 0.7, 0.4)', fill: 'forwards' }
+    )
+    return animation.finished.then(
+      () => {
+        member.remove()
+        animation.cancel()
+      },
+      () => member.remove()
+    )
   }
 }

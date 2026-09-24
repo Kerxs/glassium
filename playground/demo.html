@@ -128,6 +128,17 @@
         gap: 6px;
       }
 
+      .morph {
+        display: flex;
+        gap: 10px;
+      }
+
+      .morph glass-button {
+        height: 44px;
+        padding: 0 18px;
+        font-weight: 600;
+      }
+
       .transport glass-button {
         width: 52px;
         height: 52px;
@@ -409,6 +420,11 @@
         <glass-button preset="regular" type="button" aria-label="上一首">⏮</glass-button>
         <glass-button preset="thick" type="button" aria-label="播放">▶</glass-button>
         <glass-button preset="regular" type="button" aria-label="下一首">⏭</glass-button>
+      </glass-container>
+
+      <p class="section-title">变形（按一下「更多」：新按钮像水滴一样从它里面分出来，再按一下融回去）</p>
+      <glass-container class="morph" id="morph" morph smoothing="20">
+        <glass-button preset="regular" type="button" id="morph-toggle" aria-expanded="false">更多</glass-button>
       </glass-container>
 
       <p class="section-title">分享（菜单从按钮里长出来）</p>

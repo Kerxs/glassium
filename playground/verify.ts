@@ -1292,6 +1292,76 @@ async function run(): Promise<void> {
       : fail(detail)
   })
 
+  await check('morph', async () => {
+    // <glass-container morph>：新成员从最近的成员边上以一滴的大小出现（缩放 0.2、中心在邻居的边上），那里画着
+    // 玻璃（与邻居连成一组）；动画走完在自己的位置；dismiss 缩回去再从文档里拿掉；减少动效时不动、直接拿掉。
+    stage.debug.setBackdrop({ scene: 'flat' })
+    const box = document.createElement('glass-container') as HTMLElement & { dismiss(m: HTMLElement): Promise<void>; members: HTMLElement[] }
+    box.setAttribute('morph', '')
+    Object.assign(box.style, { position: 'absolute', left: '440px', top: '500px', display: 'flex', gap: '12px' })
+    box.innerHTML = '<glass-button type="button" shadow="0" style="position:static;width:56px;height:56px"></glass-button>'
+    document.body.append(box)
+    await sleep(0)
+    stage.debug.renderNow()
+    const a = box.querySelector('glass-button')!
+    const b = document.createElement('glass-button')
+    b.setAttribute('type', 'button')
+    b.setAttribute('shadow', '0')
+    Object.assign(b.style, { position: 'static', width: '56px', height: '56px' })
+    box.append(b)
+    await sleep(0) // 容器的 MutationObserver 在微任务里刷新成员
+    const anims = b.getAnimations()
+    for (const x of anims) {
+      x.pause()
+      x.currentTime = 0
+    }
+    stage.debug.renderNow()
+    const ar = a.getBoundingClientRect()
+    const br = b.getBoundingClientRect()
+    const v = stage.debug.stats().viewport!
+    const s = v.compositeWidth / v.cssWidth
+    const canvasBox = stage.canvas.getBoundingClientRect()
+    const pixel = async (x: number, y: number): Promise<number> => {
+      const d = await readback({ x: Math.floor((x - canvasBox.left) * s), y: Math.floor((y - canvasBox.top) * s), width: 1, height: 1 })
+      return d[0]!
+    }
+    const dropCenter: [number, number] = [br.left + br.width / 2, br.top + br.height / 2]
+    const atDrop = await pixel(dropCenter[0] + 3, dropCenter[1]) // 滴的中心往外一点：邻居的边外面
+    const scene = await pixel(ar.right + 40, ar.top - 20) // 远处的场景
+    const groups = stage.debug.stats().groups
+    for (const x of anims) x.finish()
+    stage.debug.renderNow()
+    const end = b.getBoundingClientRect()
+    const gone = box.dismiss(b)
+    for (const x of b.getAnimations()) x.finish()
+    await gone
+    const removed = !b.isConnected && box.members.length === 1
+    // 减少动效：不动、直接拿掉
+    simulateReducedMotion(true)
+    const c = document.createElement('glass-button')
+    Object.assign(c.style, { position: 'static', width: '56px', height: '56px' })
+    box.append(c)
+    await sleep(0)
+    const quiet = c.getAnimations().length === 0
+    void box.dismiss(c)
+    const instant = !c.isConnected
+    simulateReducedMotion(null)
+    box.remove()
+    calibrationScene()
+    stage.debug.renderNow()
+
+    const droplet = Math.abs(br.width - 56 * 0.2) < 1 && Math.abs(dropCenter[0] - ar.right) < 1 && Math.abs(dropCenter[1] - (ar.top + 28)) < 1
+    const detail =
+      `开始：B ${br.width.toFixed(1)}×${br.height.toFixed(1)}、中心 (${dropCenter.map((x) => x.toFixed(1)).join(', ')})，` +
+      `A 的右边缘中点 (${ar.right.toFixed(1)}, ${(ar.top + 28).toFixed(1)}) · 滴那里 ${atDrop}、场景 ${scene} · 组 ${groups} · ` +
+      `走完 B 在 x=${end.left.toFixed(1)}、宽 ${end.width.toFixed(1)} · dismiss ${removed ? '拿掉了' : '没拿掉'} · ` +
+      `减少动效：${quiet ? '不动' : '还在动'}、${instant ? '立刻拿掉' : '没拿掉'}`
+    return anims.length === 1 && droplet && atDrop - scene > 10 && Math.abs(end.width - 56) < 0.5 &&
+      Math.abs(end.left - (ar.right + 12)) < 0.5 && removed && quiet && instant
+      ? pass(detail)
+      : fail(detail)
+  })
+
   await check('component-equals-register', async () => {
     // 同一个位置先放组件、再放手动注册的 div，材质相同：区域哈希必须逐位相同
     const place = (el: HTMLElement): void => {

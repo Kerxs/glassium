@@ -52,6 +52,28 @@ async function main(): Promise<void> {
     say(`已订阅 ${String(data.get('email'))}（${data.get('plan') === 'weekly' ? '每周' : '其它'}）`)
   })
 
+  // 变形：<glass-container morph> 里新加的成员从最近的成员边上像水滴一样分出来，dismiss() 融回去再拿掉
+  const morph = document.getElementById('morph') as HTMLElement & { dismiss(member: HTMLElement): Promise<void> }
+  const morphToggle = document.getElementById('morph-toggle')!
+  let extras: HTMLElement[] = []
+  morphToggle.addEventListener('click', () => {
+    if (extras.length === 0) {
+      extras = ['♡ 收藏', '↗ 分享'].map((label) => {
+        const b = document.createElement('glass-button')
+        b.setAttribute('preset', 'regular')
+        b.setAttribute('type', 'button')
+        b.textContent = label
+        morph.append(b)
+        return b
+      })
+      morphToggle.setAttribute('aria-expanded', 'true')
+    } else {
+      for (const b of extras) void morph.dismiss(b)
+      extras = []
+      morphToggle.setAttribute('aria-expanded', 'false')
+    }
+  })
+
   // 对话框：原生的 <dialog>。里面的玻璃在顶层里，stage 自动改用 CSS 画（不用写任何东西）
   const about = document.getElementById('about') as HTMLDialogElement
   document.getElementById('about-open')!.addEventListener('click', () => about.showModal())

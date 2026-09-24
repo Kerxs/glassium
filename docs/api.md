@@ -53,8 +53,12 @@
 ### `<glass-container smoothing="20">`
 
 把里面的玻璃（最多 4 块）用 smin 连成一个连续形状，一次 draw。`smoothing`（dp，默认 20）：
-缝隙小于它的一半时两块连成一片，0 是硬并集。成员是 `closest('glass-container')` 为它的后代玻璃组件。
-容器自己没有玻璃，排版交给你（常见的是 `display: flex`）。
+缝隙小于它的一半时两块连成一片，0 是硬并集。成员是 `closest('glass-container')` 为它的后代玻璃组件
+（卡片、按钮、标签栏）。容器自己没有玻璃，排版交给你（常见的是 `display: flex`）。
+
+- `morph` 属性：成员像水滴一样分出来、融回去。新加进来的成员从离它最近的成员边上、以 0.2 倍的大小出现，450ms
+  长到自己的位置（略微过冲）；`dismiss(member)` → `Promise<void>`：缩回离它最近的成员再从文档里拿掉。动的是成员的
+  `translate` 与 `scale`，成员自己别再写这两个属性。减少动效时直接出现、直接拿掉。
 
 ### `<glass-fill>`
 
