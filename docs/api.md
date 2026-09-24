@@ -6,7 +6,7 @@
 ## 最短路径
 
 ```html
-<link rel="stylesheet" href="glassium/src/components/glassium.css" />
+<link rel="stylesheet" href="node_modules/glassium/dist/glassium.css" />  <!-- 或 import 'glassium/glassium.css' -->
 
 <glass-card preset="regular">正文照常选中、聚焦、输入</glass-card>
 

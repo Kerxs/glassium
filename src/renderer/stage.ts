@@ -80,6 +80,9 @@ export {
 
 export type Backend = 'webgpu' | 'webgl2' | 'none'
 
+/** 画布的 alphaMode（与 WebGPU 的 GPUCanvasAlphaMode 同值；公开接口里不引用 WebGPU 的全局类型）。 */
+export type CanvasAlphaMode = 'opaque' | 'premultiplied'
+
 export interface GlassStats {
   readonly backend: Backend
   /**
@@ -147,7 +150,7 @@ export interface GlassStageOptions {
    * 想让页面自己的 CSS 背景透上来时才用 'premultiplied' —— 那时片元必须满足
    * rgb <= a，否则合成结果未定义。规范不允许 'unpremultiplied'。
    */
-  readonly alphaMode?: GPUCanvasAlphaMode
+  readonly alphaMode?: CanvasAlphaMode
   /** 降级发生时回调。在 console.warn **之后**触发。 */
   readonly onDegrade?: (reason: DegradeReason) => void
   /**

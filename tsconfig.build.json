@@ -1,0 +1,19 @@
+{
+  // 库的构建：把 src/ 编成 ESM + 类型声明，放进 dist/。不打包、不压缩 —— 使用者的打包器会做。
+  // 源码的相对 import 带 .ts 扩展名（Node 原生跑测试要这样写），rewriteRelativeImportExtensions
+  // 在产物里把它们改写成 .js。测试不进产物。
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true,
+    "outDir": "dist",
+    "rootDir": "src",
+    "rewriteRelativeImportExtensions": true,
+    "types": ["@webgpu/types"],
+    "paths": {}
+  },
+  "include": ["src"],
+  "exclude": ["src/**/*.test.ts"]
+}

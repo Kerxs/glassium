@@ -39,7 +39,7 @@ Glassium 自己渲染的纹理。**面板背后的正文文字、图片、iframe
 - 形状变形过渡（多块玻璃的**合并**做了，**变形**没做）。
 - 逐面板不同的 backdrop。
 - Android / iOS 渲染器 —— 只交付 `spec/` 里的平台中立契约。
-- npm 发布、`.d.ts` 产出、semver。
+- npm 发布、semver。（库的构建产物已经有了：ESM + 类型声明，见「用法」。）
 
 ### CI 不覆盖像素
 
@@ -171,7 +171,7 @@ T5 顺带把两个计划阶段悬着的硬件问题测掉了，结果记在
 
 ```html
 <!-- 兜底样式放进 <head>：没有玻璃时（upgrade 之前、没有 GPU、高对比度）给组件一层可读的表面 -->
-<link rel="stylesheet" href="glassium/src/components/glassium.css" />
+<link rel="stylesheet" href="node_modules/glassium/dist/glassium.css" />
 
 <glass-card preset="regular" corner-radius="24">
   <h2>标题</h2>
@@ -218,8 +218,18 @@ await stage.setScene(null)                                          // 回到内
 GPU —— 这种情况 `setScene` 当场 reject 并说明原因。上传时机、减少动效、没有 GPU 时怎么办见
 [docs/limitations.md](docs/limitations.md)「用户场景」。
 
-还不是 npm 包（第一期不发布），上面的 `glassium` 指的是 `src/index.ts`，
-playground 里是 Vite 的别名。
+### 安装
+
+没有发布到 npm。作为 git 依赖安装（`npm install <仓库地址>`）时，`prepare` 会把 `src/` 编成 `dist/`：
+ESM + 类型声明，不打包、不压缩（交给你的打包器）。之后按包名引用：
+
+```js
+import { createGlassStage, defineGlassElements } from 'glassium'
+import 'glassium/glassium.css' // 或者 <link> 到 node_modules/glassium/dist/glassium.css
+```
+
+类型声明里用到 WebGPU 的类型，所以 `@webgpu/types` 是依赖（只有类型，没有运行时代码）。
+在仓库里自己构建：`npm run build:lib`。playground 里的 `glassium` 是 Vite 的别名，直接指向 `src/index.ts`。
 
 ---
 

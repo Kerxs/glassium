@@ -1,3 +1,4 @@
+/// <reference types="@webgpu/types" preserve="true" />
 /**
  * Glassium 公开入口。
  *
@@ -102,6 +103,7 @@ export {
   simulateReducedMotion,
   simulateReducedTransparency,
   type Backend,
+  type CanvasAlphaMode,
   type DegradeReason,
   type GlassStage,
   type GlassStageOptions,
