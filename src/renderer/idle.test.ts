@@ -44,6 +44,8 @@ const panel = (over: Partial<MeasuredPanel> = {}): MeasuredPanel => ({
   fade: 1,
   tone: 1,
   visualScale: 1,
+  rotation: [1, 0],
+  bounds: { x0: 10, y0: 20, x1: 110, y1: 70 },
   chain,
   ...over
 })
@@ -123,6 +125,7 @@ test('面板：动了、换了降级结果、换了裁剪、多一块少一块�
   assert.equal(unchangedFrame(frame(), frame({ panels: [panel({ fade: 0.5 })] })), false, 'CSS 不透明度（渐隐中）')
   assert.equal(unchangedFrame(frame(), frame({ panels: [panel({ tone: -1 })] })), false, '文字深浅')
   assert.equal(unchangedFrame(frame(), frame({ panels: [panel({ visualScale: 0.9 })] })), false, '缩放动画中')
+  assert.equal(unchangedFrame(frame(), frame({ panels: [panel({ rotation: [0.9, 0.1] })] })), false, '旋转动画中')
   assert.equal(unchangedFrame(frame(), frame({ panels: [] })), false)
   assert.equal(unchangedFrame(frame(), frame({ panels: [panel({ record: { element: {} } as unknown as PanelRecord })] })), false)
 })

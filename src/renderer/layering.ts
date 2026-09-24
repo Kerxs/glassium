@@ -31,6 +31,7 @@
  */
 
 import { isRendered } from './panels.ts'
+import { decompose, linearOfElement, poseOf } from './pose.ts'
 
 /** 计算值里与本检查有关的几项。拆出来是为了让分析逻辑能在 Node 里测。 */
 export interface LayerStyle {
@@ -39,8 +40,9 @@ export interface LayerStyle {
   readonly opacity: string
   readonly filter: string
   readonly transform: string
-  /** CSS Transforms 2 的独立属性。`transform` 的计算值不包含它。 */
+  /** CSS Transforms 2 的独立属性。`transform` 的计算值不包含它们。 */
   readonly rotate: string
+  readonly scale: string
 }
 
 export type LayerRelation = 'self' | 'ancestor' | 'overlap'
@@ -101,42 +103,6 @@ export function cssAlpha(color: string): number {
   const t = raw.trim()
   const v = t.endsWith('%') ? parseFloat(t) / 100 : parseFloat(t)
   return Number.isFinite(v) ? Math.min(1, Math.max(0, v)) : 1
-}
-
-/**
- * 变换会不会让元素的形状与玻璃对不上。
- *
- * 玻璃按 getBoundingClientRect 画，那是**轴对齐包围盒**。平移、缩放、翻转之后包围盒
- * 就是元素本身，没问题；旋转、倾斜、透视之后包围盒比元素大、形状也不同。
- *
- * 计算值只会是 `none`、`matrix(…)` 或 `matrix3d(…)`。看不懂的一律当成有问题 —— 宁可多报。
- */
-export function transformDistorts(transform: string, eps = 1e-6): boolean {
-  const t = transform.trim()
-  if (t === '' || t === 'none') return false
-  const m = /^matrix(3d)?\(([^)]*)\)$/.exec(t)
-  if (!m) return true
-  const v = m[2]!.split(',').map(Number)
-  if (v.some((x) => !Number.isFinite(x))) return true
-  const zero = (x: number | undefined): boolean => x !== undefined && Math.abs(x) <= eps
-
-  if (!m[1]) {
-    // matrix(a, b, c, d, e, f)：b 或 c 非零就是旋转或倾斜
-    return v.length !== 6 || !zero(v[1]) || !zero(v[2])
-  }
-  // matrix3d 是列主序的 16 个数。只允许 2D 缩放加平移：
-  // 除对角线（0、5、10、15）与平移（12、13、14）之外都必须是 0，且 m44 = 1。
-  if (v.length !== 16) return true
-  for (const i of [1, 2, 3, 4, 6, 7, 8, 9, 11]) if (!zero(v[i])) return true
-  return !zero(v[15]! - 1)
-}
-
-/** `rotate` 独立属性的计算值是 `none`、`45deg`、`x 45deg` 或 `1 1 0 45deg`。 */
-export function rotateDistorts(rotate: string): boolean {
-  const t = rotate.trim()
-  if (t === '' || t === 'none') return false
-  // 只有单个角度且为 0 时无害；带轴的写法一律当有问题
-  return !/^[+-]?0(\.0+)?(deg|rad|grad|turn)?$/.test(t)
 }
 
 /** `div#app.wrap.dark` —— 警告里点名元素用。类名多于三个时截断，Tailwind 一类的写法会很长。 */
@@ -213,13 +179,32 @@ export function analyzeAncestors<E>(
     if (s.filter.trim() !== '' && s.filter.trim() !== 'none') {
       out.push({ kind: 'filter', panel, element, relation, value: s.filter })
     }
-    if (transformDistorts(s.transform)) {
-      out.push({ kind: 'transform', panel, element, relation, value: s.transform })
-    } else if (rotateDistorts(s.rotate)) {
-      out.push({ kind: 'transform', panel, element, relation, value: `rotate: ${s.rotate}` })
+    // 平移、缩放、旋转玻璃都跟得上（pose.ts）；倾斜、3D、带旋转的镜像跟不上
+    const own = linearOfElement(s)
+    if (!own || !decompose(own).supported) {
+      out.push({ kind: 'transform', panel, element, relation, value: describeTransform(s) })
     }
   }
+  // 每一层单独都画得了，合起来却是倾斜的：比如转过的元素外面套了一层不等比缩放
+  if (!out.some((p) => p.kind === 'transform') && !poseOf(chain.map(style)).supported) {
+    out.push({
+      kind: 'transform',
+      panel,
+      element: panel,
+      relation: 'self',
+      value: '自己与祖先的变换合起来是倾斜的'
+    })
+  }
   return out
+}
+
+/** 警告里写出元素自己的变换（transform 与 rotate / scale 独立属性）。 */
+function describeTransform(s: LayerStyle): string {
+  const parts: string[] = []
+  if (s.transform.trim() !== 'none') parts.push(s.transform)
+  if (s.rotate.trim() !== 'none') parts.push(`rotate: ${s.rotate}`)
+  if (s.scale.trim() !== 'none') parts.push(`scale: ${s.scale}`)
+  return parts.join('; ') || 'none'
 }
 
 /** 问题的去重键。同一块面板上同一个问题只报一次。 */
@@ -268,8 +253,8 @@ export function describeProblem<E>(p: LayerProblem<E>, name: (e: E) => string): 
     return `[Glassium] ${who} 有 filter: ${clip(p.value)}：它只作用在 DOM 上，玻璃不受影响。`
   }
   return (
-    `[Glassium] ${who} 有旋转或倾斜（${clip(p.value)}）：玻璃按轴对齐的包围盒画，` +
-    '形状会和元素对不上。平移和缩放没问题。'
+    `[Glassium] ${who} 有倾斜或 3D 变换（${clip(p.value)}）：玻璃只跟得上平移、缩放与旋转，` +
+    '这种变换下形状会和元素对不上。'
   )
 }
 
@@ -304,7 +289,8 @@ function styleOf(el: Element): LayerStyle {
     opacity: s.opacity,
     filter: s.filter,
     transform: s.transform,
-    rotate: s.rotate
+    rotate: s.rotate,
+    scale: s.scale
   }
 }
 

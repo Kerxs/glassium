@@ -630,6 +630,68 @@ async function run(): Promise<void> {
     return scaled === direct ? pass(detail) : fail(detail)
   })
 
+  await check('rotation', async () => {
+    // 1) 形状：200×60 的胶囊转 45°。沿转过的长轴离中心 80px 的点在形状里；沿原来的 x 轴 80px 的点不在
+    //    （离转过的长轴 56px，超出半宽 30）。遮罩视图读覆盖率。
+    // 2) 光学：圆形玻璃转 37° 与不转，放在以它为圆心的径向场景上 —— 圆本身旋转不变，折射方向与法线
+    //    要正确地转回屏幕坐标，两边才一样（旋转的算术会让个别像素差 1/255）。
+    const v = stage.debug.stats().viewport!
+    const s = v.compositeWidth / v.cssWidth
+    const canvas = stage.canvas.getBoundingClientRect()
+    const px = (x: number, y: number): ReadbackRegion => ({
+      x: Math.floor((x - canvas.left) * s),
+      y: Math.floor((y - canvas.top) * s),
+      width: 1,
+      height: 1
+    })
+
+    const pill = document.createElement('glass-card')
+    pill.setAttribute('corner-radius', '1frac')
+    Object.assign(pill.style, { left: '440px', top: '500px', width: '200px', height: '60px', transform: 'rotate(45deg)' })
+    document.body.append(pill)
+    await sleep(0)
+    const c = { x: 540, y: 530 } // 中心：变换不挪中心（transform-origin 默认在中心）
+    const d = 80 / Math.SQRT2
+    stage.debug.setPanelDebug('mask')
+    const along = (await readback(px(c.x + d, c.y + d)))[0]!
+    const across = (await readback(px(c.x + 80, c.y)))[0]!
+    stage.debug.setPanelDebug('off')
+    pill.remove()
+
+    const circle = document.createElement('glass-card')
+    circle.setAttribute('corner-radius', '1frac') // 圆：半径 = 短边的一半（0.5frac 只是短边的四分之一，那是圆角方块，转了就不一样）
+    circle.setAttribute('dispersion', '0.3')
+    Object.assign(circle.style, { left: '440px', top: '480px', width: '160px', height: '160px' })
+    document.body.append(circle)
+    stage.debug.setBackdrop({ scene: 'radial', radialCenter: [520, 560], radialRadius: 0.3 })
+    await sleep(0)
+    const region = regionOf([circle], 40)
+    const straight = await readback(region)
+    circle.style.transform = 'rotate(37deg)'
+    await sleep(0)
+    const turned = await readback(region)
+    circle.remove()
+    calibrationScene()
+    stage.debug.renderNow()
+
+    let changed = 0
+    let max = 0
+    for (let i = 0; i < straight.length; i += 4) {
+      const dd = Math.max(
+        Math.abs(straight[i]! - turned[i]!),
+        Math.abs(straight[i + 1]! - turned[i + 1]!),
+        Math.abs(straight[i + 2]! - turned[i + 2]!)
+      )
+      if (dd > 0) changed++
+      max = Math.max(max, dd)
+    }
+    const total = straight.length / 4
+    const detail =
+      `转 45° 的胶囊：长轴上的点覆盖率 ${along}/255，原 x 轴上的点 ${across}/255 · ` +
+      `转 37° 的圆与不转的圆：${total} 像素里 ${changed} 个不同，最大差 ${max}/255`
+    return along >= 250 && across === 0 && max <= 2 && changed / total < 0.02 ? pass(detail) : fail(detail)
+  })
+
   await check('component-equals-register', async () => {
     // 同一个位置先放组件、再放手动注册的 div，材质相同：区域哈希必须逐位相同
     const place = (el: HTMLElement): void => {

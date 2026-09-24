@@ -124,6 +124,9 @@ GPU 输出由 `playground/verify.html` 在浏览器里逐项验证（光学探�
 - [x] **静止时不画**（`src/renderer/idle.ts`）。每帧照样量面板，但这一帧画出来与上一帧逐像素相同时
       就不提交，浏览器继续显示上一帧。静态背景加不动的卡片：实测 1.5 秒 **0 帧**；滚动一下画 2 帧，
       按钮悬停只在补间期间画；视频场景只在出新帧时画
+- [x] **旋转**：自己或祖先 `rotate` 时玻璃跟着转（以前只能按轴对齐的包围盒画，还会报警告）。形状在面板自己的
+      坐标系里算，折射方向与法线转回屏幕。转 37° 的圆与不转的圆逐像素相同（12.96 万个像素里 12 个差 1/255）。
+      倾斜与 3D 变换仍然画不了，照旧警告
 - [x] **跟着 transform: scale 缩放**：自己或祖先缩放时，圆角、模糊、亮边、投影这些以 dp 计的量也跟着缩，
       缩放动画里玻璃与 DOM 一致。`scale(0.5)` 里的大卡片与直接画的小卡片逐位相同
 - [x] **投影**：材质文档一直写着「玻璃越厚，投下的阴影越深」，渲染器却没有。现在玻璃往下投一圈柔和的影子
@@ -149,9 +152,9 @@ GPU 设备丢失时会在新设备上整套重建（实测约 30 ms，恢复后�
 WebGL2（WebGL2 的上下文丢失同理，第二次降到 CSS 兜底）。T5 到 T8 期间这一点是坏的：
 日志说会重新初始化，实际上画布会冻住 —— 现已修复，见 [docs/limitations.md](docs/limitations.md)。
 
-**193 条测试全绿**，playground 可跑（`npm run dev`），只用公开 API 搭的示例页在 `/demo.html`，
+**196 条测试全绿**，playground 可跑（`npm run dev`），只用公开 API 搭的示例页在 `/demo.html`，
 逐项自动验证在 `/verify.html`
-（现在 WebGPU 上 **PASS 25/25**、WebGL2 上 **PASS 24/24**）。
+（现在 WebGPU 上 **PASS 26/26**、WebGL2 上 **PASS 25/25**）。
 
 T5 顺带把两个计划阶段悬着的硬件问题测掉了，结果记在
 [docs/calibration.md](docs/calibration.md)：`minUniformBufferOffsetAlignment` 实测 256

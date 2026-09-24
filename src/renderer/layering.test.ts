@@ -8,8 +8,6 @@ import {
   describeElement,
   describeProblem,
   problemKey,
-  rotateDistorts,
-  transformDistorts,
   type LayerStyle
 } from './layering.ts'
 
@@ -26,30 +24,6 @@ test('cssAlpha 认得 getComputedStyle 会给出的各种写法', () => {
     ['', 0]
   ]
   for (const [css, alpha] of cases) assert.equal(cssAlpha(css), alpha, css)
-})
-
-test('transformDistorts：平移、缩放、翻转无害，旋转、倾斜、透视有问题', () => {
-  assert.equal(transformDistorts('none'), false)
-  assert.equal(transformDistorts('matrix(1, 0, 0, 1, 10, 20)'), false, '平移')
-  assert.equal(transformDistorts('matrix(2, 0, 0, 0.5, 0, 0)'), false, '缩放')
-  assert.equal(transformDistorts('matrix(-1, 0, 0, 1, 0, 0)'), false, '水平翻转')
-  assert.equal(transformDistorts('matrix(0.707107, 0.707107, -0.707107, 0.707107, 0, 0)'), true, '旋转 45°')
-  assert.equal(transformDistorts('matrix(1, 0, 0.5, 1, 0, 0)'), true, '倾斜')
-  const identity3d = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 30, 40, 5, 1]
-  assert.equal(transformDistorts(`matrix3d(${identity3d.join(', ')})`), false, '3D 平移')
-  const perspective = [...identity3d]
-  perspective[11] = -0.01
-  assert.equal(transformDistorts(`matrix3d(${perspective.join(', ')})`), true, '透视')
-  const rotateX = [1, 0, 0, 0, 0, 0.866, 0.5, 0, 0, -0.5, 0.866, 0, 0, 0, 0, 1]
-  assert.equal(transformDistorts(`matrix3d(${rotateX.join(', ')})`), true, '绕 X 轴旋转')
-  assert.equal(transformDistorts('rotate(45deg)'), true, '看不懂的写法当成有问题')
-})
-
-test('rotateDistorts：独立的 rotate 属性（transform 的计算值里没有它）', () => {
-  assert.equal(rotateDistorts('none'), false)
-  assert.equal(rotateDistorts('0deg'), false)
-  assert.equal(rotateDistorts('45deg'), true)
-  assert.equal(rotateDistorts('x 45deg'), true)
 })
 
 test('describeElement：tag#id.class，类名多了截断', () => {
@@ -75,7 +49,8 @@ const clear: LayerStyle = {
   opacity: '1',
   filter: 'none',
   transform: 'none',
-  rotate: 'none'
+  rotate: 'none',
+  scale: 'none'
 }
 const el = (name: string, parent: Fake | null, style: Partial<LayerStyle> = {}): Fake => ({ name, parent, style })
 const styleOf = (e: Fake): LayerStyle => ({ ...clear, ...e.style })
@@ -156,10 +131,10 @@ test('面板或画布不在命中栈里时判断不了，返回 null', () => {
   assert.equal(analyzeHitStack([card, body], card, canvas, contains, styleOf), null)
 })
 
-test('祖先链：filter、旋转被点名；平移与 opacity 不报（玻璃跟着 CSS 的不透明度一起淡）', () => {
+test('祖先链：filter、倾斜被点名；平移、opacity 不报（玻璃跟着 CSS 的不透明度一起淡）', () => {
   const body = el('body', null)
   const fade = el('section.fade', body, { opacity: '0.5' })
-  const tilt = el('div.tilt', fade, { transform: 'matrix(0.965926, 0.258819, -0.258819, 0.965926, 0, 0)' })
+  const tilt = el('div.tilt', fade, { transform: 'matrix(1, 0, 0.3, 1, 0, 0)' })
   const shift = el('div.shift', tilt, { transform: 'matrix(1, 0, 0, 1, 0, 12)' })
   const card = el('glass-card', shift, { filter: 'drop-shadow(rgba(0, 0, 0, 0.3) 0px 4px 12px)' })
 
@@ -204,4 +179,24 @@ test('去重键：同一元素同一问题相同，值变了算新问题', () =>
   const c = problemKey({ kind: 'filter', panel: card, element: body, relation: 'ancestor', value: 'blur(3px)' }, name)
   assert.equal(a, b)
   assert.notEqual(a, c)
+})
+
+test('变换：旋转、缩放、不带旋转的镜像都跟得上，不报；倾斜、3D、合起来的倾斜要报', () => {
+  const body = el('body', null)
+  const at = (style: Partial<LayerStyle>, parentStyle: Partial<LayerStyle> = {}): string[] => {
+    const parent = el('div.parent', body, parentStyle)
+    const card = el('glass-card', parent, style)
+    return analyzeAncestors([card, parent], card, styleOf).map((p) => `${p.kind}:${p.kind === 'canvas-above' ? '' : p.element.name}`)
+  }
+  assert.deepEqual(at({ transform: 'matrix(0.707107, 0.707107, -0.707107, 0.707107, 0, 0)' }), [], '旋转 45°')
+  assert.deepEqual(at({ rotate: '30deg', scale: '0.5' }), [], 'rotate / scale 独立属性')
+  assert.deepEqual(at({ transform: 'matrix(-1, 0, 0, 1, 0, 0)' }), [], '水平翻转')
+  assert.deepEqual(at({ transform: 'matrix(1, 0, 0.5, 1, 0, 0)' }), ['transform:glass-card'], '倾斜')
+  assert.deepEqual(at({ rotate: 'x 40deg' }), ['transform:glass-card'], '绕 x 轴转是 3D')
+  // 自己转 30°、父元素横向拉伸 2 倍：各自都画得了，合起来是平行四边形
+  assert.deepEqual(
+    at({ transform: 'matrix(0.866025, 0.5, -0.5, 0.866025, 0, 0)' }, { scale: '2 1' }),
+    ['transform:glass-card'],
+    '合起来的倾斜报在面板自己身上'
+  )
 })

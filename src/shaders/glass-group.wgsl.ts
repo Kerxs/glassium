@@ -21,7 +21,7 @@ import { GLASS_COMMON_WGSL, PANEL_STRUCT_BYTES } from './glass.wgsl.ts'
 
 /** 一组最多几块。与 core/merge.ts 的 MAX_GROUP_MEMBERS 一致（有测试核对）。 */
 export const GROUP_CAPACITY = 4
-/** Group 结构体的字节数：16B 的头 + 4 × 160B 的成员 = 656B。 */
+/** Group 结构体的字节数：16B 的头 + 4 × 176B 的成员 = 720B。 */
 export const GROUP_STRUCT_BYTES = 16 + GROUP_CAPACITY * PANEL_STRUCT_BYTES
 /** 每组在 uniform buffer 里占的步长：三个 256B 槽位（动态偏移仍按 256 对齐）。 */
 export const GROUP_STRIDE = 768
@@ -49,13 +49,13 @@ struct MemberOptics {
 // 与单块面板的 evalOptics 完全相同的几行。
 fn memberOptics(p: Panel, px: vec2f) -> MemberOptics {
   let halfSize = p.rect.zw * 0.5;
-  let centered = px - (p.rect.xy + halfSize);
+  let centered = toLocal(px - (p.rect.xy + halfSize), p.pose);
   let radius = radiusAt(centered, p.radii);
   let gradR = gradRadiusOf(radius, halfSize);
   var m: MemberOptics;
   m.sd = sdRoundedRect(centered, halfSize, radius);
-  m.dir = refractionDirection(centered, halfSize, gradR, p.depthEffect);
-  m.normal = safeNormalize(gradSdRoundedRect(centered, halfSize, gradR));
+  m.dir = toWorld(refractionDirection(centered, halfSize, gradR, p.depthEffect), p.pose);
+  m.normal = toWorld(safeNormalize(gradSdRoundedRect(centered, halfSize, gradR)), p.pose);
   return m;
 }
 
@@ -163,7 +163,7 @@ fn groupGlow(px: vec2f) -> f32 {
 // 相距足够远（h 恰为 0 或 1）时与各自单独绘制逐位相同。
 fn memberSd(p: Panel, pos: vec2f) -> f32 {
   let halfSize = p.rect.zw * 0.5;
-  let centered = pos - (p.rect.xy + halfSize);
+  let centered = toLocal(pos - (p.rect.xy + halfSize), p.pose);
   return sdRoundedRect(centered, halfSize, radiusAt(centered, p.radii));
 }
 

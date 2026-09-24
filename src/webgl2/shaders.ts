@@ -189,6 +189,7 @@ struct Panel {
   vec4 clipRadii;
   vec4 light;
   vec4 shadow;
+  vec4 pose;
 };
 
 const vec2 LIGHT_DIR = vec2(-0.70710678, -0.70710678);
@@ -298,6 +299,15 @@ float lightAt(vec2 px, vec4 light) {
   return light.w * exp(-dot(d, d) / (2.0 * light.z * light.z));
 }
 
+// 与 glass.wgsl.ts 的 toLocal / toWorld 对应。
+vec2 toLocal(vec2 v, vec4 pose) {
+  return vec2(pose.x * v.x + pose.y * v.y, pose.x * v.y - pose.y * v.x);
+}
+
+vec2 toWorld(vec2 v, vec4 pose) {
+  return vec2(pose.x * v.x - pose.y * v.y, pose.x * v.y + pose.y * v.x);
+}
+
 // 与 glass.wgsl.ts 的 shadowAlpha 对应。
 float shadowAlpha(float sdShifted, float strength, float sigma) {
   if (strength <= 0.0) {
@@ -362,11 +372,11 @@ struct Optics {
 Optics evalOptics(vec2 px) {
   Optics o;
   o.halfSize = panel.rect.zw * 0.5;
-  o.centered = px - (panel.rect.xy + o.halfSize);
+  o.centered = toLocal(px - (panel.rect.xy + o.halfSize), panel.pose);
   o.radius = radiusAt(o.centered, panel.radii);
   o.sd = sdRoundedRect(o.centered, o.halfSize, o.radius);
   float gradR = gradRadiusOf(o.radius, o.halfSize);
-  o.dir = refractionDirection(o.centered, o.halfSize, gradR, panel.depthEffect);
+  o.dir = toWorld(refractionDirection(o.centered, o.halfSize, gradR, panel.depthEffect), panel.pose);
   o.displacement = refractionProfile(o.sd, panel.heightPx, panel.amountPx, panel.squircle);
   return o;
 }
@@ -385,7 +395,7 @@ void main() {
     outColor = debug;
     return;
   }
-  vec2 shifted = o.centered - vec2(0.0, panel.shadow.z);
+  vec2 shifted = o.centered - toLocal(vec2(0.0, panel.shadow.z), panel.pose);
   float sdShadow = sdRoundedRect(shifted, o.halfSize, radiusAt(shifted, panel.radii));
   float shade0 = shadowAlpha(sdShadow, panel.shadow.x, panel.shadow.y) * clip * panel.opacity;
   if (coverage <= 0.0) {
@@ -400,7 +410,7 @@ void main() {
   s.coverage = coverage;
   s.dir = o.dir;
   s.displacement = o.displacement;
-  s.normal = safeNormalize(gradSdRoundedRect(o.centered, o.halfSize, gradRadiusOf(o.radius, o.halfSize)));
+  s.normal = toWorld(safeNormalize(gradSdRoundedRect(o.centered, o.halfSize, gradRadiusOf(o.radius, o.halfSize))), panel.pose);
   s.tint = panel.tint;
   s.blurLevel = panel.blurLevel;
   s.saturation = panel.saturation;
@@ -436,13 +446,13 @@ struct MemberOptics {
 
 MemberOptics memberOptics(Panel p, vec2 px) {
   vec2 halfSize = p.rect.zw * 0.5;
-  vec2 centered = px - (p.rect.xy + halfSize);
+  vec2 centered = toLocal(px - (p.rect.xy + halfSize), p.pose);
   float radius = radiusAt(centered, p.radii);
   float gradR = gradRadiusOf(radius, halfSize);
   MemberOptics m;
   m.sd = sdRoundedRect(centered, halfSize, radius);
-  m.dir = refractionDirection(centered, halfSize, gradR, p.depthEffect);
-  m.normal = safeNormalize(gradSdRoundedRect(centered, halfSize, gradR));
+  m.dir = toWorld(refractionDirection(centered, halfSize, gradR, p.depthEffect), p.pose);
+  m.normal = toWorld(safeNormalize(gradSdRoundedRect(centered, halfSize, gradR)), p.pose);
   return m;
 }
 
@@ -545,7 +555,7 @@ float groupGlow(vec2 px) {
 
 float memberSd(Panel p, vec2 pos) {
   vec2 halfSize = p.rect.zw * 0.5;
-  vec2 centered = pos - (p.rect.xy + halfSize);
+  vec2 centered = toLocal(pos - (p.rect.xy + halfSize), p.pose);
   return sdRoundedRect(centered, halfSize, radiusAt(centered, p.radii));
 }
 

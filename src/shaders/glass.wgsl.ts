@@ -20,7 +20,7 @@
 import { OPTICS_WGSL } from './optics.wgsl.ts'
 
 /** Panel 结构体的字节数。按 256B 步长排进一条 buffer，用动态偏移切换。 */
-export const PANEL_STRUCT_BYTES = 160
+export const PANEL_STRUCT_BYTES = 176
 /** 每块面板在 uniform buffer 里占的步长。T5 实测 minUniformBufferOffsetAlignment = 256。 */
 export const PANEL_STRIDE = 256
 /** Float32 视角下的步长。 */
@@ -67,6 +67,7 @@ struct Panel {
   clipRadii: vec4f,     // 可见区域四角的圆角 TL, TR, BR, BL
   light: vec4f,         // 按压处的光：中心 x、y，σ（画布设备像素），强度（0 = 没有）
   shadow: vec4f,        // 投影：峰值 alpha、σ、向下的偏移（画布设备像素）、空
+  pose: vec4f,          // 旋转：cos θ、sin θ（屏幕坐标，y 向下），空，空。没有旋转是 (1, 0)
 }
 
 // 光源方向：指向光源的单位向量，屏幕坐标（y 向下）。左上 45°。
@@ -94,6 +95,16 @@ fn lightAt(px: vec2f, light: vec4f) -> f32 {
   }
   let d = px - light.xy;
   return light.w * exp(-dot(d, d) / (2.0 * light.z * light.z));
+}
+
+// 旋转：屏幕上的向量转进面板自己的坐标系（转 −θ），与转回来（转 +θ）。
+// pose = (1, 0) 时两者都逐位原样返回（乘 1 加 0）。
+fn toLocal(v: vec2f, pose: vec4f) -> vec2f {
+  return vec2f(pose.x * v.x + pose.y * v.y, pose.x * v.y - pose.y * v.x);
+}
+
+fn toWorld(v: vec2f, pose: vec4f) -> vec2f {
+  return vec2f(pose.x * v.x - pose.y * v.y, pose.x * v.y + pose.y * v.x);
 }
 
 // 投影：形状往下挪 offset 之后的 SDF，外面按高斯衰减，里面是峰值（被玻璃盖住的那部分看不见）。
@@ -294,11 +305,12 @@ struct Optics {
 fn evalOptics(px: vec2f) -> Optics {
   var o: Optics;
   o.halfSize = panel.rect.zw * 0.5;
-  o.centered = px - (panel.rect.xy + o.halfSize);
+  // 形状在面板自己的坐标系里算（有旋转时先把像素转进去），折射方向再转回屏幕坐标
+  o.centered = toLocal(px - (panel.rect.xy + o.halfSize), panel.pose);
   o.radius = radiusAt(o.centered, panel.radii);
   o.sd = sdRoundedRect(o.centered, o.halfSize, o.radius);
   let gradR = gradRadiusOf(o.radius, o.halfSize);
-  o.dir = refractionDirection(o.centered, o.halfSize, gradR, panel.depthEffect);
+  o.dir = toWorld(refractionDirection(o.centered, o.halfSize, gradR, panel.depthEffect), panel.pose);
   o.displacement = refractionProfile(o.sd, panel.heightPx, panel.amountPx, panel.squircle);
   return o;
 }
@@ -317,7 +329,8 @@ fn evalOptics(px: vec2f) -> Optics {
   }
 
   // 投影：往下挪 offset 的同一个形状。与玻璃一样受裁剪、跟着不透明度
-  let shifted = o.centered - vec2f(0.0, panel.shadow.z);
+  // 影子往屏幕上的下方挪，挪的量要转进面板坐标系
+  let shifted = o.centered - toLocal(vec2f(0.0, panel.shadow.z), panel.pose);
   let sdShadow = sdRoundedRect(shifted, o.halfSize, radiusAt(shifted, panel.radii));
   let shade0 = shadowAlpha(sdShadow, panel.shadow.x, panel.shadow.y) * clip * panel.opacity;
 
@@ -333,7 +346,7 @@ fn evalOptics(px: vec2f) -> Optics {
   s.coverage = coverage;
   s.dir = o.dir;
   s.displacement = o.displacement;
-  s.normal = safeNormalize(gradSdRoundedRect(o.centered, o.halfSize, gradRadiusOf(o.radius, o.halfSize)));
+  s.normal = toWorld(safeNormalize(gradSdRoundedRect(o.centered, o.halfSize, gradRadiusOf(o.radius, o.halfSize))), panel.pose);
   s.tint = panel.tint;
   s.blurLevel = panel.blurLevel;
   s.saturation = panel.saturation;

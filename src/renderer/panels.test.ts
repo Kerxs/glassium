@@ -108,6 +108,8 @@ test('packPanel 写入的每个字段都落在 WGSL struct 的对应偏移上', 
     fade: 0.5,
     tone: -1,
     visualScale: 1,
+    rotation: [0.6, 0.8],
+    bounds: { x0: 11, y0: 22, x1: 344, y1: 244 },
     chain
   }
 
@@ -166,6 +168,8 @@ test('packPanel 写入的每个字段都落在 WGSL struct 的对应偏移上', 
   near(at('shadow', 0), 0.3 * SHADOW_OPACITY, 'shadow.alpha（默认深浅 0.3）')
   near(at('shadow', 1), SHADOW_SIGMA_DP * scale, 'shadow.σ')
   near(at('shadow', 2), SHADOW_OFFSET_DP * scale, 'shadow.offset')
+  near(at('pose', 0), 0.6, 'pose.cos')
+  near(at('pose', 1), 0.8, 'pose.sin')
 
   // 相邻槽位不能被写脏
   assert.ok(data.subarray(0, base).every((v) => v === 0), '写越界到了前一个槽位')

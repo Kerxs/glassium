@@ -19,6 +19,7 @@ import {
   type PanelDebugMode
 } from '../shaders/glass.wgsl.ts'
 import { levelForSigma } from './blur.ts'
+import { poseOf, type PoseStyle } from './pose.ts'
 import {
   UNBOUNDED,
   NO_CLIP,
@@ -129,6 +130,13 @@ export interface MeasuredPanel {
    * 以 dp 计的量（圆角、模糊 σ、亮边、投影）跟着乘它，与 DOM 一起缩放。
    */
   readonly visualScale: number
+  /**
+   * 旋转（cos θ, sin θ）。没有旋转是 (1, 0)。有旋转时 x / y / w / h 是**转之前**的矩形（以包围盒的中心为中心），
+   * 着色器把像素转进面板自己的坐标系里算形状。
+   */
+  readonly rotation: readonly [number, number]
+  /** 画布设备像素下的轴对齐包围盒（没有旋转时与 x / y / w / h 相同）。合并组的范围按它算。 */
+  readonly bounds: Box
   readonly chain: EffectChain
 }
 
@@ -377,10 +385,17 @@ export class PanelRegistry {
       if (r.width <= 0 || r.height <= 0) continue
 
       // 相对画布原点。inset:0 的画布原点通常就是 (0,0)，但宿主不是 body 时未必。
-      const x = (r.left - originX) * sx
-      const y = (r.top - originY) * sy
-      const w = r.width * sx
-      const h = r.height * sy
+      // 先按包围盒算；有旋转时下面再换成转之前的矩形
+      const bounds: Box = {
+        x0: (r.left - originX) * sx,
+        y0: (r.top - originY) * sy,
+        x1: (r.left - originX + r.width) * sx,
+        y1: (r.top - originY + r.height) * sy
+      }
+      let x = bounds.x0
+      let y = bounds.y0
+      let w = r.width * sx
+      let h = r.height * sy
 
       // 材质变换的 key 只在样式可能变了之后重读；变了才让降级缓存作废
       const filter = this.#filter
@@ -403,8 +418,29 @@ export class PanelRegistry {
         const s = (r.width / layoutW + r.height / layoutH) / 2
         if (Math.abs(s - 1) > 0.01) visualScale = s
       }
-      const lowerW = visualScale === 1 ? r.width : layoutW
-      const lowerH = visualScale === 1 ? r.height : layoutH
+
+      // 旋转：自己与祖先的变换合起来是「转过的矩形」时，包围盒的中心就是它的中心，尺寸是布局尺寸 × 缩放。
+      // 读的是不透明度那一串的计算样式（活对象，同一批祖先），不多读样式。
+      // 倾斜、3D 这类画不了的照旧按包围盒画，由 layering.ts 警告
+      if (record.opacityStyles === undefined || record.opacityGeneration !== this.#styleGeneration) {
+        record.opacityStyles = opacityChainOf(record.element, canvas)
+        record.opacityGeneration = this.#styleGeneration
+      }
+      const pose = poseOf(record.opacityStyles as readonly PoseStyle[])
+      let rotation: [number, number] = [1, 0]
+      if (pose.supported && Math.abs(pose.angle) > 1e-6 && layoutW > 0 && layoutH > 0) {
+        const cx = (bounds.x0 + bounds.x1) / 2
+        const cy = (bounds.y0 + bounds.y1) / 2
+        w = layoutW * pose.scaleX * sx
+        h = layoutH * pose.scaleY * sy
+        x = cx - w / 2
+        y = cy - h / 2
+        visualScale = Math.sqrt(pose.scaleX * pose.scaleY)
+        rotation = [Math.cos(pose.angle), Math.sin(pose.angle)]
+      }
+      const rotated = rotation[1] !== 0
+      const lowerW = visualScale === 1 && !rotated ? r.width : layoutW
+      const lowerH = visualScale === 1 && !rotated ? r.height : layoutH
 
       // 降级按尺寸缓存：材质的分数参数（refraction / distortion / 'frac' 圆角）
       // 是按短边算的，尺寸不变就不必重算。
@@ -427,17 +463,16 @@ export class PanelRegistry {
       const clipRadii = visible.radii.map((r) => r * sx) as [number, number, number, number]
       // 有投影时 scissor 往外扩到影子够得着的地方
       const reach = AA_MARGIN_PX + (chain.shadow > 0 ? SHADOW_REACH_DP * sx * visualScale : 0)
-      const own = intersect({ x0: x - reach, y0: y - reach, x1: x + w + reach, y1: y + h + reach }, roundBox(clipBox))
+      const own = intersect(
+        { x0: bounds.x0 - reach, y0: bounds.y0 - reach, x1: bounds.x1 + reach, y1: bounds.y1 + reach },
+        roundBox(clipBox)
+      )
       const scissor = clip(own.x0, own.y0, own.x1, own.y1)
       if (record.tone === undefined || record.toneGeneration !== this.#styleGeneration) {
         record.tone = toneOf(record.element)
         record.toneGeneration = this.#styleGeneration
       }
 
-      if (record.opacityStyles === undefined || record.opacityGeneration !== this.#styleGeneration) {
-        record.opacityStyles = opacityChainOf(record.element, canvas)
-        record.opacityGeneration = this.#styleGeneration
-      }
       let fade = 1
       for (const s of record.opacityStyles) {
         const o = parseFloat(s.opacity)
@@ -446,7 +481,8 @@ export class PanelRegistry {
 
       const l = record.light
       const light: [number, number, number, number] = l
-        ? [x + l.x * sx, y + l.y * sy, LIGHT_SIGMA_FRAC * Math.min(w, h), Math.min(1, Math.max(0, l.strength)) * LIGHT_GAIN]
+        ? // 光的位置相对元素的包围盒（组件用 getBoundingClientRect 量的），画在屏幕坐标里
+          [bounds.x0 + l.x * sx, bounds.y0 + l.y * sy, LIGHT_SIGMA_FRAC * Math.min(w, h), Math.min(1, Math.max(0, l.strength)) * LIGHT_GAIN]
         : [0, 0, 1, 0]
       measured.set(record, {
         record,
@@ -461,6 +497,8 @@ export class PanelRegistry {
         fade,
         tone: record.tone,
         visualScale,
+        rotation,
+        bounds,
         chain
       })
     }
@@ -507,10 +545,10 @@ export class PanelRegistry {
         // 成员各自的可见区域取并集：通常同在一个滚动容器里，那就是那个容器
         let visible: Box | null = null
         for (const m of members) {
-          x0 = Math.min(x0, m.x)
-          y0 = Math.min(y0, m.y)
-          x1 = Math.max(x1, m.x + m.w)
-          y1 = Math.max(y1, m.y + m.h)
+          x0 = Math.min(x0, m.bounds.x0)
+          y0 = Math.min(y0, m.bounds.y0)
+          x1 = Math.max(x1, m.bounds.x1)
+          y1 = Math.max(y1, m.bounds.y1)
           visible = visible ? union(visible, m.clip) : m.clip
         }
         const bounded = intersect(
@@ -552,7 +590,7 @@ export function packPanel(
   writePanel(data, index * PANEL_STRIDE_FLOATS, panel, viewport, blurLevels, debugMode)
 }
 
-/** Panel 结构体占几个 float（160B / 4）。合并组里的成员按这个步长紧挨着排。 */
+/** Panel 结构体占几个 float（176B / 4）。合并组里的成员按这个步长紧挨着排。 */
 export const PANEL_STRUCT_FLOATS = PANEL_STRUCT_BYTES / 4
 
 /**
@@ -676,4 +714,9 @@ function writePanel(
   data[o + 37] = SHADOW_SIGMA_DP * scale
   data[o + 38] = SHADOW_OFFSET_DP * scale
   data[o + 39] = 0
+  // pose: vec4f @ 160 —— 旋转的 cos θ、sin θ，空，空
+  data[o + 40] = panel.rotation[0]
+  data[o + 41] = panel.rotation[1]
+  data[o + 42] = 0
+  data[o + 43] = 0
 }
