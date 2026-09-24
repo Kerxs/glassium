@@ -49,7 +49,8 @@ Glassium 自己渲染的纹理。**面板背后的正文文字、图片、iframe
 CI 跑 `npm run typecheck`、`npm test`、生成物同一性与一次生产构建 —— 只证明数学、类型与打包是对的。
 GitHub runner 没有 GPU，软件 WebGPU 与真实驱动的像素差距大到任何阈值都失去意义，所以**没有 golden-image 测试**。
 GPU 输出由 `playground/verify.html` 在浏览器里逐项验证（光学探针与 CPU 实现逐像素比对、区域哈希的 A/B、
-颜色层面的性质），标题栏读作 `PASS n/n`，手工跑。绿色徽章不等于像素已验证 ——
+颜色层面的性质），标题栏读作 `PASS n/n`，手工跑。视口（DPR、画布大小）在一轮中途变了的话那一轮不算数，
+页面自己重跑。绿色徽章不等于像素已验证 ——
 理由与将来要补什么见 [spec/golden/README.md](spec/golden/README.md)。
 
 ---

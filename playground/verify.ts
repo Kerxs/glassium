@@ -52,20 +52,90 @@ function render(done = false): void {
   const head = done
     ? `${passed === ran.length ? 'PASS' : 'FAIL'} ${passed}/${ran.length}${skipped ? `（跳过 ${skipped}）` : ''}`
     : `进行中… ${results.length} 项`
-  reportEl.innerHTML = `${head}\n\n${lines.join('\n')}`
+  const changes = viewportChanges.length > 0 ? `\n视口在运行中变过：\n  ${viewportChanges.join('\n  ')}` : ''
+  const retried = attempt > 0 ? `\n这是第 ${attempt} 次重跑，上一轮作废（视口在运行中变了）：\n  ${retryReason}` : ''
+  reportEl.innerHTML = `${head}${retried}${changes}\n\n${lines.join('\n')}`
+  if (done && attempt > 0) console.info(`[verify] 第 ${attempt} 次重跑；上一轮作废：${retryReason}`)
   if (done) {
     document.title = `${passed === ran.length ? 'PASS' : 'FAIL'} ${passed}/${ran.length}`
     console.info(`[verify] ${head}`)
   }
 }
 
+/**
+ * 一轮里视口（DPR、画布大小、各级分辨率）变过没有、在哪一项里变的。开头探到的面板矩形、场景的布局都按
+ * 开头的视口算，中途变了它们就作废 —— 这一轮的结果不算数，自动重跑（见 run 的结尾）。
+ *
+ * 为什么会变：Claude 桌面端的浏览器面板会在页面加载之后才把模拟的视口与 DPR 落定（验证页有时是 DPR 1、
+ * 有时是 1.5），面板显示 / 隐藏、宽度变化时也会重设。实测失败过的两轮里，磨砂前卡片内部的亮度都与别的
+ * 同 DPR 的轮次不同 —— calibration 场景的布局随画布宽度变（竖直阶跃在 x = W/2），说明那时画布宽度不一样。
+ */
+const viewportChanges: string[] = []
+/** 自动重跑的次数与上一轮作废的原因记在 sessionStorage 里（重新加载页面之后还在）。 */
+const RETRY_KEY = 'glassium.verify.viewportRetries'
+const RETRY_REASON_KEY = 'glassium.verify.viewportRetryReason'
+const MAX_RETRIES = 2
+/** 上一轮为什么作废（重跑时显示在报告开头）。 */
+const retryReason = ((): string => {
+  try {
+    return sessionStorage.getItem(RETRY_REASON_KEY) ?? ''
+  } catch {
+    return ''
+  }
+})()
+/** 这是第几次重跑（0 是第一次跑）。sessionStorage 不可用时当作已经重跑够了：不重跑，照实报。 */
+const attempt = ((): number => {
+  try {
+    return Number(sessionStorage.getItem(RETRY_KEY) ?? '0') || 0
+  } catch {
+    return MAX_RETRIES
+  }
+})()
+/**
+ * 检测本身的反向对照：`?verify.perturb=<检查名>` 让那一项跑完之后把画布收窄 20px（只在第一次跑时），
+ * 这一轮必须被判作废、自动重跑，重跑那一轮照常通过。
+ */
+const perturbAfter = new URLSearchParams(location.search).get('verify.perturb')
+
+/** 等视口稳定下来（连续 0.5 秒不变，最多等 5 秒）再开始。每一步同步出一帧，stats 里的视口才是新的。 */
+async function settleViewport(): Promise<void> {
+  stage.debug.renderNow()
+  let key = viewportKey()
+  let since = performance.now()
+  const start = since
+  while (performance.now() - start < 5000) {
+    await sleep(100)
+    stage.debug.renderNow()
+    const now = viewportKey()
+    if (now !== key) {
+      key = now
+      since = performance.now()
+    } else if (performance.now() - since >= 500) {
+      return
+    }
+  }
+}
+
+function viewportKey(): string {
+  const v = stage.debug.stats().viewport
+  const box = stage.canvas.getBoundingClientRect()
+  return `DPR ${devicePixelRatio} · 画布 ${box.width}×${box.height} CSS px · ` + (v ? `${v.compositeWidth}×${v.compositeHeight}` : '—')
+}
+
 async function check(name: string, fn: () => Promise<Outcome>): Promise<void> {
+  const before = viewportKey()
   let outcome: Outcome
   try {
     outcome = await fn()
   } catch (err) {
     outcome = fail(`抛出：${err instanceof Error ? err.message : String(err)}`)
   }
+  if (perturbAfter === name && attempt === 0) {
+    stage.canvas.style.width = 'calc(100% - 20px)' // 画布是 width: 100%，改 right 收不窄它
+    stage.debug.renderNow()
+  }
+  const after = viewportKey()
+  if (after !== before) viewportChanges.push(`${name}：${before} → ${after}`)
   results.push({ name, outcome })
   render()
 }
@@ -242,8 +312,7 @@ async function run(): Promise<void> {
   stage = await createGlassStage({ backend })
   Object.assign(window as unknown as Record<string, unknown>, { glassiumStage: stage })
   calibrationScene()
-  await sleep(50)
-  stage.debug.renderNow()
+  await settleViewport()
 
   await check('backend', async () => {
     const report = stage.debug.probe
@@ -1466,6 +1535,38 @@ async function run(): Promise<void> {
     return ok(cal) && ok(img) ? pass(detail) : fail(detail)
   })
 
+  finish()
+}
+
+/**
+ * 一轮跑完：视口中途变过的话这一轮不算数 —— 重新加载页面再跑（最多 MAX_RETRIES 次，次数记在 sessionStorage），
+ * 标题栏写明原因；重跑之后仍然不稳就判失败。视口没变就清掉重跑次数。
+ */
+function finish(): void {
+  const retries = attempt
+  if (viewportChanges.length === 0) {
+    render(true)
+    try {
+      sessionStorage.removeItem(RETRY_KEY)
+      sessionStorage.removeItem(RETRY_REASON_KEY)
+    } catch {
+      // sessionStorage 不可用：没有什么可清的
+    }
+    return
+  }
+  if (retries < MAX_RETRIES) {
+    try {
+      sessionStorage.setItem(RETRY_KEY, String(retries + 1))
+      sessionStorage.setItem(RETRY_REASON_KEY, viewportChanges.join('；'))
+    } catch {
+      // sessionStorage 不可用时 attempt 已经是 MAX_RETRIES，走不到这里
+    }
+    render(false)
+    document.title = `视口在运行中变了，重跑（第 ${retries + 1} 次）`
+    location.reload()
+    return
+  }
+  results.push({ name: 'viewport-stable', outcome: fail(`重跑 ${MAX_RETRIES} 次之后视口仍然在运行中变化`) })
   render(true)
 }
 
