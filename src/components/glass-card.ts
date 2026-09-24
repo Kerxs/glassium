@@ -13,6 +13,7 @@
  */
 
 import type { GlassMaterial } from '../core/material.ts'
+import { OVERLAY_HOST_CSS } from '../core/overlay.ts'
 import { GlassElement, sharedSheet } from './base.ts'
 
 /**
@@ -22,7 +23,7 @@ import { GlassElement, sharedSheet } from './base.ts'
  * 没引那份 CSS 的话，给它设的宽高全都不生效。这里的 :host 规则优先级最低，
  * 作者的任何样式都能覆盖。
  */
-const CSS = ':host { display: block; }'
+const CSS = `:host { display: block; }${OVERLAY_HOST_CSS}`
 const sheet = { sheet: null as CSSStyleSheet | null }
 
 export class GlassCard extends GlassElement {

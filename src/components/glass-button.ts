@@ -33,6 +33,7 @@
  */
 
 import type { GlassMaterial } from '../core/material.ts'
+import { OVERLAY_HOST_CSS } from '../core/overlay.ts'
 import { prefersReducedMotion } from '../renderer/stage.ts'
 import { MATERIAL_ATTRIBUTES } from './attributes.ts'
 import { GlassElement, sharedSheet } from './base.ts'
@@ -76,7 +77,7 @@ const CSS = `
 :host([disabled]) [part='label'] {
   opacity: 0.45;
 }
-`
+${OVERLAY_HOST_CSS}`
 const sheet = { sheet: null as CSSStyleSheet | null }
 
 /** 按钮的表单行为，与原生 `<button>` 的 type 相同。非法值按 submit 算（原生也是）。 */

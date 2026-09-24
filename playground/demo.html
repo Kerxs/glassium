@@ -277,6 +277,60 @@
         line-height: 1;
       }
 
+      .row {
+        display: flex;
+        gap: 10px;
+      }
+
+      .row glass-button {
+        height: 44px;
+        padding: 0 20px;
+        font-weight: 600;
+      }
+
+      .about {
+        padding: 0;
+        border: 0;
+        background: transparent;
+        color: #fff;
+        max-width: min(420px, calc(100vw - 32px));
+      }
+
+      .about::backdrop {
+        background: rgba(8, 10, 24, 0.25);
+      }
+
+      .about glass-card {
+        border-radius: 28px; /* 用 CSS 画的玻璃，圆角来自 CSS（与 corner-radius 对齐） */
+        display: grid;
+        gap: 14px;
+        padding: 24px;
+      }
+
+      .about h2 {
+        margin: 0;
+        font-size: 20px;
+      }
+
+      .about p {
+        margin: 0;
+        line-height: 1.6;
+        font-size: 14px;
+      }
+
+      .about-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+      }
+
+      .about glass-button {
+        justify-self: end;
+        height: 40px;
+        padding: 0 20px;
+        font-weight: 600;
+      }
+
       .toast {
         position: fixed;
         left: 50%;
@@ -391,6 +445,11 @@
         </label>
       </glass-fill>
 
+      <p class="section-title">对话框（盖在 DOM 上的玻璃）</p>
+      <div class="row">
+        <glass-button preset="regular" type="button" id="about-open">关于 Glassium</glass-button>
+      </div>
+
       <p class="fine">
         按一下按钮：光从按下的地方亮起来。系统打开「减少透明度」或「更高对比度」时，玻璃换成磨砂。
         调试用的页面在 <a href="./index.html">playground</a>，逐项验证在 <a href="./verify.html">verify.html</a>。
@@ -403,6 +462,20 @@
       <button value="saved"><span class="icon" aria-hidden="true">♡</span><span class="label">收藏</span></button>
       <button value="me"><span class="icon" aria-hidden="true">◉</span><span class="label">我的</span></button>
     </glass-tab-bar>
+
+    <!-- 原生的模态对话框：里面的玻璃在浏览器的顶层里，Glassium 自动改用 CSS 画（背后的正文也被模糊，没有折射） -->
+    <dialog class="about" id="about" aria-labelledby="about-title">
+      <glass-card preset="thick" corner-radius="28">
+        <h2 id="about-title">盖在 DOM 上的玻璃</h2>
+        <p>
+          这张卡片在模态对话框里 —— 浏览器的「顶层」，画在整页之上。那里 GPU 玻璃会被整页内容盖住，所以 Glassium
+          改用 CSS 画它：浏览器模糊下面的一切（包括正文文字），材质的模糊、饱和度、tint、亮边、投影照搬。没有折射：
+          那要读 DOM 的像素，平台不允许。
+        </p>
+        <label class="about-row"><span>下次不再显示</span><glass-switch name="dismiss"></glass-switch></label>
+        <glass-button preset="thin" type="button" id="about-close">知道了</glass-button>
+      </glass-card>
+    </dialog>
 
     <glass-card class="toast" id="toast" preset="thick" corner-radius="1frac" hidden></glass-card>
 

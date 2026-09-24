@@ -89,10 +89,12 @@ const CSS = `
   outline: 2px solid currentColor;
   outline-offset: -2px;
 }
-:host(:not([data-glassium-active])) [part='track'] {
+:host(:not([data-glassium-active])) [part='track'],
+[part='track'][data-glassium-overlay] {
   background-color: var(--glass-fill);
 }
-:host(:not([data-glassium-active])) [part='thumb'] {
+:host(:not([data-glassium-active])) [part='thumb'],
+[part='thumb'][data-glassium-overlay] {
   background: #fff;
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.18), 0 0 0 0.5px rgba(0, 0, 0, 0.06);
 }

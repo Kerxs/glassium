@@ -985,10 +985,19 @@ async function buildStage(options: GlassStageOptions): Promise<GlassStage> {
   })
   clipObserver.observe(document.documentElement, {
     attributes: true,
-    attributeFilter: ['style', 'class'],
+    // open / popover / overlay：对话框打开、元素变成 popover、作者写上 overlay —— 哪些玻璃改用 CSS 画（panels.ts）会变
+    attributeFilter: ['style', 'class', 'open', 'popover', 'overlay'],
     childList: true,
     subtree: true
   })
+
+  // popover 开关、进出全屏不改任何属性：单独听（toggle 不冒泡，在捕获阶段听）
+  const onTopLayerChange = (): void => {
+    if (disposed) return
+    if (rafId === 0) requestRender()
+  }
+  document.addEventListener('toggle', onTopLayerChange, true)
+  document.addEventListener('fullscreenchange', onTopLayerChange)
 
   const applyMotionPreference = (): void => {
     const next = readReducedMotion()
@@ -1238,6 +1247,8 @@ async function buildStage(options: GlassStageOptions): Promise<GlassStage> {
       colorSchemeQuery.removeEventListener('change', onResize)
       resizeObserver.disconnect()
       clipObserver.disconnect()
+      document.removeEventListener('toggle', onTopLayerChange, true)
+      document.removeEventListener('fullscreenchange', onTopLayerChange)
       detachCanvasListeners(canvas)
       motionQuery.removeEventListener('change', onMotionChange)
       onReducedMotionOverrideChange = null

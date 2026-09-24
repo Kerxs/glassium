@@ -1232,6 +1232,66 @@ async function run(): Promise<void> {
       : fail(detail)
   })
 
+  await check('overlay', async () => {
+    // 盖在 DOM 上的玻璃用 CSS 画（core/overlay.ts）：模态对话框里的卡片与开关、打开的 popover、写了 overlay 的卡片 ——
+    // 都带上 data-glassium-overlay、不上 GPU（面板数不变），卡片的 backdrop-filter 是材质的 σ 与饱和度、背景是 tint，
+    // 开关的旋钮与轨道由 CSS 画；对话框关上之后标记撤掉。
+    const panelsNow = (): number => {
+      stage.debug.renderNow()
+      return stage.debug.stats().panels
+    }
+    const base = panelsNow()
+    const dialog = document.createElement('dialog')
+    Object.assign(dialog.style, { background: 'transparent', border: '0', padding: '0' })
+    dialog.innerHTML =
+      '<glass-card preset="thick" style="position:static;display:block;width:260px;height:120px">对话框<glass-switch checked></glass-switch></glass-card>'
+    const pop = document.createElement('glass-card')
+    pop.setAttribute('popover', 'manual')
+    pop.setAttribute('preset', 'thin')
+    Object.assign(pop.style, { position: 'fixed', inset: 'auto', left: '40px', top: '40px', width: '160px', height: '80px', margin: '0' })
+    const loose = document.createElement('glass-card')
+    loose.setAttribute('overlay', '')
+    Object.assign(loose.style, { left: '440px', top: '500px', width: '160px', height: '80px' })
+    document.body.append(dialog, pop, loose)
+    await sleep(0)
+    const withLoose = panelsNow()
+    dialog.showModal()
+    pop.showPopover()
+    await sleep(0)
+    const opened = panelsNow()
+    const card = dialog.querySelector('glass-card')!
+    const sw = dialog.querySelector('glass-switch')!
+    const thumb = sw.shadowRoot!.querySelector('[part=thumb]')!
+    const track = sw.shadowRoot!.querySelector('[part=track]')!
+    const cs = getComputedStyle(card)
+    const marked = [card, thumb, track, pop, loose].every((e) => e.hasAttribute('data-glassium-overlay'))
+    const cardBackdrop = cs.backdropFilter
+    const cardTint = cs.backgroundColor
+    const popBackdrop = getComputedStyle(pop).backdropFilter
+    const thumbBg = getComputedStyle(thumb).backgroundColor
+    const trackBg = getComputedStyle(track).backgroundColor
+    const problems = stage.debug.checkLayers().filter((p) => p.panel === card || p.panel === pop || p.panel === loose).length
+    dialog.close()
+    pop.hidePopover()
+    await sleep(0)
+    panelsNow()
+    const unmarked = !card.hasAttribute('data-glassium-overlay') && !pop.hasAttribute('data-glassium-overlay')
+    dialog.remove()
+    pop.remove()
+    loose.remove()
+    stage.debug.renderNow()
+
+    const detail =
+      `面板数：原来 ${base}、加了 overlay 卡片 ${withLoose}、对话框与 popover 打开 ${opened}（都不上 GPU）· ` +
+      `标记 ${marked ? '都在' : '缺'} · 对话框里的卡片 ${cardBackdrop}、${cardTint} · popover ${popBackdrop} · ` +
+      `开关 旋钮 ${thumbBg}、轨道 ${trackBg} · 层级问题 ${problems} · 关上之后标记${unmarked ? '撤掉了' : '还在'}`
+    return withLoose === base && opened === base && marked && cardBackdrop === 'blur(16px) saturate(1.5)' &&
+      cardTint === 'rgba(255, 255, 255, 0.22)' && popBackdrop === 'blur(4px) saturate(1.25)' &&
+      thumbBg === 'rgb(255, 255, 255)' && trackBg === 'rgb(52, 199, 89)' && problems === 0 && unmarked
+      ? pass(detail)
+      : fail(detail)
+  })
+
   await check('component-equals-register', async () => {
     // 同一个位置先放组件、再放手动注册的 div，材质相同：区域哈希必须逐位相同
     const place = (el: HTMLElement): void => {

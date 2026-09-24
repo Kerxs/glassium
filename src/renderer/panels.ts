@@ -97,6 +97,18 @@ export interface GlassGroup {
 }
 
 /**
+ * 用 CSS 画的玻璃（core/overlay.ts）的标记。stage 在测量时给这些元素加上它、不画它们的 GPU 玻璃：
+ * - 写了 `overlay` 属性的（盖在 DOM 内容上的玻璃：GPU 玻璃画在最底下，会被下面的内容盖住）；
+ * - 在浏览器的「顶层」里的：打开的模态对话框、打开的 popover、全屏元素里面 —— 那里的元素画在一切之上；
+ * - 玻璃祖先是这样的（它里面的玻璃与填充也得跟着用 CSS 画，否则画在底下的画布上被盖住）。
+ * glassium.css 与各组件的影子样式按它换成 CSS 玻璃。
+ */
+export const OVERLAY_ATTRIBUTE = 'data-glassium-overlay'
+
+/** 写了它的玻璃按 CSS 画（见 OVERLAY_ATTRIBUTE）。 */
+export const OVERLAY_OPT_IN = 'overlay'
+
+/**
  * 玻璃最多叠几层（层号 0 起）。写在一块玻璃里面的玻璃（卡片里的按钮、卡片里开关的旋钮）在它上面一层：
  * 画它之前先把画布上已经画好的那一块（下面那层的玻璃也在里面）重新采回场景目标、重建那一块的模糊链，
  * 于是它折射、模糊的是下面那层玻璃，而不是在下面那层上开一个洞。每多一层多一轮局部的重采样与模糊。
@@ -189,6 +201,9 @@ interface GeometryCache {
   /** 最近的玻璃祖先（没有是 null）与找它时的树代数（DOM 变了或注册的玻璃变了就重找）。 */
   glassParent?: object | null
   glassParentGeneration?: number
+  /** 最近的对话框 / popover 祖先（含自己；没有是 null）与找它时的树代数。 */
+  topAnchor?: Element | null
+  topAnchorGeneration?: number
   /** 缓存的裁剪祖先（要读计算样式，所以不每帧重找）。clipGeneration 过期时重找。 */
   clips?: readonly ClipEntry[]
   clipGeneration?: number
@@ -579,6 +594,30 @@ export class PanelRegistry {
       return layer
     }
 
+    // overlay（OVERLAY_ATTRIBUTE）：写了 overlay 属性、在顶层里（打开的模态对话框 / popover、全屏元素里）、
+    // 或者玻璃祖先是 overlay。对话框 / popover 祖先按树代数缓存，开没开每帧看（开关它们不一定改 DOM）
+    const fullscreen = typeof document !== 'undefined' ? document.fullscreenElement : null
+    const overlayMemo = new Map<GeometryCache, boolean>()
+    const isOverlay = (record: GeometryCache): boolean => {
+      const memo = overlayMemo.get(record)
+      if (memo !== undefined) return memo
+      const el = record.element
+      let overlay = typeof el.hasAttribute === 'function' && el.hasAttribute(OVERLAY_OPT_IN)
+      if (!overlay) {
+        if (record.topAnchorGeneration !== treeGeneration) {
+          record.topAnchor = topLayerAnchor(el)
+          record.topAnchorGeneration = treeGeneration
+        }
+        overlay = (record.topAnchor != null && isOpenInTopLayer(record.topAnchor)) || (fullscreen != null && flatContains(fullscreen, el))
+      }
+      if (!overlay) {
+        const parent = glassParentOf(record)
+        if (parent) overlay = isOverlay(parent)
+      }
+      overlayMemo.set(record, overlay)
+      return overlay
+    }
+
     // 包围盒外扩 reach、与裁剪祖先求交、钳到画布
     const scissorOf = (g: Geometry, reach: number): [number, number, number, number] => {
       const b = g.bounds
@@ -590,6 +629,9 @@ export class PanelRegistry {
     //    自己不在屏上，与邻居连起来的颈部却在。
     const measured = new Map<PanelRecord, MeasuredPanel>()
     for (const record of this.#records) {
+      const overlay = isOverlay(record)
+      markOverlay(record.element, overlay)
+      if (overlay) continue // 用 CSS 画（core/overlay.ts）
       const g = geometry(record)
       if (!g) continue
 
@@ -718,6 +760,9 @@ export class PanelRegistry {
     // 4) 填充：几何与面板同一套，颜色每帧读（CSS 过渡要逐帧跟上），圆角按变换之前的尺寸解算
     const fills: MeasuredFill[] = []
     for (const record of this.#fills) {
+      const overlay = isOverlay(record)
+      markOverlay(record.element, overlay)
+      if (overlay) continue // 用 CSS 画背景
       const g = geometry(record)
       if (!g) continue
       const scissor = scissorOf(g, AA_MARGIN_PX)
@@ -747,6 +792,35 @@ export class PanelRegistry {
     }
     return { panels, groups, fills }
   }
+}
+
+/** 最近的对话框或 popover 祖先（沿渲染树往上，含自己）。 */
+function topLayerAnchor(el: Element): Element | null {
+  for (let e: Element | null = el; e; e = flatParent(e)) {
+    if (e.localName === 'dialog' || (typeof e.hasAttribute === 'function' && e.hasAttribute('popover'))) return e
+  }
+  return null
+}
+
+/** 对话框以模态打开、popover 打开着 —— 在顶层里。不认识这些伪类的浏览器里当作没有。 */
+function isOpenInTopLayer(anchor: Element): boolean {
+  try {
+    return anchor.matches(anchor.localName === 'dialog' ? ':modal' : ':popover-open')
+  } catch {
+    return false
+  }
+}
+
+/** outer 是不是 inner 自己或它渲染树上的祖先（跨影子树）。 */
+function flatContains(outer: Element, inner: Element): boolean {
+  for (let e: Element | null = inner; e; e = flatParent(e)) if (e === outer) return true
+  return false
+}
+
+/** 只在变了的时候改属性：这是每帧都走的路径。 */
+function markOverlay(el: HTMLElement, on: boolean): void {
+  if (typeof el.hasAttribute !== 'function') return // 单元测试里的假元素
+  if (el.hasAttribute(OVERLAY_ATTRIBUTE) !== on) el.toggleAttribute(OVERLAY_ATTRIBUTE, on)
 }
 
 /**

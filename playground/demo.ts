@@ -52,6 +52,11 @@ async function main(): Promise<void> {
     say(`已订阅 ${String(data.get('email'))}（${data.get('plan') === 'weekly' ? '每周' : '其它'}）`)
   })
 
+  // 对话框：原生的 <dialog>。里面的玻璃在顶层里，stage 自动改用 CSS 画（不用写任何东西）
+  const about = document.getElementById('about') as HTMLDialogElement
+  document.getElementById('about-open')!.addEventListener('click', () => about.showModal())
+  document.getElementById('about-close')!.addEventListener('click', () => about.close())
+
   // 标签栏：换选中时派发 change（按住拖到别的格上再松手也算）
   const tabbar = document.getElementById('tabbar') as HTMLElement & { value: string }
   tabbar.addEventListener('change', () => {

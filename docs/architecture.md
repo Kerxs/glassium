@@ -107,6 +107,10 @@ stage 是**外壳**：画布、面板注册表、调试参数、帧循环、监�
 - `<glass-tab-bar>` 的栏本身是 `GlassElement`（材质属性同卡片），气泡在影子树里、自己注册成玻璃 —— 写在栏里面，
   所以落在第 1 层。选择逻辑（角色、roving tabindex、指针拖动、键盘、旋钮的位置）与分段控件共用 `segments.ts`；
   旋钮第一次放到位时关掉过渡，免得页面一加载它就从宽 0 的地方长出来。
+- 盖在 DOM 上的玻璃（`core/overlay.ts`）：stage 测量时判断每块玻璃与填充是不是在顶层里（模态对话框、打开的 popover、
+  全屏元素）、写了 `overlay`、或者玻璃祖先是这样的 —— 是的话标上 `data-glassium-overlay`、不画 GPU 玻璃。组件把材质写成
+  自己影子样式表里的 `:host { --glassium-* }`，影子样式里的 `:host([data-glassium-overlay])` 规则按它们画 CSS 玻璃。
+  对话框的 `open`、`popover`、`overlay` 属性变化与 `toggle`、`fullscreenchange` 事件都会请求重画。
 - 组件与 stage 的连接（stage 出现、换了、停用时重新注册，维护 `data-glassium-active`）在 `stage-link.ts`；
   `GlassElement` 是同一个模式的早期写法。
 - `<glass-button>` 是表单关联的自定义元素，提交借一个临时的原生提交按钮当 submitter。

@@ -141,12 +141,15 @@ const CSS = `
 :host([data-pressed]) [part='thumb'] {
   scale: 1.25;
 }
-/* 没有玻璃时：CSS 画轨道、进度与白色旋钮 */
+/* 没有玻璃时，或者在对话框 / popover 里用 CSS 画（data-glassium-overlay）：CSS 画轨道、进度与白色旋钮 */
 :host(:not([data-glassium-active])) [part='track'],
-:host(:not([data-glassium-active])) [part='progress'] {
+:host(:not([data-glassium-active])) [part='progress'],
+[part='track'][data-glassium-overlay],
+[part='progress'][data-glassium-overlay] {
   background-color: var(--glass-fill);
 }
-:host(:not([data-glassium-active])) [part='thumb'] {
+:host(:not([data-glassium-active])) [part='thumb'],
+[part='thumb'][data-glassium-overlay] {
   background: #fff;
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2), 0 0 0 0.5px rgba(0, 0, 0, 0.06);
 }

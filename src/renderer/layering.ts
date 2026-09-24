@@ -30,7 +30,7 @@
  * 藏起来的面板（opacity: 0、visibility: hidden）也不查 —— 它们根本不画。
  */
 
-import { isRendered } from './panels.ts'
+import { isRendered, OVERLAY_ATTRIBUTE } from './panels.ts'
 import { decompose, linearOfElement, poseOf } from './pose.ts'
 
 /** 计算值里与本检查有关的几项。拆出来是为了让分析逻辑能在 Node 里测。 */
@@ -318,6 +318,8 @@ export function inspectPanel(
   // opacity: 0 / visibility: hidden（自身或祖先）的面板根本不画（panels.ts 的 isRendered），
   // 它上面的 opacity 当然也就不是问题 —— 渐隐收起的提示条、菜单常这样藏着
   if (!isRendered(panel)) return null
+  // 用 CSS 画的玻璃（overlay、顶层里的）不在画布上，面板与画布之间有什么都无所谓
+  if (panel.hasAttribute(OVERLAY_ATTRIBUTE)) return null
   const rect = panel.getBoundingClientRect()
   if (rect.width <= 0 || rect.height <= 0) return null
   const vw = document.documentElement.clientWidth

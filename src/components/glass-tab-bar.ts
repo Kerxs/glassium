@@ -22,6 +22,7 @@
  */
 
 import type { GlassMaterial } from '../core/material.ts'
+import { OVERLAY_HOST_CSS } from '../core/overlay.ts'
 import type { GlassPanel } from '../renderer/panels.ts'
 import { MATERIAL_ATTRIBUTES } from './attributes.ts'
 import { GlassElement, sharedSheet } from './base.ts'
@@ -114,8 +115,9 @@ const CSS = `
   outline: 2px solid currentColor;
   outline-offset: -2px;
 }
-/* 没有玻璃时：栏的兜底表面来自 glassium.css（与 <glass-card> 相同），气泡画成一块浅色 */
-:host(:not([data-glassium-active])) [part='bubble'] {
+/* 没有玻璃时（或在对话框 / popover 里用 CSS 画时）：栏的表面来自 glassium.css，气泡画成一块浅色 */
+:host(:not([data-glassium-active])) [part='bubble'],
+[part='bubble'][data-glassium-overlay] {
   background: rgba(255, 255, 255, 0.22);
 }
 @media (prefers-reduced-motion: reduce) {
@@ -130,7 +132,7 @@ const CSS = `
     background: Highlight;
   }
 }
-`
+${OVERLAY_HOST_CSS}`
 const sheet = { sheet: null as CSSStyleSheet | null }
 
 export class GlassTabBar extends GlassElement {

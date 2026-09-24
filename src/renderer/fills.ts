@@ -139,6 +139,9 @@ export interface FillRecord {
   /** 最近的玻璃祖先（见 panels.ts 的层）与找它时的树代数。 */
   glassParent?: object | null
   glassParentGeneration?: number
+  /** 最近的对话框 / popover 祖先（见 panels.ts 的 overlay）与找它时的树代数。 */
+  topAnchor?: Element | null
+  topAnchorGeneration?: number
 }
 
 /** 一帧里量到的填充，已换算到画布设备像素。 */

@@ -89,11 +89,14 @@ const CSS = `
   translate: var(--glass-switch-drag, 0px) 0;
   transition: scale 0.2s ease;
 }
-/* 没有玻璃时（stage 没建好、没有 GPU、高对比度）：CSS 画轨道与白色旋钮 */
-:host(:not([data-glassium-active])) [part='track'] {
+/* 没有玻璃时（stage 没建好、没有 GPU、高对比度），或者在对话框 / popover 里用 CSS 画（data-glassium-overlay）：
+   CSS 画轨道与白色旋钮 */
+:host(:not([data-glassium-active])) [part='track'],
+[part='track'][data-glassium-overlay] {
   background-color: var(--glass-fill);
 }
-:host(:not([data-glassium-active])) [part='thumb'] {
+:host(:not([data-glassium-active])) [part='thumb'],
+[part='thumb'][data-glassium-overlay] {
   background: #fff;
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2), 0 0 0 0.5px rgba(0, 0, 0, 0.06);
 }

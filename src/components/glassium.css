@@ -29,6 +29,14 @@
   border-radius: 999px;
 }
 
+/*
+ * 没打开的 popover 不显示：上面这些 display 是作者样式，压过浏览器默认的那条
+ * `[popover]:not(:popover-open) { display: none }`（组件的影子样式里也有同样的一条）。
+ */
+:where(glass-card, glass-button, glass-container, glass-fill, glass-tab-bar, glass-switch, glass-slider, glass-segmented)[popover]:not(:popover-open) {
+  display: none;
+}
+
 /* 容器自己没有玻璃，只是分组；排版交给作者（常见的是 display: flex）。 */
 :where(glass-container) {
   display: block;
@@ -82,7 +90,8 @@
  * 没有玻璃时，填充就是一块普通的 CSS 背景。有玻璃时颜色画在场景里（玻璃看得见它），
  * 元素自己必须透明 —— 否则它会挡住放在它上面的玻璃（R1）。
  */
-:where(glass-fill:not([data-glassium-active])) {
+:where(glass-fill:not([data-glassium-active])),
+:where(glass-fill)[data-glassium-overlay] {
   background-color: var(--glass-fill);
 }
 
@@ -111,13 +120,20 @@
   backdrop-filter: blur(20px) saturate(1.5);
 }
 
+/*
+ * 用 CSS 画的玻璃（src/core/overlay.ts）：盖在 DOM 上的玻璃（overlay 属性）、浏览器顶层里的玻璃（打开的模态对话框、
+ * 打开的 popover、全屏元素里面）。stage 给它们加上 data-glassium-overlay、不画 GPU 玻璃；表面由各组件自己的影子样式
+ * 按材质画（没引这份 CSS 也生效）。下面几个媒体查询里带 [data-glassium-overlay] 的规则是对它的细化。
+ */
+
 /* 连 backdrop-filter 都没有：换成近乎不透明的深色表面，保证上面的浅色文字可读。 */
 @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
   :where(
       glass-card:not([data-glassium-active]),
       glass-button:not([data-glassium-active]),
       glass-tab-bar:not([data-glassium-active])
-    ) {
+    ),
+  :where(glass-card, glass-button, glass-tab-bar)[data-glassium-overlay] {
     background-color: rgba(18, 30, 50, 0.82);
   }
 }
@@ -132,7 +148,8 @@
       glass-card:not([data-glassium-active]),
       glass-button:not([data-glassium-active]),
       glass-tab-bar:not([data-glassium-active])
-    ) {
+    ),
+  :where(glass-card, glass-button, glass-tab-bar)[data-glassium-overlay] {
     background-color: rgba(28, 28, 32, 0.9);
     -webkit-backdrop-filter: blur(24px);
     backdrop-filter: blur(24px);
@@ -147,7 +164,8 @@
  * :host(:focus-visible) 规则，焦点框就没了。
  */
 @media (prefers-contrast: more) {
-  :where(glass-card, glass-button, glass-tab-bar) {
+  :where(glass-card, glass-button, glass-tab-bar),
+  :where(glass-card, glass-button, glass-tab-bar)[data-glassium-overlay] {
     box-shadow: inset 0 0 0 1px currentColor;
   }
 }

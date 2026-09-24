@@ -153,6 +153,7 @@ export { GlassFill } from './components/glass-fill.ts'
 export { GlassSwitch } from './components/glass-switch.ts'
 export { GlassSegmented } from './components/glass-segmented.ts'
 export { GlassTabBar, bubbleMaterial } from './components/glass-tab-bar.ts'
+export { OVERLAY_HOST_CSS, overlayHostRule, overlayVars } from './core/overlay.ts'
 export { Segments, segmentValue, type SegmentsOptions } from './components/segments.ts'
 export {
   GlassSlider,
@@ -171,6 +172,8 @@ export {
   LIGHT_GAIN,
   LIGHT_SIGMA_FRAC,
   MAX_GLASS_LAYER,
+  OVERLAY_ATTRIBUTE,
+  OVERLAY_OPT_IN,
   type GlassGroup,
   type GlassPanel,
   type PanelLight,

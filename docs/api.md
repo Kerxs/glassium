@@ -142,6 +142,13 @@
 - CSS：`--glass-tab-bar-selected`（选中那一格的文字颜色，默认 `#0a84ff`）。`::part(bubble)`。
 - 透镜放大的是底下的玻璃，不是格子里的图标文字 —— 那些是 DOM，画在最上面。
 
+### 盖在 DOM 上的玻璃（`overlay`）
+
+模态 `<dialog>`、打开的 popover、全屏元素里的玻璃，以及写了 `overlay` 属性的玻璃，stage 自动改用 CSS 画（带上
+`data-glassium-overlay`，不上 GPU）：`backdrop-filter` 模糊下面的一切，材质的模糊、饱和度、tint、亮边、投影照搬，
+没有折射。组件把材质写成自己影子样式里的 CSS 变量：`--glassium-blur`、`--glassium-saturate`、`--glassium-tint`、
+`--glassium-rim-light`、`--glassium-rim-dark`、`--glassium-shadow`（`overlayVars(material)` 算的就是这些）。
+
 ### 材质属性
 
 三个玻璃组件都认，与 `GlassMaterial` 一一对应。写错的属性在控制台报一次并被忽略。

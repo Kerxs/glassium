@@ -17,6 +17,7 @@
  */
 
 import type { GlassMaterial } from '../core/material.ts'
+import { overlayHostRule } from '../core/overlay.ts'
 import { describeElement } from '../renderer/layering.ts'
 import type { GlassPanel, PanelLight } from '../renderer/panels.ts'
 import { currentStage, onStageChange, type GlassStage } from '../renderer/stage.ts'
@@ -49,6 +50,13 @@ export class GlassElement extends HTMLElementBase {
   #panel: GlassPanel | null = null
   #base: GlassMaterial = {}
   readonly #reported = new Set<string>()
+  /**
+   * 这个元素自己的样式表：`:host { --glassium-* }`，把材质写成 CSS 变量（core/overlay.ts）。用 CSS 画的玻璃
+   * （overlay、对话框与 popover 里）读它们。放在影子树里而不写宿主的 style：那是作者（或框架）的，
+   * 改它还会惊动 stage 的 MutationObserver。材质变了才重写。
+   */
+  #vars: CSSStyleSheet | null = null
+  #varsRule = ''
 
   /** 解析后的基础材质：组件默认值 ⊕ preset ⊕ 显式属性。不含交互调制。 */
   get material(): GlassMaterial {
@@ -127,9 +135,23 @@ export class GlassElement extends HTMLElementBase {
     this.#stage = null
   }
 
+  #writeOverlayVars(): void {
+    const root = this.shadowRoot
+    if (!root || typeof CSSStyleSheet === 'undefined') return
+    const rule = overlayHostRule(this.#base)
+    if (rule === this.#varsRule) return
+    if (!this.#vars) {
+      this.#vars = new CSSStyleSheet()
+      root.adoptedStyleSheets = [...root.adoptedStyleSheets, this.#vars]
+    }
+    this.#vars.replaceSync(rule)
+    this.#varsRule = rule
+  }
+
   #readAttributes(): void {
     const { material, problems } = parseMaterialAttributes((name) => this.getAttribute(name))
     this.#base = { ...this.defaults(), ...material }
+    this.#writeOverlayVars()
     for (const problem of problems) {
       // 同一个错只报一次：改别的属性会重新解析全部属性，不去重的话同一条会反复出现
       if (this.#reported.has(problem)) continue
@@ -140,12 +162,20 @@ export class GlassElement extends HTMLElementBase {
 }
 
 /**
+ * 没打开的 popover 不显示。浏览器默认样式里的 `[popover]:not(:popover-open) { display: none }` 是 UA 样式，
+ * 组件自己的 `:host { display: … }` 是作者样式、压过它 —— 不补这一条，`<glass-card popover>` 没打开也显示着
+ * （还画着 GPU 玻璃）。验证页的 overlay 一项多数出一块面板才发现。
+ */
+export const POPOVER_HOST_CSS = ':host([popover]:not(:popover-open)) { display: none; }'
+
+/**
  * 所有实例共用的一张影子样式表。惰性创建：模块顶层 `new CSSStyleSheet()` 在 SSR 里会抛。
+ * 每个组件的样式后面都补上 POPOVER_HOST_CSS。
  */
 export function sharedSheet(cache: { sheet: CSSStyleSheet | null }, css: string): CSSStyleSheet {
   if (!cache.sheet) {
     cache.sheet = new CSSStyleSheet()
-    cache.sheet.replaceSync(css)
+    cache.sheet.replaceSync(`${css}\n${POPOVER_HOST_CSS}`)
   }
   return cache.sheet
 }
