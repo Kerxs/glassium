@@ -24,12 +24,12 @@
 
 import type { GlassPanel } from '../renderer/panels.ts'
 import { HTMLElementBase, sharedSheet } from './base.ts'
+import { Segments, segmentValue } from './segments.ts'
 import { StageLink } from './stage-link.ts'
 import { PressTween, thumbMaterial } from './thumb.ts'
 
 /** 旋钮与底边的间隙，CSS 像素。 */
 const INSET = 2
-const DRAG_THRESHOLD = 3
 
 const CSS = `
 :host {
@@ -118,11 +118,6 @@ const CSS = `
 `
 const sheet = { sheet: null as CSSStyleSheet | null }
 
-/** 一段的值：`value` 属性，没有就取文字。 */
-function valueOf(segment: Element): string {
-  return segment.getAttribute('value') ?? segment.textContent?.trim() ?? ''
-}
-
 export class GlassSegmented extends HTMLElementBase {
   static get observedAttributes(): string[] {
     return ['value', 'disabled']
@@ -147,18 +142,11 @@ export class GlassSegmented extends HTMLElementBase {
   })
   readonly #tween = new PressTween((energy) => this.#panel?.setMaterial(thumbMaterial(energy)))
   readonly #resize: ResizeObserver | null
+  readonly #segments: Segments
 
-  /** 选中的段的下标；-1 是一个都没选。 */
-  #selected = -1
-  /** 选中的段的值：子元素变了之后按它把选中的找回来。 */
-  #lastValue: string | null = null
+  /** 用户或程序改过选中（dirty）之后，value 属性（初始值）就不再带着它走。 */
   #dirty = false
   #formDisabled = false
-
-  #pointerId: number | null = null
-  #startX = 0
-  #dragging = false
-  #grab = 0
 
   constructor() {
     super()
@@ -172,41 +160,54 @@ export class GlassSegmented extends HTMLElementBase {
     root.append(this.#track, this.#thumb, this.#slot)
     this.#slot.addEventListener('slotchange', () => this.#syncSegments())
 
-    this.addEventListener('pointerdown', this.#onPointerDown)
-    this.addEventListener('pointermove', this.#onPointerMove)
-    this.addEventListener('pointerup', this.#onPointerUp)
-    this.addEventListener('pointercancel', this.#onPointerCancel)
-    this.addEventListener('keydown', this.#onKeyDown)
     this.#internals = typeof this.attachInternals === 'function' ? this.attachInternals() : null
+    this.#segments = new Segments({
+      host: this,
+      thumb: this.#thumb,
+      role: 'radio',
+      selectedAttribute: 'aria-checked',
+      inset: INSET,
+      isDisabled: () => this.#isDisabled(),
+      onPress: (pressed) => {
+        this.toggleAttribute('data-pressed', pressed)
+        this.#tween.press(pressed)
+      },
+      onUserSelect: () => {
+        this.#dirty = true
+        this.dispatchEvent(new Event('input', { bubbles: true, composed: true }))
+        this.dispatchEvent(new Event('change', { bubbles: true }))
+      },
+      onSelectionChange: (value) => this.#internals?.setFormValue(value)
+    })
     // 段的宽度变了（字体加载、宿主定宽变化）旋钮要跟上
-    this.#resize = typeof ResizeObserver === 'function' ? new ResizeObserver(() => this.#placeThumb()) : null
+    this.#resize = typeof ResizeObserver === 'function' ? new ResizeObserver(() => this.#segments.place()) : null
   }
 
   // —— 属性 ——
 
   /** 各段（宿主的子元素）。 */
   get segments(): HTMLElement[] {
-    return Array.from(this.children) as HTMLElement[]
+    return this.#segments.items
   }
 
   /** 选中的值；一个都没选时是空串。设置时选中值相同的那一段（没有就都不选），不派发事件。 */
   get value(): string {
-    const s = this.segments[this.#selected]
-    return s ? valueOf(s) : ''
+    const s = this.segments[this.#segments.selected]
+    return s ? segmentValue(s) : ''
   }
 
   set value(v: string) {
     this.#dirty = true
-    this.#select(this.segments.findIndex((s) => valueOf(s) === String(v)))
+    this.#segments.select(this.#segments.indexOf(String(v)))
   }
 
   get selectedIndex(): number {
-    return this.#selected
+    return this.#segments.selected
   }
 
   set selectedIndex(i: number) {
     this.#dirty = true
-    this.#select(Number.isInteger(i) && i >= 0 && i < this.segments.length ? i : -1)
+    this.#segments.select(Number.isInteger(i) && i >= 0 && i < this.segments.length ? i : -1)
   }
 
   get defaultValue(): string {
@@ -256,13 +257,13 @@ export class GlassSegmented extends HTMLElementBase {
     this.#resize?.disconnect()
     this.#tween.reset()
     this.toggleAttribute('data-pressed', false)
-    this.#endPointer()
+    this.#segments.release()
   }
 
   attributeChangedCallback(name: string, oldValue: string | null, newValue: string | null): void {
     if (oldValue === newValue || !this.isConnected) return
     if (name === 'disabled') this.#syncDisabled()
-    else if (!this.#dirty) this.#select(this.#indexOfDefault())
+    else if (!this.#dirty) this.#segments.select(this.#indexOfDefault())
   }
 
   formDisabledCallback(disabled: boolean): void {
@@ -272,7 +273,7 @@ export class GlassSegmented extends HTMLElementBase {
 
   formResetCallback(): void {
     this.#dirty = false
-    this.#select(this.#indexOfDefault())
+    this.#segments.select(this.#indexOfDefault())
   }
 
   #isDisabled(): boolean {
@@ -281,182 +282,23 @@ export class GlassSegmented extends HTMLElementBase {
 
   /** value 属性对应的段；没写或对不上时选第一段（与单选组「总有一个选中」的习惯一致）。 */
   #indexOfDefault(): number {
-    const segments = this.segments
-    if (segments.length === 0) return -1
-    const i = segments.findIndex((s) => valueOf(s) === this.defaultValue)
+    if (this.segments.length === 0) return -1
+    const i = this.#segments.indexOf(this.defaultValue)
     return i >= 0 ? i : 0
   }
 
-  /** 子元素变了：给每段挂上角色，选中的仍按值找回来。 */
+  /** 子元素变了：改过选中的按值把它找回来（找不到就都不选），没改过的回到初始值。 */
   #syncSegments(): void {
-    const segments = this.segments
-    const keep = this.#selected >= 0 ? this.#lastValue : null
-    for (const s of segments) {
-      if (!s.hasAttribute('role')) s.setAttribute('role', 'radio')
-    }
-    const byValue = keep !== null ? segments.findIndex((s) => valueOf(s) === keep) : -1
-    this.#select(this.#dirty && byValue >= 0 ? byValue : this.#dirty ? -1 : this.#indexOfDefault())
-  }
-
-  #select(index: number): boolean {
-    const segments = this.segments
-    const i = index >= 0 && index < segments.length ? index : -1
-    const changed = i !== this.#selected
-    this.#selected = i
-    this.#lastValue = i >= 0 ? valueOf(segments[i]!) : null
-    const disabled = this.#isDisabled()
-    segments.forEach((s, k) => {
-      s.setAttribute('aria-checked', String(k === i))
-      // roving tabindex：只有选中的那段（都没选时是第一段）可以 Tab 到
-      const focusable = !disabled && (k === i || (i < 0 && k === 0))
-      s.tabIndex = focusable ? 0 : -1
-    })
-    this.#internals?.setFormValue(i >= 0 ? this.#lastValue : null)
-    this.#placeThumb()
-    return changed
-  }
-
-  /** 旋钮放到选中的段下面（拖动时由指针决定，不在这里）。 */
-  #placeThumb(): void {
-    if (this.#dragging) return
-    const s = this.segments[this.#selected]
-    if (!s) {
-      this.#thumb.style.setProperty('--_w', '0px')
-      return
-    }
-    this.#thumb.style.setProperty('--_x', `${s.offsetLeft}px`)
-    this.#thumb.style.setProperty('--_w', `${s.offsetWidth}px`)
+    const keep = this.#segments.selected >= 0 ? this.#segments.lastValue : null
+    const byValue = keep !== null ? this.#segments.indexOf(keep) : -1
+    this.#segments.select(this.#dirty ? byValue : this.#indexOfDefault())
   }
 
   #syncDisabled(): void {
     const disabled = this.#isDisabled()
     if (disabled) this.setAttribute('aria-disabled', 'true')
     else this.removeAttribute('aria-disabled')
-    if (disabled) {
-      this.#endPointer()
-      this.#press(false)
-    }
-    this.#select(this.#selected) // 刷新各段的 tabindex
-  }
-
-  // —— 交互 ——
-
-  /** 指针下面是第几段（按水平位置，落在两段之间的缝里算离得近的那段）。 */
-  #segmentAt(clientX: number): number {
-    const segments = this.segments
-    let best = -1
-    let bestDistance = Infinity
-    segments.forEach((s, k) => {
-      const r = s.getBoundingClientRect()
-      const d = clientX < r.left ? r.left - clientX : clientX > r.right ? clientX - r.right : 0
-      if (d < bestDistance) {
-        bestDistance = d
-        best = k
-      }
-    })
-    return best
-  }
-
-  #onPointerDown = (e: PointerEvent): void => {
-    if (e.button !== 0 || this.#isDisabled() || this.segments.length === 0) return
-    this.#pointerId = e.pointerId
-    this.#startX = e.clientX
-    this.#dragging = false
-    const t = this.#thumb.getBoundingClientRect()
-    this.#grab = e.clientX - (t.left + t.width / 2)
-    try {
-      this.setPointerCapture(e.pointerId)
-    } catch {
-      // 合成的事件没有活的指针
-    }
-    this.#press(true)
-  }
-
-  #onPointerMove = (e: PointerEvent): void => {
-    if (e.pointerId !== this.#pointerId) return
-    if (!this.#dragging && Math.abs(e.clientX - this.#startX) < DRAG_THRESHOLD) return
-    // 只有按在选中的那段（旋钮）上才拖得动旋钮；按在别的段上移动不算拖
-    const current = this.segments[this.#selected]
-    if (!this.#dragging) {
-      if (!current || this.#segmentAt(this.#startX) !== this.#selected) return
-      this.#dragging = true
-      this.toggleAttribute('data-dragging', true)
-    }
-    // 旋钮中心跟着指针（扣掉按下时的偏移），钳在宿主的内容区里
-    const host = this.getBoundingClientRect()
-    const w = current ? current.offsetWidth : 0
-    const scale = this.offsetWidth > 0 ? host.width / this.offsetWidth : 1
-    const center = (e.clientX - this.#grab - host.left) / scale
-    const x = Math.min(this.offsetWidth - INSET - w, Math.max(INSET, center - w / 2))
-    this.#thumb.style.setProperty('--_x', `${x}px`)
-  }
-
-  #onPointerUp = (e: PointerEvent): void => {
-    if (e.pointerId !== this.#pointerId) return
-    const dragged = this.#dragging
-    const t = this.#thumb.getBoundingClientRect()
-    const target = dragged ? this.#segmentAt(t.left + t.width / 2) : this.#segmentAt(e.clientX)
-    this.#endPointer()
-    this.#press(false)
-    if (target >= 0) this.#userSelect(target)
-    else this.#placeThumb()
-  }
-
-  #onPointerCancel = (e: PointerEvent): void => {
-    if (e.pointerId !== this.#pointerId) return
-    this.#endPointer()
-    this.#press(false)
-    this.#placeThumb()
-  }
-
-  #endPointer(): void {
-    this.#pointerId = null
-    this.#dragging = false
-    this.removeAttribute('data-dragging')
-  }
-
-  #onKeyDown = (e: KeyboardEvent): void => {
-    if (this.#isDisabled() || e.defaultPrevented) return
-    const n = this.segments.length
-    if (n === 0) return
-    const from = this.#selected >= 0 ? this.#selected : 0
-    let next: number
-    switch (e.key) {
-      case 'ArrowRight':
-      case 'ArrowDown':
-        next = (from + 1) % n
-        break
-      case 'ArrowLeft':
-      case 'ArrowUp':
-        next = (from - 1 + n) % n
-        break
-      case 'Home':
-        next = 0
-        break
-      case 'End':
-        next = n - 1
-        break
-      case ' ':
-        next = from
-        break
-      default:
-        return
-    }
-    e.preventDefault()
-    this.#userSelect(next)
-    this.segments[next]?.focus()
-  }
-
-  #userSelect(index: number): void {
-    this.#dirty = true
-    if (this.#select(index)) {
-      this.dispatchEvent(new Event('input', { bubbles: true, composed: true }))
-      this.dispatchEvent(new Event('change', { bubbles: true }))
-    }
-  }
-
-  #press(pressed: boolean): void {
-    this.toggleAttribute('data-pressed', pressed)
-    this.#tween.press(pressed)
+    if (disabled) this.#segments.release()
+    this.#segments.select(this.#segments.selected) // 刷新各段的 tabindex
   }
 }

@@ -152,6 +152,8 @@ export { GlassContainer } from './components/glass-container.ts'
 export { GlassFill } from './components/glass-fill.ts'
 export { GlassSwitch } from './components/glass-switch.ts'
 export { GlassSegmented } from './components/glass-segmented.ts'
+export { GlassTabBar, bubbleMaterial } from './components/glass-tab-bar.ts'
+export { Segments, segmentValue, type SegmentsOptions } from './components/segments.ts'
 export {
   GlassSlider,
   defaultValue as sliderDefaultValue,

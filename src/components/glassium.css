@@ -21,6 +21,14 @@
   border-radius: 999px;
 }
 
+/* 标签栏是一条玻璃胶囊，各格排成一行 */
+:where(glass-tab-bar) {
+  display: inline-flex;
+  box-sizing: border-box;
+  padding: 4px;
+  border-radius: 999px;
+}
+
 /* 容器自己没有玻璃，只是分组；排版交给作者（常见的是 display: flex）。 */
 :where(glass-container) {
   display: block;
@@ -94,7 +102,8 @@
  */
 :where(
     glass-card:not([data-glassium-active]),
-    glass-button:not([data-glassium-active])
+    glass-button:not([data-glassium-active]),
+    glass-tab-bar:not([data-glassium-active])
   ) {
   background-color: rgba(255, 255, 255, 0.14);
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.22);
@@ -106,7 +115,8 @@
 @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
   :where(
       glass-card:not([data-glassium-active]),
-      glass-button:not([data-glassium-active])
+      glass-button:not([data-glassium-active]),
+      glass-tab-bar:not([data-glassium-active])
     ) {
     background-color: rgba(18, 30, 50, 0.82);
   }
@@ -120,7 +130,8 @@
 @media (prefers-reduced-transparency: reduce) {
   :where(
       glass-card:not([data-glassium-active]),
-      glass-button:not([data-glassium-active])
+      glass-button:not([data-glassium-active]),
+      glass-tab-bar:not([data-glassium-active])
     ) {
     background-color: rgba(28, 28, 32, 0.9);
     -webkit-backdrop-filter: blur(24px);
@@ -136,7 +147,7 @@
  * :host(:focus-visible) 规则，焦点框就没了。
  */
 @media (prefers-contrast: more) {
-  :where(glass-card, glass-button) {
+  :where(glass-card, glass-button, glass-tab-bar) {
     box-shadow: inset 0 0 0 1px currentColor;
   }
 }
@@ -151,7 +162,7 @@
  * `color: #fff` 就不再被强制，浅色主题的高对比度下白字压在白底上。
  */
 @media (forced-colors: active) {
-  :where(glass-card) {
+  :where(glass-card, glass-tab-bar) {
     border: 1px solid CanvasText;
   }
 

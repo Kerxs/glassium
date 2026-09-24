@@ -24,7 +24,7 @@
 
 ## 组件
 
-七个自定义元素，`defineGlassElements()` 注册（重复调用无害），同时把 `--glass-fill` 注册成 `<color>`。
+八个自定义元素，`defineGlassElements()` 注册（重复调用无害），同时把 `--glass-fill` 注册成 `<color>`。
 玻璃组件的材质写在 HTML 属性上。
 
 ### `<glass-card>`
@@ -128,6 +128,19 @@
 - CSS：`--glass-segmented-track`（底色，默认 `rgba(120, 120, 128, 0.24)`）。高 32px，段宽由内容决定（给宿主定宽时
   平分）。选中的段带 `aria-checked="true"`，可以据此换文字颜色（它压在白色旋钮上）。`::part(track)`、`::part(thumb)`。
 - 放在哪里与 `<glass-switch>` 相同。
+
+### `<glass-tab-bar value="home">`
+
+标签栏：一条玻璃胶囊（材质属性与 `<glass-card>` 相同，默认胶囊），选中那一格下面垫一个玻璃气泡。气泡写在栏里面，
+在栏的上面一层（见 limitations.md 的 R2），看得见栏；换选中时滑过去、宽度跟着变，按住时变成透镜，可以按住拖到别的格上
+再松手。每个子元素是一格（按钮也行，默认外观会被去掉），值取它的 `value` 属性，没有就取文字。
+
+- 语义是标签页：宿主 `role="tablist"`，每一格 `role="tab"` 与 `aria-selected`，roving tabindex；方向键移动并选中
+  （到头回绕），Home / End。`aria-controls` 之类由你写。
+- 用户换选中时派发 `input` 与 `change`；程序改 `value` / `selectedIndex` 不派发。`value` 属性是初始值（对不上时选第一格）。
+  属性访问器：`value`、`selectedIndex`、`tabs`。不是表单控件。
+- CSS：`--glass-tab-bar-selected`（选中那一格的文字颜色，默认 `#0a84ff`）。`::part(bubble)`。
+- 透镜放大的是底下的玻璃，不是格子里的图标文字 —— 那些是 DOM，画在最上面。
 
 ### 材质属性
 

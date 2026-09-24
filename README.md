@@ -38,7 +38,7 @@ Glassium 自己渲染的纹理。**面板背后的正文文字、图片、iframe
 ### 第一期明确不做
 
 - 玻璃盖在 DOM 内容**之上**（`GlassDialog`、`GlassSheet`）。层叠槽位已预留，东西没建。
-- `GlassTabBar`、`GlassBottomBar`、`GlassNavigation`。（`<glass-switch>`、`<glass-slider>`、`<glass-segmented>` 做了，见下。）
+- `GlassBottomBar`、`GlassNavigation`。（`<glass-switch>`、`<glass-slider>`、`<glass-segmented>`、`<glass-tab-bar>` 做了，见下。）
 - 形状变形过渡（多块玻璃的**合并**做了，**变形**没做）。
 - 逐面板不同的 backdrop。
 - Android / iOS 渲染器 —— 只交付 `spec/` 里的平台中立契约。
@@ -168,6 +168,10 @@ GPU 输出由 `playground/verify.html` 在浏览器里逐项验证（光学探�
       卡片里开关的旋钮不再在卡片上开洞。画这一层之前把画布上已经画好的那一块采回场景目标、只在那一块里重建模糊链。
       实测红卡片里那块玻璃的中心是 236/89/89，不嵌套时是灰洞 149/149/149；没有嵌套的帧逐位不变（`8aca3e92…`）。
       最多四层
+- [x] **标签栏 `<glass-tab-bar>`**（`src/components/glass-tab-bar.ts`）：iOS 26 那条浮着的玻璃胶囊。选中那一格下面的气泡
+      是写在栏里面的玻璃（第 1 层），看得见栏 —— 实测气泡中心 181 = 栏 149 × 0.7 + 白 × 0.3，不分层时是 165（它只看得到
+      场景）。按住变成透镜、可以拖到别的格上松手；`tablist` / `tab` 语义、roving tabindex、方向键回绕。选择逻辑与分段控件
+      共用（`segments.ts`）
 - [x] **分段控件 `<glass-segmented>`**（`src/components/glass-segmented.ts`）：底是填充，选中的段下面垫同一个玻璃旋钮，
       换选中时滑过去、宽度跟着变；按住变成透镜，可以按住拖到别的段上松手。单选组语义（`radiogroup` / `radio`、
       roving tabindex、方向键回绕、Home / End）、`input` / `change`、表单关联与重置
@@ -176,9 +180,9 @@ GPU 设备丢失时会在新设备上整套重建（实测约 30 ms，恢复后�
 WebGL2（WebGL2 的上下文丢失同理，第二次降到 CSS 兜底）。T5 到 T8 期间这一点是坏的：
 日志说会重新初始化，实际上画布会冻住 —— 现已修复，见 [docs/limitations.md](docs/limitations.md)。
 
-**212 条测试全绿**，playground 可跑（`npm run dev`），只用公开 API 搭的示例页在 `/demo.html`，
+**213 条测试全绿**，playground 可跑（`npm run dev`），只用公开 API 搭的示例页在 `/demo.html`，
 逐项自动验证在 `/verify.html`
-（现在 WebGPU 上 **PASS 31/31**、WebGL2 上 **PASS 30/30**）。
+（现在 WebGPU 上 **PASS 32/32**、WebGL2 上 **PASS 31/31**）。
 
 T5 顺带把两个计划阶段悬着的硬件问题测掉了，结果记在
 [docs/calibration.md](docs/calibration.md)：`minUniformBufferOffsetAlignment` 实测 256

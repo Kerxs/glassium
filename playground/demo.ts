@@ -52,6 +52,13 @@ async function main(): Promise<void> {
     say(`已订阅 ${String(data.get('email'))}（${data.get('plan') === 'weekly' ? '每周' : '其它'}）`)
   })
 
+  // 标签栏：换选中时派发 change（按住拖到别的格上再松手也算）
+  const tabbar = document.getElementById('tabbar') as HTMLElement & { value: string }
+  tabbar.addEventListener('change', () => {
+    const label = tabbar.querySelector('[aria-selected="true"] .label')?.textContent ?? tabbar.value
+    say(`切到「${label}」`)
+  })
+
   // 设置：<glass-switch> 与 checkbox、<glass-slider> 与 range 一样派发 change
   document.getElementById('settings')!.addEventListener('change', (e) => {
     const target = e.target as HTMLElement & { checked?: boolean; value?: string }

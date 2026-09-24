@@ -1159,6 +1159,79 @@ async function run(): Promise<void> {
       : fail(detail)
   })
 
+  await check('tab-bar', async () => {
+    // <glass-tab-bar>：栏是玻璃，选中那一格下面的气泡是写在栏里面的玻璃（第 1 层）。
+    // 灰场景上，气泡中心 = 栏在那里的颜色 × 0.7 + 白 × 0.3（气泡的 tint）—— 看得见栏；不分层的话它只看得到
+    // 场景（128 × 0.7 + 76.5 ≈ 166），与栏（≈ 149）上的这个公式对不上。按住时变成透镜，中心几乎就是栏本身。
+    // 点第三格、方向键回绕、事件；全程不建管线。
+    stage.debug.setBackdrop({ scene: 'flat' })
+    simulateReducedMotion(true)
+    const bar = document.createElement('glass-tab-bar') as HTMLElement & { value: string; tabs: HTMLElement[]; selectedIndex: number }
+    bar.setAttribute('value', 'b')
+    bar.setAttribute('shadow', '0')
+    Object.assign(bar.style, { position: 'absolute', left: '440px', top: '500px', color: '#fff' })
+    bar.innerHTML = '<button value="a">一</button><button value="b">二</button><button value="c">三</button>'
+    document.body.append(bar)
+    const events: string[] = []
+    bar.addEventListener('input', () => events.push('input'))
+    bar.addEventListener('change', () => events.push('change'))
+    const finish = (): void => {
+      for (const a of bar.shadowRoot!.getAnimations()) a.finish()
+    }
+    await sleep(0)
+    finish()
+    const v = stage.debug.stats().viewport!
+    const s = v.compositeWidth / v.cssWidth
+    const canvasBox = stage.canvas.getBoundingClientRect()
+    const center = async (el: Element): Promise<[number, number, number]> => {
+      const r = el.getBoundingClientRect()
+      const d = await readback({
+        x: Math.floor((r.left + r.width / 2 - canvasBox.left) * s),
+        y: Math.floor((r.top + r.height / 2 - canvasBox.top) * s),
+        width: 1,
+        height: 1
+      })
+      return [d[0]!, d[1]!, d[2]!]
+    }
+    const [a, b, c] = bar.tabs as [HTMLElement, HTMLElement, HTMLElement]
+    const pipelines0 = stage.debug.stats().pipelineCreations
+    const selected = await center(b)
+    const other = await center(a)
+    const layers = stage.debug.stats().blurPasses
+    const br = b.getBoundingClientRect()
+    bar.dispatchEvent(new PointerEvent('pointerdown', { pointerId: 14, button: 0, clientX: br.left + br.width / 2, clientY: br.top + br.height / 2, bubbles: true }))
+    finish()
+    await sleep(0)
+    const pressed = await center(b)
+    bar.dispatchEvent(new PointerEvent('pointerup', { pointerId: 14, button: 0, clientX: br.left + br.width / 2, clientY: br.top + br.height / 2, bubbles: true }))
+    const cr = c.getBoundingClientRect()
+    bar.dispatchEvent(new PointerEvent('pointerdown', { pointerId: 15, button: 0, clientX: cr.left + 8, clientY: cr.top + 8, bubbles: true }))
+    bar.dispatchEvent(new PointerEvent('pointerup', { pointerId: 15, button: 0, clientX: cr.left + 8, clientY: cr.top + 8, bubbles: true }))
+    finish()
+    await sleep(0)
+    const afterClick = bar.value
+    const onC = await center(c)
+    c.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true, cancelable: true }))
+    const afterKey = bar.value
+    const pipelines1 = stage.debug.stats().pipelineCreations
+    bar.remove()
+    simulateReducedMotion(null)
+    calibrationScene()
+    stage.debug.renderNow()
+
+    const expected = other[0]! * 0.7 + 255 * 0.3
+    const f = (x: readonly number[]): string => x.join('/')
+    const detail =
+      `选中的格 ${f(selected)}（栏 ${f(other)} × 0.7 + 白 × 0.3 = ${expected.toFixed(1)}）· 按住 ${f(pressed)} · ` +
+      `点第三格 → ${afterClick}（那里 ${f(onC)}）· → 键回绕到 ${afterKey} · 事件 ${events.join(',')} · ` +
+      `模糊 ${layers} 趟 · 管线 ${pipelines1 - pipelines0} 条新建`
+    return Math.abs(selected[0]! - expected) <= 3 && Math.abs(pressed[0]! - other[0]!) < 10 && afterClick === 'c' &&
+      Math.abs(onC[0]! - selected[0]!) <= 2 && afterKey === 'a' && events.join(',') === 'input,change,input,change' &&
+      pipelines1 === pipelines0
+      ? pass(detail)
+      : fail(detail)
+  })
+
   await check('component-equals-register', async () => {
     // 同一个位置先放组件、再放手动注册的 div，材质相同：区域哈希必须逐位相同
     const place = (el: HTMLElement): void => {
