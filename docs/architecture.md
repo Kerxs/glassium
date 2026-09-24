@@ -98,6 +98,10 @@ stage 是**外壳**：画布、面板注册表、调试参数、帧循环、监�
 - `<glass-container>` 按元素指定成员，每帧解析；成员照旧各自注册、各有材质。
 - `<glass-fill>` 不是玻璃：它注册成填充（`registerFill`），颜色取 CSS 的 `--glass-fill`，由 stage 画进场景。
   几何测量与面板共用同一段代码（包围盒、旋转、缩放、裁剪祖先、CSS 上的不透明度）。
+- `<glass-switch>` 在影子树里放一块填充（轨道）和一块玻璃（旋钮），自己注册这两样。按下时旋钮的材质从白色玻璃
+  插值到透明的透镜，大小与位置交给 CSS（`scale`、`translate` 独立属性与过渡），玻璃每帧跟着量。
+- 组件与 stage 的连接（stage 出现、换了、停用时重新注册，维护 `data-glassium-active`）在 `stage-link.ts`；
+  `GlassElement` 是同一个模式的早期写法。
 - `<glass-button>` 是表单关联的自定义元素，提交借一个临时的原生提交按钮当 submitter。
 - 按下 `<glass-button>` 时光从按下的地方亮起来：面板句柄上单独一条 `setLight()`（交互状态，不是材质），
   强度跟着按压能量的补间走。

@@ -229,6 +229,28 @@
         text-shadow: 0 1px 10px rgba(0, 0, 0, 0.4);
       }
 
+      /* 设置列表：底板是一块填充（画进场景），开关的轨道也是填充、旋钮是玻璃。
+         不放在 <glass-card> 里 —— 玻璃不叠玻璃（R2）：卡片的玻璃会把轨道一起模糊掉 */
+      .settings {
+        --glass-fill: rgba(28, 28, 30, 0.78);
+        border-radius: 22px;
+        padding: 2px 16px;
+      }
+
+      .settings label {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        min-height: 52px;
+        font-size: 16px;
+        cursor: pointer;
+      }
+
+      .settings label + label {
+        border-top: 0.5px solid rgba(255, 255, 255, 0.16);
+      }
+
       .toast {
         position: fixed;
         left: 50%;
@@ -326,6 +348,13 @@
         <input name="email" type="email" required placeholder="邮箱地址" autocomplete="email" />
         <glass-button preset="thick" name="plan" value="weekly">每周订阅</glass-button>
       </form>
+
+      <p class="section-title">设置（按住开关的旋钮，它变成透镜）</p>
+      <glass-fill class="settings" id="settings">
+        <label><span>无线局域网</span><glass-switch name="wifi" checked></glass-switch></label>
+        <label><span>蓝牙</span><glass-switch name="bluetooth" checked></glass-switch></label>
+        <label><span>飞行模式</span><glass-switch name="airplane" style="--glass-switch-on: #ff9f0a"></glass-switch></label>
+      </glass-fill>
 
       <p class="fine">
         按一下按钮：光从按下的地方亮起来。系统打开「减少透明度」或「更高对比度」时，玻璃换成磨砂。

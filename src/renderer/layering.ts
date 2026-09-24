@@ -67,8 +67,8 @@ export type LayerProblem<E> =
     }
   | {
       /**
-       * DOM 上的效果玻璃跟不上：filter、旋转或倾斜。
-       * （opacity 不在这里：玻璃跟着元素的实际不透明度一起淡，见 panels.ts 的 fade。）
+       * DOM 上的效果玻璃跟不上：filter、倾斜或 3D 变换。
+       * （opacity、平移、缩放、平面内的旋转不在这里：玻璃都跟得上，见 panels.ts 的 fade 与 pose.ts。）
        */
       readonly kind: 'filter' | 'transform'
       readonly panel: E

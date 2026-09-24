@@ -14,21 +14,19 @@
  * 没有玻璃时（stage 没建好、没有 GPU、高对比度模式）它就是一块普通的 CSS 背景（glassium.css）。
  */
 
-import type { SceneFill } from '../renderer/panels.ts'
-import { currentStage, onStageChange, type GlassStage } from '../renderer/stage.ts'
-import { ACTIVE_ATTRIBUTE, HTMLElementBase, sharedSheet } from './base.ts'
+import { HTMLElementBase, sharedSheet } from './base.ts'
+import { StageLink } from './stage-link.ts'
 
 /** `display: block` 写在影子树里：没引 glassium.css 时，给它设的宽高照样生效。 */
 const CSS = ':host { display: block; }'
 const sheet = { sheet: null as CSSStyleSheet | null }
 
 export class GlassFill extends HTMLElementBase {
-  /** 已连接到文档的填充。stage 出现、消失或状态变化时逐个同步。 */
-  static readonly #live = new Set<GlassFill>()
-  static #subscribed = false
-
-  #stage: GlassStage | null = null
-  #fill: SceneFill | null = null
+  // 有玻璃时 CSS 背景去掉（颜色画在场景里），没有时由 glassium.css 画成 CSS 背景 —— 由 data-glassium-active 切换
+  readonly #link = new StageLink(this, (stage) => {
+    const fill = stage.registerFill(this)
+    return () => fill.unregister()
+  })
 
   constructor() {
     super()
@@ -38,40 +36,10 @@ export class GlassFill extends HTMLElementBase {
   }
 
   connectedCallback(): void {
-    GlassFill.#live.add(this)
-    GlassFill.#subscribe()
-    this.#sync(currentStage())
+    this.#link.connect()
   }
 
   disconnectedCallback(): void {
-    GlassFill.#live.delete(this)
-    this.#detach()
-    this.removeAttribute(ACTIVE_ATTRIBUTE)
-  }
-
-  static #subscribe(): void {
-    if (GlassFill.#subscribed) return
-    GlassFill.#subscribed = true
-    onStageChange((stage) => {
-      for (const el of GlassFill.#live) el.#sync(stage)
-    })
-  }
-
-  #sync(stage: GlassStage | null): void {
-    if (stage !== this.#stage) {
-      this.#detach()
-      if (stage) {
-        this.#stage = stage
-        this.#fill = stage.registerFill(this)
-      }
-    }
-    // 有玻璃时 CSS 背景去掉（颜色画在场景里），没有时由 glassium.css 画成 CSS 背景
-    this.toggleAttribute(ACTIVE_ATTRIBUTE, stage?.active === true)
-  }
-
-  #detach(): void {
-    this.#fill?.unregister()
-    this.#fill = null
-    this.#stage = null
+    this.#link.disconnect()
   }
 }

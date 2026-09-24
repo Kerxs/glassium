@@ -233,13 +233,6 @@ function assertLowerable(material: GlassMaterial): void {
 }
 
 /**
- * 元素是不是真的画出来了。
- *
- * `visibility: hidden` 与 `opacity: 0`（自身或任一祖先）的元素照样有盒子，
- * getBoundingClientRect 量得到 —— 不跳过的话，DOM 已经看不见了，玻璃还留在原地。
- * 渐隐收起的菜单就是这样。部分透明（0 < opacity < 1）玻璃跟不上，那由 layering.ts 警告。
- */
-/**
  * 决定面板 CSS 不透明度的那几层：面板自己，以及往上直到（不含）同时包含画布的祖先。
  * 共同祖先上的 opacity 同时作用在画布与面板上，两边一致，不用管。
  * 返回计算样式的活对象：每帧读它们的 opacity 就跟得上过渡与动画，找这一串只在样式代数变了时做。
@@ -263,6 +256,13 @@ function toneOf(element: HTMLElement): number {
   return frostForColor(getComputedStyle(element).color) === 'dark' ? 1 : -1
 }
 
+/**
+ * 元素是不是真的画出来了。
+ *
+ * `visibility: hidden` 与 `opacity: 0`（自身或任一祖先）的元素照样有盒子，
+ * getBoundingClientRect 量得到 —— 不跳过的话，DOM 已经看不见了，玻璃还留在原地。
+ * 渐隐收起的菜单就是这样。部分透明（0 < opacity < 1）照画，玻璃乘上实际不透明度（见 fade）。
+ */
 export function isRendered(element: HTMLElement): boolean {
   if (typeof element.checkVisibility !== 'function') return true
   return element.checkVisibility({ visibilityProperty: true, opacityProperty: true })

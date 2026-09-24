@@ -38,7 +38,7 @@ Glassium 自己渲染的纹理。**面板背后的正文文字、图片、iframe
 ### 第一期明确不做
 
 - 玻璃盖在 DOM 内容**之上**（`GlassDialog`、`GlassSheet`）。层叠槽位已预留，东西没建。
-- `GlassSlider`、`GlassSwitch`、`GlassTabBar`、`GlassBottomBar`、`GlassNavigation`。
+- `GlassSlider`、`GlassTabBar`、`GlassBottomBar`、`GlassNavigation`。（`<glass-switch>` 做了，见下。）
 - 形状变形过渡（多块玻璃的**合并**做了，**变形**没做）。
 - 逐面板不同的 backdrop。
 - Android / iOS 渲染器 —— 只交付 `spec/` 里的平台中立契约。
@@ -155,14 +155,18 @@ GPU 输出由 `playground/verify.html` 在浏览器里逐项验证（光学探�
       盒子、圆角、变换、裁剪、不透明度都来自 CSS，颜色来自 `--glass-fill`（注册成可以过渡的 `<color>`）。
       玻璃折射它、模糊它、按它的亮度调自适应；直接看到的部分按画布分辨率另画一遍，边缘与 DOM 一样锐利 ——
       场景压到画布 0.6 倍时，边缘 1 个像素以外与没有填充时逐像素相同。颜色过渡到一半时画出来的就是那一刻的计算值
+- [x] **开关 `<glass-switch>`**（`src/components/glass-switch.ts`）：iOS 26 的样子 —— 轨道是填充、旋钮是玻璃。
+      平时旋钮是白的，按下时鼓起来变成透明的透镜，透过它看得见底下的轨道（实测旋钮中心从 247/253/248 变成轨道的绿
+      29/212/75；轨道不是填充时只看得到灰色的场景），松开时切换。行为与原生 `<input type="checkbox" switch>` 相同：
+      `role="switch"`、空格切换、可以拖动旋钮、`input` / `change`、表单关联、`<label>`、fieldset 禁用、表单重置
 
 GPU 设备丢失时会在新设备上整套重建（实测约 30 ms，恢复后画面逐位相同），第二次丢失则降到
 WebGL2（WebGL2 的上下文丢失同理，第二次降到 CSS 兜底）。T5 到 T8 期间这一点是坏的：
 日志说会重新初始化，实际上画布会冻住 —— 现已修复，见 [docs/limitations.md](docs/limitations.md)。
 
-**205 条测试全绿**，playground 可跑（`npm run dev`），只用公开 API 搭的示例页在 `/demo.html`，
+**207 条测试全绿**，playground 可跑（`npm run dev`），只用公开 API 搭的示例页在 `/demo.html`，
 逐项自动验证在 `/verify.html`
-（现在 WebGPU 上 **PASS 27/27**、WebGL2 上 **PASS 26/26**）。
+（现在 WebGPU 上 **PASS 28/28**、WebGL2 上 **PASS 27/27**）。
 
 T5 顺带把两个计划阶段悬着的硬件问题测掉了，结果记在
 [docs/calibration.md](docs/calibration.md)：`minUniformBufferOffsetAlignment` 实测 256
@@ -219,6 +223,9 @@ T5 顺带把两个计划阶段悬着的硬件问题测掉了，结果记在
 </style>
 <glass-fill class="track"></glass-fill>
 ```
+
+开关是现成的：`<glass-switch name="wifi" checked></glass-switch>`，颜色用 `--glass-switch-on` / `--glass-switch-off` 改。
+别把它放进 `<glass-card>`（玻璃不叠玻璃），也别放在不透明的 CSS 背景上（R1）—— 要一块底板就用 `<glass-fill>`。
 
 不用组件也行：`stage.register(element, material)` 可以把任意元素注册成玻璃面板，
 `stage.registerFill(element)` 注册填充。

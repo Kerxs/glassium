@@ -24,7 +24,7 @@
 
 ## 组件
 
-四个自定义元素，`defineGlassElements()` 注册（重复调用无害），同时把 `--glass-fill` 注册成 `<color>`。
+五个自定义元素，`defineGlassElements()` 注册（重复调用无害），同时把 `--glass-fill` 注册成 `<color>`。
 玻璃组件的材质写在 HTML 属性上。
 
 ### `<glass-card>`
@@ -68,6 +68,27 @@
 
 **别写 `background`**：颜色画在场景里，元素自己在 stage 生效时是透明的。没有玻璃时 glassium.css 把 `--glass-fill`
 画成 CSS 背景。里面的内容照常是 DOM。
+
+### `<glass-switch>`
+
+开关：轨道是填充、旋钮是玻璃。按下时旋钮鼓起来、变成透明的透镜（透过它看得见轨道），松开时切换。
+
+- 宿主就是开关：`role="switch"`、`aria-checked`、可聚焦。空格（与 Enter）切换；点一下切换，也可以拖动旋钮，
+  松开时按旋钮停在哪一半决定。
+- 用户切换时派发 `input` 与 `change`（冒泡）；click 里 `preventDefault()` 就不切换；程序改 `checked` 不派发。
+- **表单**：表单关联的自定义元素，与 checkbox 相同。
+
+  | 属性 / 属性访问器 | 说明 |
+  |---|---|
+  | `checked` | 开着（反映成属性）。表单重置回到第一次进文档时的状态 |
+  | `name`、`value` | 开着时进表单数据，`value` 默认 `"on"` |
+  | `disabled` | 禁用（祖先 `<fieldset disabled>` 同样生效）：变淡、不可聚焦、点不动 |
+  | `form`、`labels`（只读） | 表单归属、关联的 `<label>` |
+
+- CSS：`--glass-switch-on`（默认 `#34c759`）、`--glass-switch-off`（默认 `rgba(120, 120, 128, 0.32)`），可以写在任何祖先上。
+  默认 64×28，宽高可以改（旋钮高 = 宿主高 − 4px，宽高比 13:8）。`::part(track)`、`::part(thumb)` 可以从外面选中。
+- 别放进 `<glass-card>`（玻璃不叠玻璃：卡片会把轨道一起模糊掉），也别放在不透明的 CSS 背景上（R1）。
+  要一块底板，用 `<glass-fill>`（它也在场景里，画在轨道下面）。
 
 ### 材质属性
 

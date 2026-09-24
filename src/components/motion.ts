@@ -81,7 +81,10 @@ export function modulate(base: GlassMaterial, energy: number): GlassMaterial {
   return { ...out, tint: `rgba(${r * 255}, ${g * 255}, ${b * 255}, ${lifted})` }
 }
 
-/** 禁用态：玻璃跟文字一起变淡。只动材质的 opacity，不动元素的 CSS opacity —— 后者玻璃跟不上。 */
+/**
+ * 禁用态：玻璃跟文字一起变淡。动的是材质的 opacity —— 写它时玻璃还跟不上元素的 CSS opacity；
+ * 现在跟得上了，保持原样是为了禁用按钮的样子不变（见 glass-button.ts 的样式注释）。
+ */
 export function dimmed(base: GlassMaterial): GlassMaterial {
   return { ...base, opacity: (base.opacity ?? MATERIAL_DEFAULTS.opacity) * 0.5 }
 }

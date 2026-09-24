@@ -40,6 +40,16 @@
   display: block;
 }
 
+/* 开关的样式都在它自己的影子树里（轨道、旋钮、兜底、强制配色），这里只放 upgrade 之前的占位尺寸。 */
+:where(glass-switch:not(:defined)) {
+  display: inline-block;
+  width: 64px;
+  height: 28px;
+  border-radius: 999px;
+  vertical-align: middle;
+  background-color: rgba(120, 120, 128, 0.32);
+}
+
 /*
  * 没有玻璃时，填充就是一块普通的 CSS 背景。有玻璃时颜色画在场景里（玻璃看得见它），
  * 元素自己必须透明 —— 否则它会挡住放在它上面的玻璃（R1）。

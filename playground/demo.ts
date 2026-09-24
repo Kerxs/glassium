@@ -38,15 +38,25 @@ async function main(): Promise<void> {
   const form = document.getElementById('subscribe') as HTMLFormElement
   const toast = document.getElementById('toast')!
   let hideTimer = 0
-  form.addEventListener('submit', (e) => {
-    e.preventDefault()
-    const data = new FormData(form, (e as SubmitEvent).submitter)
-    toast.textContent = `已订阅 ${String(data.get('email'))}（${data.get('plan') === 'weekly' ? '每周' : '其它'}）`
+  const say = (text: string): void => {
+    toast.textContent = text
     toast.hidden = false
     clearTimeout(hideTimer)
     hideTimer = window.setTimeout(() => {
       toast.hidden = true
     }, 2600)
+  }
+  form.addEventListener('submit', (e) => {
+    e.preventDefault()
+    const data = new FormData(form, (e as SubmitEvent).submitter)
+    say(`已订阅 ${String(data.get('email'))}（${data.get('plan') === 'weekly' ? '每周' : '其它'}）`)
+  })
+
+  // 设置：<glass-switch> 与 checkbox 一样派发 change
+  document.getElementById('settings')!.addEventListener('change', (e) => {
+    const sw = e.target as HTMLElement & { checked: boolean }
+    const label = sw.closest('label')?.textContent?.trim() ?? ''
+    say(`${label}：${sw.checked ? '开' : '关'}`)
   })
 }
 

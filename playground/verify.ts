@@ -818,6 +818,76 @@ async function run(): Promise<void> {
       : fail(detail)
   })
 
+  await check('switch', async () => {
+    // <glass-switch>：轨道是填充、旋钮是玻璃。
+    // 静止时旋钮是白的、轨道是绿的；按下时旋钮变成透镜，透过它看到的是底下的绿色轨道 —— 轨道要是 CSS 背景，
+    // 玻璃看不见它，这里只会看到灰色的场景；松开变回白色。点一下切换并派发 change，轨道变成关的颜色。
+    // 按压的缓动靠 rAF（面板隐藏时不跑），所以模拟「减少动效」让它直接落到终点。
+    stage.debug.setBackdrop({ scene: 'flat' })
+    simulateReducedMotion(true)
+    const sw = document.createElement('glass-switch')
+    sw.toggleAttribute('checked', true)
+    Object.assign(sw.style, { position: 'absolute', left: '440px', top: '500px' })
+    let changes = 0
+    sw.addEventListener('change', () => changes++)
+    document.body.append(sw)
+    const finish = (): void => {
+      for (const a of sw.shadowRoot!.getAnimations()) a.finish()
+    }
+    finish()
+    await sleep(0)
+    const v = stage.debug.stats().viewport!
+    const s = v.compositeWidth / v.cssWidth
+    const canvasBox = stage.canvas.getBoundingClientRect()
+    const pixel = async (x: number, y: number): Promise<[number, number, number]> => {
+      const d = await readback({
+        x: Math.floor((x - canvasBox.left) * s),
+        y: Math.floor((y - canvasBox.top) * s),
+        width: 1,
+        height: 1
+      })
+      return [d[0]!, d[1]!, d[2]!]
+    }
+    const thumb = sw.shadowRoot!.querySelector<HTMLElement>('[part=thumb]')!
+    const host = sw.getBoundingClientRect()
+    const t = thumb.getBoundingClientRect()
+    const cx = t.left + t.width / 2
+    const cy = t.top + t.height / 2
+    const pipelines0 = stage.debug.stats().pipelineCreations
+    const rest = await pixel(cx, cy)
+    const track = await pixel(host.left + 6, cy)
+    sw.dispatchEvent(new PointerEvent('pointerdown', { pointerId: 9, button: 0, clientX: cx, clientY: cy, bubbles: true }))
+    finish()
+    await sleep(0)
+    const pressed = await pixel(cx, cy)
+    sw.dispatchEvent(new PointerEvent('pointerup', { pointerId: 9, button: 0, clientX: cx, clientY: cy, bubbles: true }))
+    finish()
+    await sleep(0)
+    const released = await pixel(cx, cy)
+    sw.click()
+    await sleep(10) // input / change 在 click 派发完之后的下一个任务里
+    finish()
+    await sleep(0)
+    const offTrack = await pixel(host.right - 6, cy)
+    const checkedAfter = sw.checked
+    const pipelines1 = stage.debug.stats().pipelineCreations
+    sw.remove()
+    simulateReducedMotion(null)
+    calibrationScene()
+    stage.debug.renderNow()
+
+    const white = (c: readonly number[]): boolean => Math.min(c[0]!, c[1]!, c[2]!) > 225
+    const green = (c: readonly number[]): boolean => c[1]! - c[0]! > 100 && c[1]! - c[2]! > 60
+    const f = (c: readonly number[]): string => c.join('/')
+    const detail =
+      `静止：旋钮 ${f(rest)}、轨道 ${f(track)} · 按下：旋钮 ${f(pressed)}（透过透镜看到轨道）· 松开：${f(released)} · ` +
+      `点一下：checked ${checkedAfter}、change ${changes} 次、轨道 ${f(offTrack)} · 管线 ${pipelines1 - pipelines0} 条新建`
+    return white(rest) && green(track) && green(pressed) && white(released) && !checkedAfter && changes === 1 &&
+      !green(offTrack) && pipelines1 === pipelines0
+      ? pass(detail)
+      : fail(detail)
+  })
+
   await check('component-equals-register', async () => {
     // 同一个位置先放组件、再放手动注册的 div，材质相同：区域哈希必须逐位相同
     const place = (el: HTMLElement): void => {

@@ -70,8 +70,9 @@ const CSS = `
 :host([disabled]) {
   cursor: default;
 }
-/* 禁用态让文字变淡。不用宿主的 opacity —— 玻璃跟不上 CSS 的 opacity（它画在画布上），
-   玻璃那边由材质的 opacity 同步变淡，见 motion.ts 的 dimmed()。 */
+/* 禁用态让文字变淡，玻璃那边由材质的 opacity 同步变淡（motion.ts 的 dimmed()）。
+   写这段时玻璃还跟不上 CSS 的 opacity，所以没用宿主的 opacity；现在跟得上了（<glass-switch> 的禁用态就是
+   宿主 opacity），这里保持原样，免得禁用按钮的样子（文字 0.45、玻璃 0.5）悄悄变掉。 */
 :host([disabled]) [part='label'] {
   opacity: 0.45;
 }
