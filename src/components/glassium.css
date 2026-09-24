@@ -50,6 +50,17 @@
   background-color: rgba(120, 120, 128, 0.32);
 }
 
+/* 分段控件：upgrade 之前先排成一行、画出底 */
+:where(glass-segmented:not(:defined)) {
+  display: inline-flex;
+  box-sizing: border-box;
+  height: 32px;
+  padding: 2px;
+  vertical-align: middle;
+  border-radius: 999px;
+  background-color: rgba(120, 120, 128, 0.24);
+}
+
 /* 滑块同理：upgrade 之前先占住位置，画一条轨道 */
 :where(glass-slider:not(:defined)) {
   display: inline-block;

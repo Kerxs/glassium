@@ -256,6 +256,12 @@
         max-width: 260px;
       }
 
+      /* 选中的那段压在白色旋钮上：文字换成深色 */
+      .appearance > [aria-checked='true'] {
+        color: #111;
+        font-weight: 600;
+      }
+
       .toast {
         position: fixed;
         left: 50%;
@@ -360,6 +366,14 @@
         <label><span>蓝牙</span><glass-switch name="bluetooth" checked></glass-switch></label>
         <label><span>飞行模式</span><glass-switch name="airplane" style="--glass-switch-on: #ff9f0a"></glass-switch></label>
         <label><span>亮度</span><glass-slider name="brightness" value="70" aria-label="亮度"></glass-slider></label>
+        <label>
+          <span>外观</span>
+          <glass-segmented name="appearance" value="auto" aria-label="外观" class="appearance">
+            <span value="light">浅色</span>
+            <span value="dark">深色</span>
+            <span value="auto">自动</span>
+          </glass-segmented>
+        </label>
       </glass-fill>
 
       <p class="fine">

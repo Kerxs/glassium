@@ -99,7 +99,8 @@ stage 是**外壳**：画布、面板注册表、调试参数、帧循环、监�
 - `<glass-fill>` 不是玻璃：它注册成填充（`registerFill`），颜色取 CSS 的 `--glass-fill`，由 stage 画进场景。
   几何测量与面板共用同一段代码（包围盒、旋转、缩放、裁剪祖先、CSS 上的不透明度）。
 - `<glass-switch>` 在影子树里放一块填充（轨道）和一块玻璃（旋钮），自己注册这两样；`<glass-slider>` 多一块填充
-  （进度）。按下时旋钮的材质从白色玻璃插值到透明的透镜（`thumb.ts`，两者共用），大小与位置交给 CSS（`scale`、
+  （进度）；`<glass-segmented>` 的旋钮垫在选中的段下面，位置与宽度按那一段的布局写成 CSS 变量、过渡交给 CSS。
+按下时旋钮的材质从白色玻璃插值到透明的透镜（`thumb.ts`，三者共用），大小与位置交给 CSS（`scale`、
   `translate` 独立属性），玻璃每帧跟着量。滑块的位置写成影子树里元素上的 `--_ratio`，不写宿主的 `style`
   （那是作者或框架的）。
 - 组件与 stage 的连接（stage 出现、换了、停用时重新注册，维护 `data-glassium-active`）在 `stage-link.ts`；

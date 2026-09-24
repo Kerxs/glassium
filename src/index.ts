@@ -151,6 +151,7 @@ export { GlassButton, type GlassButtonType } from './components/glass-button.ts'
 export { GlassContainer } from './components/glass-container.ts'
 export { GlassFill } from './components/glass-fill.ts'
 export { GlassSwitch } from './components/glass-switch.ts'
+export { GlassSegmented } from './components/glass-segmented.ts'
 export {
   GlassSlider,
   defaultValue as sliderDefaultValue,

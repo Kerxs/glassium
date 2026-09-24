@@ -56,7 +56,15 @@ async function main(): Promise<void> {
   document.getElementById('settings')!.addEventListener('change', (e) => {
     const target = e.target as HTMLElement & { checked?: boolean; value?: string }
     const label = target.closest('label')?.querySelector('span')?.textContent?.trim() ?? ''
-    say(target.localName === 'glass-slider' ? `${label}：${target.value}%` : `${label}：${target.checked ? '开' : '关'}`)
+    const text =
+      target.localName === 'glass-slider'
+        ? `${target.value}%`
+        : target.localName === 'glass-segmented'
+          ? (target.querySelector('[aria-checked="true"]')?.textContent ?? '')
+          : target.checked
+            ? '开'
+            : '关'
+    say(`${label}：${text}`)
   })
 }
 

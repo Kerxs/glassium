@@ -956,6 +956,74 @@ async function run(): Promise<void> {
       : fail(detail)
   })
 
+  await check('segmented', async () => {
+    // <glass-segmented>：底是填充，选中的段下面是白色的玻璃旋钮；按住时旋钮变成透镜（中心不再是白的，透出底）；
+    // 点别的段、方向键都换选中并派发 input / change，旋钮跟过去；表单数据是选中的值。
+    stage.debug.setBackdrop({ scene: 'flat' })
+    simulateReducedMotion(true)
+    const form = document.createElement('form')
+    Object.assign(form.style, { position: 'absolute', left: '440px', top: '500px', color: '#000' })
+    form.innerHTML =
+      '<glass-segmented name="period" value="week"><span value="day">日</span><span value="week">周</span><span value="month">月</span></glass-segmented>'
+    document.body.append(form)
+    const seg = form.firstElementChild as HTMLElement & { value: string; segments: HTMLElement[] }
+    const events: string[] = []
+    seg.addEventListener('input', () => events.push('input'))
+    seg.addEventListener('change', () => events.push('change'))
+    const finish = (): void => {
+      for (const a of seg.shadowRoot!.getAnimations()) a.finish()
+    }
+    await sleep(0)
+    finish()
+    const v = stage.debug.stats().viewport!
+    const s = v.compositeWidth / v.cssWidth
+    const canvasBox = stage.canvas.getBoundingClientRect()
+    const pixel = async (el: Element): Promise<[number, number, number]> => {
+      const r = el.getBoundingClientRect()
+      const d = await readback({
+        x: Math.floor((r.left + 5 - canvasBox.left) * s),
+        y: Math.floor((r.top + r.height / 2 - canvasBox.top) * s),
+        width: 1,
+        height: 1
+      })
+      return [d[0]!, d[1]!, d[2]!]
+    }
+    const [day, week, month] = seg.segments as [HTMLElement, HTMLElement, HTMLElement]
+    const pipelines0 = stage.debug.stats().pipelineCreations
+    const restSelected = await pixel(week)
+    const restOther = await pixel(day)
+    const wr = week.getBoundingClientRect()
+    seg.dispatchEvent(new PointerEvent('pointerdown', { pointerId: 13, button: 0, clientX: wr.left + 10, clientY: wr.top + 10, bubbles: true }))
+    finish()
+    await sleep(0)
+    const pressed = await pixel(week)
+    const mr = month.getBoundingClientRect()
+    seg.dispatchEvent(new PointerEvent('pointerup', { pointerId: 13, button: 0, clientX: mr.left + 10, clientY: mr.top + 10, bubbles: true }))
+    finish()
+    await sleep(0)
+    const afterClick = seg.value
+    const onMonth = await pixel(month)
+    month.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true, cancelable: true }))
+    const afterKey = seg.value // 到头回绕到第一段
+    const data = new FormData(form).get('period')
+    const pipelines1 = stage.debug.stats().pipelineCreations
+    form.remove()
+    simulateReducedMotion(null)
+    calibrationScene()
+    stage.debug.renderNow()
+
+    const white = (c: readonly number[]): boolean => Math.min(c[0]!, c[1]!, c[2]!) > 225
+    const f = (c: readonly number[]): string => c.join('/')
+    const detail =
+      `静止：选中段 ${f(restSelected)}、别的段 ${f(restOther)} · 按住：${f(pressed)} · ` +
+      `点「月」之后 ${afterClick}（旋钮 ${f(onMonth)}）· → 键回绕到 ${afterKey} · 表单 ${String(data)} · ` +
+      `事件 ${events.join(',')} · 管线 ${pipelines1 - pipelines0} 条新建`
+    return white(restSelected) && !white(restOther) && !white(pressed) && afterClick === 'month' && white(onMonth) &&
+      afterKey === 'day' && data === 'day' && events.join(',') === 'input,change,input,change' && pipelines1 === pipelines0
+      ? pass(detail)
+      : fail(detail)
+  })
+
   await check('component-equals-register', async () => {
     // 同一个位置先放组件、再放手动注册的 div，材质相同：区域哈希必须逐位相同
     const place = (el: HTMLElement): void => {

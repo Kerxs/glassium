@@ -38,7 +38,7 @@ Glassium 自己渲染的纹理。**面板背后的正文文字、图片、iframe
 ### 第一期明确不做
 
 - 玻璃盖在 DOM 内容**之上**（`GlassDialog`、`GlassSheet`）。层叠槽位已预留，东西没建。
-- `GlassTabBar`、`GlassBottomBar`、`GlassNavigation`。（`<glass-switch>`、`<glass-slider>` 做了，见下。）
+- `GlassTabBar`、`GlassBottomBar`、`GlassNavigation`。（`<glass-switch>`、`<glass-slider>`、`<glass-segmented>` 做了，见下。）
 - 形状变形过渡（多块玻璃的**合并**做了，**变形**没做）。
 - 逐面板不同的 backdrop。
 - Android / iOS 渲染器 —— 只交付 `spec/` 里的平台中立契约。
@@ -163,6 +163,9 @@ GPU 输出由 `playground/verify.html` 在浏览器里逐项验证（光学探�
       左半边透出蓝色进度（0/132/255）、右半边透出轨道。行为与原生 `<input type="range">` 相同：`role="slider"`、
       方向键 / PageUp / Home / End、按在轨道上跳过去、按在旋钮上不跳、拖动时 `input`、松手 `change`、
       `min` / `max` / `step`（`any`）按原生的规则规整（小数档不带浮点尾巴）、表单关联与重置
+- [x] **分段控件 `<glass-segmented>`**（`src/components/glass-segmented.ts`）：底是填充，选中的段下面垫同一个玻璃旋钮，
+      换选中时滑过去、宽度跟着变；按住变成透镜，可以按住拖到别的段上松手。单选组语义（`radiogroup` / `radio`、
+      roving tabindex、方向键回绕、Home / End）、`input` / `change`、表单关联与重置
 
 GPU 设备丢失时会在新设备上整套重建（实测约 30 ms，恢复后画面逐位相同），第二次丢失则降到
 WebGL2（WebGL2 的上下文丢失同理，第二次降到 CSS 兜底）。T5 到 T8 期间这一点是坏的：
@@ -170,7 +173,7 @@ WebGL2（WebGL2 的上下文丢失同理，第二次降到 CSS 兜底）。T5 �
 
 **211 条测试全绿**，playground 可跑（`npm run dev`），只用公开 API 搭的示例页在 `/demo.html`，
 逐项自动验证在 `/verify.html`
-（现在 WebGPU 上 **PASS 29/29**、WebGL2 上 **PASS 28/28**）。
+（现在 WebGPU 上 **PASS 30/30**、WebGL2 上 **PASS 29/29**）。
 
 T5 顺带把两个计划阶段悬着的硬件问题测掉了，结果记在
 [docs/calibration.md](docs/calibration.md)：`minUniformBufferOffsetAlignment` 实测 256
@@ -228,8 +231,9 @@ T5 顺带把两个计划阶段悬着的硬件问题测掉了，结果记在
 <glass-fill class="track"></glass-fill>
 ```
 
-开关与滑块是现成的：`<glass-switch name="wifi" checked></glass-switch>`、
-`<glass-slider name="volume" value="40"></glass-slider>`，颜色用 `--glass-switch-on` / `--glass-switch-off`、
+开关、滑块、分段控件是现成的：`<glass-switch name="wifi" checked></glass-switch>`、
+`<glass-slider name="volume" value="40"></glass-slider>`、
+`<glass-segmented name="view" value="list"><span value="grid">网格</span><span value="list">列表</span></glass-segmented>`，颜色用 `--glass-switch-on` / `--glass-switch-off`、
 `--glass-slider-fill` / `--glass-slider-track` 改。别把它们放进 `<glass-card>`（玻璃不叠玻璃），也别放在不透明的
 CSS 背景上（R1）—— 要一块底板就用 `<glass-fill>`。
 

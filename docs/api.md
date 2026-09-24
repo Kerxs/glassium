@@ -24,7 +24,7 @@
 
 ## 组件
 
-六个自定义元素，`defineGlassElements()` 注册（重复调用无害），同时把 `--glass-fill` 注册成 `<color>`。
+七个自定义元素，`defineGlassElements()` 注册（重复调用无害），同时把 `--glass-fill` 注册成 `<color>`。
 玻璃组件的材质写在 HTML 属性上。
 
 ### `<glass-card>`
@@ -112,6 +112,22 @@
 - CSS：`--glass-slider-fill`（进度，默认 `#007aff`）、`--glass-slider-track`（默认 `rgba(120, 120, 128, 0.2)`）。
   默认 200×28，宽度可以改；轨道 6px 高、旋钮 38×24。`::part(track)`、`::part(progress)`、`::part(thumb)`。
 - 放在哪里与 `<glass-switch>` 相同：别放进 `<glass-card>`，别放在不透明的 CSS 背景上。
+
+### `<glass-segmented>`
+
+分段控件：底是填充，选中的段下面垫一块玻璃旋钮（与开关、滑块同一个）。每个子元素是一段，值取它的 `value`
+属性，没有就取文字。
+
+- 语义是单选组：宿主 `role="radiogroup"`，每段 `role="radio"` 与 `aria-checked`；只有选中的那段可以 Tab 到，
+  方向键在段之间移动并选中（到头回绕），Home / End 到两头，空格选中当前段。
+- 点一段选中它；按住选中的那段可以拖动旋钮，松手时选中旋钮中心所在的段。按住时旋钮变成透镜。
+- 用户换选中时派发 `input` 与 `change`；程序改 `value` / `selectedIndex` 不派发。
+- **表单**：`name` 与选中的值进表单数据；`value` 属性是初始值（对不上时选第一段），表单重置回到它；`disabled`
+  与祖先 `<fieldset disabled>` 让它禁用。属性访问器：`value`、`selectedIndex`、`defaultValue`、`segments`、
+  `form`、`labels`。
+- CSS：`--glass-segmented-track`（底色，默认 `rgba(120, 120, 128, 0.24)`）。高 32px，段宽由内容决定（给宿主定宽时
+  平分）。选中的段带 `aria-checked="true"`，可以据此换文字颜色（它压在白色旋钮上）。`::part(track)`、`::part(thumb)`。
+- 放在哪里与 `<glass-switch>` 相同。
 
 ### 材质属性
 

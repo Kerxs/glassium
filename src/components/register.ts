@@ -1,5 +1,6 @@
 /**
- * 注册 `<glass-card>` / `<glass-button>` / `<glass-container>` / `<glass-fill>` / `<glass-switch>` / `<glass-slider>`，
+ * 注册 `<glass-card>` / `<glass-button>` / `<glass-container>` / `<glass-fill>` / `<glass-switch>` / `<glass-slider>` /
+ * `<glass-segmented>`，
  * 以及填充颜色的 CSS 自定义属性 `--glass-fill`。
  *
  * 显式调用，不在 import 时自动注册：自动注册是 import 的副作用，会让「只想用光学数学」的
@@ -11,6 +12,7 @@ import { GlassButton } from './glass-button.ts'
 import { GlassCard } from './glass-card.ts'
 import { GlassContainer } from './glass-container.ts'
 import { GlassFill } from './glass-fill.ts'
+import { GlassSegmented } from './glass-segmented.ts'
 import { GlassSlider } from './glass-slider.ts'
 import { GlassSwitch } from './glass-switch.ts'
 
@@ -20,7 +22,8 @@ const ELEMENTS = [
   ['glass-container', GlassContainer],
   ['glass-fill', GlassFill],
   ['glass-switch', GlassSwitch],
-  ['glass-slider', GlassSlider]
+  ['glass-slider', GlassSlider],
+  ['glass-segmented', GlassSegmented]
 ] as const
 
 /**
@@ -70,5 +73,6 @@ declare global {
     'glass-fill': GlassFill
     'glass-switch': GlassSwitch
     'glass-slider': GlassSlider
+    'glass-segmented': GlassSegmented
   }
 }
