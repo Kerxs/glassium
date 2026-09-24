@@ -709,6 +709,7 @@ export class Gl2Renderer implements Renderer {
     gl.bindTexture(gl.TEXTURE_2D, this.#chain)
     gl.uniform1i(loc(gl, p, 'chain'), 0)
     gl.uniform4f(loc(gl, p, 'uStage'), cw, ch, ox, oy)
+    gl.uniform2f(loc(gl, p, 'uStageInv'), 1 / cw, 1 / ch) // 乘倒数而不是除：理由见 shaders.ts 的 uStageInv
     gl.uniform1f(loc(gl, p, 'uOnScreen'), onScreen ? 1 : 0)
     gl.uniform1f(loc(gl, p, 'uProbe'), onScreen ? 0 : 1)
   }

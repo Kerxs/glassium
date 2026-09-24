@@ -208,6 +208,11 @@ const float DARK_RIM = 0.35;
 
 uniform sampler2D chain;
 uniform vec4 uStage;       // canvasSize.xy, probeOrigin.xy
+// 1 / canvasSize（CPU 上算好）。采样坐标乘它，不除以 canvasSize：实测 NVIDIA RTX 4070 Laptop + ANGLE（D3D11）上，
+// 片元着色器里除以 uniform 的结果会在帧与帧之间差 1 ulp —— 同一段着色器、同样的输入，这一帧是这个值、下一帧是
+// 那个值 —— 经过双线性采样放大成 ±1 的色阶，静止的画面两次回读哈希不同。乘法没有这个现象。
+// WGSL 那边（Dawn / D3D12）除法是稳定的，仍然写除法。
+uniform vec2 uStageInv;
 uniform float uOnScreen;   // 1 = 默认帧缓冲（翻 y），0 = 探针目标（不翻，加原点）
 
 out vec4 outColor;
@@ -244,12 +249,12 @@ vec4 shade(vec2 px, Shading s) {
     vec2 sR = px - s.dir * (s.displacement * w.x);
     vec2 sB = px - s.dir * (s.displacement * w.z);
     sampled = vec3(
-      textureLod(chain, sR / uStage.xy, s.blurLevel).r,
-      textureLod(chain, base / uStage.xy, s.blurLevel).g,
-      textureLod(chain, sB / uStage.xy, s.blurLevel).b
+      textureLod(chain, sR * uStageInv, s.blurLevel).r,
+      textureLod(chain, base * uStageInv, s.blurLevel).g,
+      textureLod(chain, sB * uStageInv, s.blurLevel).b
     );
   } else {
-    sampled = textureLod(chain, base / uStage.xy, s.blurLevel).rgb;
+    sampled = textureLod(chain, base * uStageInv, s.blurLevel).rgb;
   }
   vec3 filtered = applyColorFilter(sampled, s.saturation, s.tint);
   vec3 rgb = filtered * s.veil.x + (vec3(1.0) - filtered * s.veil.x) * s.veil.y;
@@ -295,7 +300,7 @@ vec3 panelAverage(vec4 rect) {
   vec3 sum = vec3(0.0);
   for (int i = 0; i < 5; i++) {
     vec2 p = rect.xy + rect.zw * spots[i];
-    sum += textureLod(chain, p / uStage.xy, ADAPT_LEVEL).rgb;
+    sum += textureLod(chain, p * uStageInv, ADAPT_LEVEL).rgb;
   }
   return sum / 5.0;
 }

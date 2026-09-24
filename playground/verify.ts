@@ -53,8 +53,9 @@ function render(done = false): void {
     ? `${passed === ran.length ? 'PASS' : 'FAIL'} ${passed}/${ran.length}${skipped ? `（跳过 ${skipped}）` : ''}`
     : `进行中… ${results.length} 项`
   const changes = viewportChanges.length > 0 ? `\n视口在运行中变过：\n  ${viewportChanges.join('\n  ')}` : ''
-  const retried = attempt > 0 ? `\n这是第 ${attempt} 次重跑，上一轮作废（视口在运行中变了）：\n  ${retryReason}` : ''
-  reportEl.innerHTML = `${head}${retried}${changes}\n\n${lines.join('\n')}`
+  const retried = attempt > 0 ? `\n这是第 ${attempt} 次重跑，上一轮作废：\n  ${retryReason}` : ''
+  const inexact = startMismatch ? `\n画布没有 1:1 对上设备像素：${startMismatch}` : ''
+  reportEl.innerHTML = `${head}${retried}${inexact}${changes}\n\n${lines.join('\n')}`
   if (done && attempt > 0) console.info(`[verify] 第 ${attempt} 次重跑；上一轮作废：${retryReason}`)
   if (done) {
     document.title = `${passed === ran.length ? 'PASS' : 'FAIL'} ${passed}/${ran.length}`
@@ -71,6 +72,9 @@ function render(done = false): void {
  * 同 DPR 的轮次不同 —— calibration 场景的布局随画布宽度变（竖直阶跃在 x = W/2），说明那时画布宽度不一样。
  */
 const viewportChanges: string[] = []
+/** 这一轮最近一次看到的视口（开头是视口稳定之后的那个），与正在跑的那一项的名字。 */
+let lastViewport: string | null = null
+let currentCheck: string | null = null
 /** 自动重跑的次数与上一轮作废的原因记在 sessionStorage 里（重新加载页面之后还在）。 */
 const RETRY_KEY = 'glassium.verify.viewportRetries'
 const RETRY_REASON_KEY = 'glassium.verify.viewportRetryReason'
@@ -96,8 +100,16 @@ const attempt = ((): number => {
  * 这一轮必须被判作废、自动重跑，重跑那一轮照常通过。
  */
 const perturbAfter = new URLSearchParams(location.search).get('verify.perturb')
+/** 开头（视口稳定之后）画布没有 1:1 对上设备像素时的说明（见 viewportMismatch）。 */
+let startMismatch: string | null = null
+/** 查问题用：`?verify.stop=<检查名>` 跑完这一项就停，后面的都不跑，页面留在那一刻的状态。 */
+const stopAfter = new URLSearchParams(location.search).get('verify.stop')
+let stopped = false
 
-/** 等视口稳定下来（连续 0.5 秒不变，最多等 5 秒）再开始。每一步同步出一帧，stats 里的视口才是新的。 */
+/**
+ * 等视口稳定下来（连续 0.5 秒不变）、并且画布 1:1 对上设备像素再开始，最多等 5 秒。每一步同步出一帧，
+ * stats 里的视口才是新的。等不到 1:1 也照跑，结果在 finish() 里另算。
+ */
 async function settleViewport(): Promise<void> {
   stage.debug.renderNow()
   let key = viewportKey()
@@ -110,10 +122,26 @@ async function settleViewport(): Promise<void> {
     if (now !== key) {
       key = now
       since = performance.now()
-    } else if (performance.now() - since >= 500) {
+    } else if (performance.now() - since >= 500 && viewportMismatch() === null) {
       return
     }
   }
+}
+
+/**
+ * 画布是不是 1:1 对上设备像素：合成目标的尺寸应当就是 CSS 尺寸 × DPR。对不上时返回说明，对得上返回 null。
+ *
+ * 真实的浏览器里两者最多差 1/128 个设备像素（布局按 1/64 CSS 像素取整）。面板的设备模拟会出现 DPR
+ * 2.0000000596、画布 767.33 CSS 像素这样的状态：1535 个设备像素摊在 1534.67 上，浏览器自己也在横向重采样
+ * 画布，横竖的缩放差万分之二 —— 转过的圆因此与没转的圆差到 5/255，这不是渲染的错。
+ */
+function viewportMismatch(): string | null {
+  const v = stage.debug.stats().viewport
+  if (!v) return null
+  const w = v.cssWidth * v.dpr
+  const h = v.cssHeight * v.dpr
+  if (Math.abs(v.compositeWidth - w) < 0.05 && Math.abs(v.compositeHeight - h) < 0.05) return null
+  return `${v.compositeWidth}×${v.compositeHeight} 设备像素摊在 ${v.cssWidth}×${v.cssHeight} CSS px × DPR ${v.dpr} = ${w.toFixed(2)}×${h.toFixed(2)} 上`
 }
 
 function viewportKey(): string {
@@ -123,7 +151,9 @@ function viewportKey(): string {
 }
 
 async function check(name: string, fn: () => Promise<Outcome>): Promise<void> {
-  const before = viewportKey()
+  if (stopped) return
+  currentCheck = name
+  noteViewport()
   let outcome: Outcome
   try {
     outcome = await fn()
@@ -134,10 +164,10 @@ async function check(name: string, fn: () => Promise<Outcome>): Promise<void> {
     stage.canvas.style.width = 'calc(100% - 20px)' // 画布是 width: 100%，改 right 收不窄它
     stage.debug.renderNow()
   }
-  const after = viewportKey()
-  if (after !== before) viewportChanges.push(`${name}：${before} → ${after}`)
+  noteViewport()
   results.push({ name, outcome })
   render()
+  if (stopAfter === name) stopped = true
 }
 
 // —— 工具 ——
@@ -156,7 +186,52 @@ let stage: GlassStage
 async function readback(region?: ReadbackRegion): Promise<Uint8Array> {
   const p = stage.debug.readback(region)
   stage.debug.renderNow()
-  return (await p).rgba
+  const rgba = (await p).rgba
+  noteViewport()
+  return rgba
+}
+
+/**
+ * 每次回读之后、每一项跑完之后都看一眼视口，变了就记下这一次跳变（跳过去、跳回来各记一次）。只在每一项前后比的话，
+ * 视口在一项里面变过去又变回来就漏掉了（实测面板的 DPR 会在 2 与 2.0000000596 之间跳，画布差一个设备像素）。
+ */
+function noteViewport(): void {
+  if (lastViewport === null) return
+  const now = viewportKey()
+  if (now === lastViewport) return
+  viewportChanges.push(`${currentCheck ?? '开始'}：${lastViewport} → ${now}`)
+  lastViewport = now
+}
+
+/**
+ * 两次回读不一样时说清楚差在哪：几个像素、最大通道差、在区域里的范围（区域坐标），
+ * 不同的像素不多时逐个列出两边的值。
+ */
+function pixelDiff(a: Uint8Array, b: Uint8Array, width: number): string {
+  let count = 0
+  let max = 0
+  let x0 = Infinity
+  let y0 = Infinity
+  let x1 = -Infinity
+  let y1 = -Infinity
+  const listed: string[] = []
+  for (let i = 0; i < a.length; i += 4) {
+    let d = 0
+    for (let c = 0; c < 4; c++) d = Math.max(d, Math.abs(a[i + c]! - b[i + c]!))
+    if (d === 0) continue
+    count++
+    max = Math.max(max, d)
+    const p = i / 4
+    const x = p % width
+    const y = (p - x) / width
+    x0 = Math.min(x0, x)
+    y0 = Math.min(y0, y)
+    x1 = Math.max(x1, x)
+    y1 = Math.max(y1, y)
+    if (listed.length < 6) listed.push(`(${x}, ${y}) ${[...a.subarray(i, i + 3)].join('/')} → ${[...b.subarray(i, i + 3)].join('/')}`)
+  }
+  if (count === 0) return '逐位相同'
+  return `${count} 个像素不同，最大差 ${max}，范围 (${x0}, ${y0})–(${x1}, ${y1})` + (count <= 6 ? `：${listed.join('；')}` : '')
 }
 
 /** 元素在画布设备像素下的矩形，四周外扩 pad。 */
@@ -312,7 +387,16 @@ async function run(): Promise<void> {
   stage = await createGlassStage({ backend })
   Object.assign(window as unknown as Record<string, unknown>, { glassiumStage: stage })
   calibrationScene()
+  // 1:1 判据的反向对照：`?verify.inexact` 把画布收窄 1/3 个 CSS 像素，合成目标就对不上设备像素了。
+  // 写成样式规则而不是画布的行内样式：cross-backend 会另建 stage，新画布也要一样窄
+  if (params.has('verify.inexact')) {
+    const style = document.createElement('style')
+    style.textContent = 'canvas[data-glassium-scene] { width: calc(100% - 0.33px) !important; }'
+    document.head.append(style)
+  }
   await settleViewport()
+  lastViewport = viewportKey()
+  startMismatch = viewportMismatch()
 
   await check('backend', async () => {
     const report = stage.debug.probe
@@ -323,6 +407,26 @@ async function run(): Promise<void> {
     render(true)
     return
   }
+
+  await check('deterministic', async () => {
+    // 静止的画面连着出 21 帧，整张画布必须逐位相同。WebGL2 在 NVIDIA RTX 4070 Laptop + ANGLE（D3D11）上曾经不是：
+    // 片元着色器里除以 uniform 的结果在帧与帧之间差 1 ulp，经过双线性采样变成 ±1 的色阶，一成到四成的帧
+    // 与别的帧不同（见 webgl2/shaders.ts 的 uStageInv）。后面按哈希比对的检查都靠这一条
+    const v = stage.debug.stats().viewport!
+    const full = { x: 0, y: 0, width: v.compositeWidth, height: v.compositeHeight }
+    const first = await readback(full)
+    const firstHash = await sha(first)
+    let differing = 0
+    let where = ''
+    for (let i = 0; i < 20; i++) {
+      const next = await readback(full)
+      if ((await sha(next)) === firstHash) continue
+      differing++
+      if (!where) where = pixelDiff(first, next, full.width)
+    }
+    const detail = `整张画布（${full.width}×${full.height}）连着 21 帧：` + (differing === 0 ? '逐位相同' : `${differing} 帧与第一帧不同，头一帧 ${where}`)
+    return differing === 0 ? pass(detail) : fail(detail)
+  })
 
   const probes = await probeAll()
   for (const id of ['v-card', 'v-pill', 'v-asym']) {
@@ -1374,16 +1478,18 @@ async function run(): Promise<void> {
     place(comp)
     await sleep(0)
     const region = regionOf([comp], 8)
-    const a = await sha(await readback(region))
+    const compPixels = await readback(region)
+    const a = await sha(compPixels)
     comp.remove()
     const div = document.createElement('div')
     place(div)
     const panel = stage.register(div, { ...GlassPresets.regular, cornerRadius: 20 })
-    const b = await sha(await readback(region))
+    const manualPixels = await readback(region)
+    const b = await sha(manualPixels)
     panel.unregister()
     div.remove()
     stage.debug.renderNow()
-    const detail = `组件 ${a.slice(0, 12)} · 手动 ${b.slice(0, 12)}`
+    const detail = `组件 ${a.slice(0, 12)} · 手动 ${b.slice(0, 12)}` + (a === b ? '' : ` · ${pixelDiff(compPixels, manualPixels, region.width)}`)
     return a === b ? pass(detail) : fail(detail)
   })
 
@@ -1463,7 +1569,8 @@ async function run(): Promise<void> {
     right.style.left = '340px'
     const buttons = [...duo.querySelectorAll('glass-button')]
     const region = regionOf(buttons, 12)
-    const grouped = await sha(await readback(region))
+    const groupedPixels = await readback(region)
+    const grouped = await sha(groupedPixels)
     const groupsBefore = stage.debug.stats().groups
     const plain = document.createElement('div')
     plain.id = 'v-duo-plain'
@@ -1471,7 +1578,8 @@ async function run(): Promise<void> {
     duo.replaceWith(plain)
     for (const b of buttons) plain.append(b)
     await sleep(0)
-    const standalone = await sha(await readback(region))
+    const standalonePixels = await readback(region)
+    const standalone = await sha(standalonePixels)
     const groupsAfter = stage.debug.stats().groups
     // 复原
     plain.replaceWith(duo)
@@ -1479,7 +1587,9 @@ async function run(): Promise<void> {
     right.style.left = '130px'
     await sleep(0)
     stage.debug.renderNow()
-    const detail = `合并 ${grouped.slice(0, 12)}（${groupsBefore} 组）· 单独 ${standalone.slice(0, 12)}（${groupsAfter} 组）`
+    const detail =
+      `合并 ${grouped.slice(0, 12)}（${groupsBefore} 组）· 单独 ${standalone.slice(0, 12)}（${groupsAfter} 组）` +
+      (grouped === standalone ? '' : ` · ${pixelDiff(groupedPixels, standalonePixels, region.width)}`)
     return grouped === standalone && groupsBefore === 1 && groupsAfter === 0 ? pass(detail) : fail(detail)
   })
 
@@ -1742,12 +1852,21 @@ async function run(): Promise<void> {
 }
 
 /**
- * 一轮跑完：视口中途变过的话这一轮不算数 —— 重新加载页面再跑（最多 MAX_RETRIES 次，次数记在 sessionStorage），
- * 标题栏写明原因；重跑之后仍然不稳就判失败。视口没变就清掉重跑次数。
+ * 一轮跑完。这一轮不算数、重新加载页面再跑（最多 MAX_RETRIES 次，次数记在 sessionStorage，标题栏写明原因）的两种情况：
+ * - 视口中途变过。重跑之后仍然不稳就判失败。
+ * - 画布从头就没有 1:1 对上设备像素（见 viewportMismatch），并且有检查失败。重跑够了还是这样就照实报 ——
+ *   失败的项留着，标题栏写着画布没对上。
+ * 否则清掉重跑次数。
  */
 function finish(): void {
-  const retries = attempt
-  if (viewportChanges.length === 0) {
+  const failed = results.filter((r) => r.outcome.status === 'fail').map((r) => r.name)
+  const reason =
+    viewportChanges.length > 0
+      ? `视口在运行中变了：${viewportChanges.join('；')}`
+      : startMismatch && failed.length > 0
+        ? `画布没有 1:1 对上设备像素（${startMismatch}），失败的项：${failed.join('、')}`
+        : null
+  if (reason === null || (attempt >= MAX_RETRIES && viewportChanges.length === 0)) {
     render(true)
     try {
       sessionStorage.removeItem(RETRY_KEY)
@@ -1757,15 +1876,15 @@ function finish(): void {
     }
     return
   }
-  if (retries < MAX_RETRIES) {
+  if (attempt < MAX_RETRIES) {
     try {
-      sessionStorage.setItem(RETRY_KEY, String(retries + 1))
-      sessionStorage.setItem(RETRY_REASON_KEY, viewportChanges.join('；'))
+      sessionStorage.setItem(RETRY_KEY, String(attempt + 1))
+      sessionStorage.setItem(RETRY_REASON_KEY, reason)
     } catch {
       // sessionStorage 不可用时 attempt 已经是 MAX_RETRIES，走不到这里
     }
     render(false)
-    document.title = `视口在运行中变了，重跑（第 ${retries + 1} 次）`
+    document.title = `这一轮作废，重跑（第 ${attempt + 1} 次）`
     location.reload()
     return
   }
