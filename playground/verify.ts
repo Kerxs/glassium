@@ -888,6 +888,74 @@ async function run(): Promise<void> {
       : fail(detail)
   })
 
+  await check('slider', async () => {
+    // <glass-slider>：轨道与进度是填充、旋钮是玻璃。静止时旋钮白、左边进度蓝、右边轨道不蓝；
+    // 按下时旋钮变成透镜，左半边透出蓝色进度、右半边透出轨道；方向键走一档；按在轨道 25% 处跳到 25，
+    // 松手派发 change，表单数据跟着变。
+    stage.debug.setBackdrop({ scene: 'flat' })
+    simulateReducedMotion(true)
+    const form = document.createElement('form')
+    Object.assign(form.style, { position: 'absolute', left: '440px', top: '500px' })
+    const sl = document.createElement('glass-slider')
+    sl.setAttribute('name', 'level')
+    sl.setAttribute('value', '50')
+    sl.style.width = '240px'
+    form.append(sl)
+    document.body.append(form)
+    const events: string[] = []
+    sl.addEventListener('input', () => events.push('input'))
+    sl.addEventListener('change', () => events.push('change'))
+    await sleep(0)
+    const v = stage.debug.stats().viewport!
+    const s = v.compositeWidth / v.cssWidth
+    const canvasBox = stage.canvas.getBoundingClientRect()
+    const pixel = async (x: number, y: number): Promise<[number, number, number]> => {
+      const d = await readback({ x: Math.floor((x - canvasBox.left) * s), y: Math.floor((y - canvasBox.top) * s), width: 1, height: 1 })
+      return [d[0]!, d[1]!, d[2]!]
+    }
+    const host = sl.getBoundingClientRect()
+    const thumb = sl.shadowRoot!.querySelector<HTMLElement>('[part=thumb]')!
+    const t = thumb.getBoundingClientRect()
+    const cx = t.left + t.width / 2
+    const cy = t.top + t.height / 2
+    const pipelines0 = stage.debug.stats().pipelineCreations
+    const rest = await pixel(cx, cy)
+    const progress = await pixel(host.left + 6, cy)
+    const track = await pixel(host.right - 6, cy)
+    sl.dispatchEvent(new PointerEvent('pointerdown', { pointerId: 11, button: 0, clientX: cx, clientY: cy, bubbles: true, cancelable: true }))
+    for (const a of sl.shadowRoot!.getAnimations()) a.finish()
+    await sleep(0)
+    const lensLeft = await pixel(cx - 10, cy)
+    const lensRight = await pixel(cx + 10, cy)
+    sl.dispatchEvent(new PointerEvent('pointerup', { pointerId: 11, button: 0, clientX: cx, clientY: cy, bubbles: true }))
+    const noChangeOnGrab = events.length === 0
+    sl.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true, cancelable: true }))
+    const afterKey = (sl as unknown as { value: string }).value
+    // 按在轨道 25% 处（旋钮中心能走的范围是 [19, 宽 − 19]）
+    const x25 = host.left + 19 + 0.25 * (host.width - 38)
+    sl.dispatchEvent(new PointerEvent('pointerdown', { pointerId: 12, button: 0, clientX: x25, clientY: cy, bubbles: true, cancelable: true }))
+    sl.dispatchEvent(new PointerEvent('pointerup', { pointerId: 12, button: 0, clientX: x25, clientY: cy, bubbles: true }))
+    const afterJump = (sl as unknown as { value: string }).value
+    const data = new FormData(form).get('level')
+    const pipelines1 = stage.debug.stats().pipelineCreations
+    form.remove()
+    simulateReducedMotion(null)
+    calibrationScene()
+    stage.debug.renderNow()
+
+    const white = (c: readonly number[]): boolean => Math.min(c[0]!, c[1]!, c[2]!) > 225
+    const blue = (c: readonly number[]): boolean => c[2]! > 200 && c[2]! - c[0]! > 120
+    const f = (c: readonly number[]): string => c.join('/')
+    const detail =
+      `静止：旋钮 ${f(rest)}、进度 ${f(progress)}、轨道 ${f(track)} · 按下：透镜左 ${f(lensLeft)}、右 ${f(lensRight)} · ` +
+      `→ 键之后 ${afterKey}、按在 25% 处 ${afterJump}、表单 ${String(data)} · 事件 ${events.join(',')} · 管线 ${pipelines1 - pipelines0} 条新建`
+    return white(rest) && blue(progress) && !blue(track) && blue(lensLeft) && !blue(lensRight) && noChangeOnGrab &&
+      afterKey === '51' && afterJump === '25' && data === '25' &&
+      events.join(',') === 'input,change,input,change' && pipelines1 === pipelines0
+      ? pass(detail)
+      : fail(detail)
+  })
+
   await check('component-equals-register', async () => {
     // 同一个位置先放组件、再放手动注册的 div，材质相同：区域哈希必须逐位相同
     const place = (el: HTMLElement): void => {

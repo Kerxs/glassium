@@ -38,7 +38,7 @@ Glassium 自己渲染的纹理。**面板背后的正文文字、图片、iframe
 ### 第一期明确不做
 
 - 玻璃盖在 DOM 内容**之上**（`GlassDialog`、`GlassSheet`）。层叠槽位已预留，东西没建。
-- `GlassSlider`、`GlassTabBar`、`GlassBottomBar`、`GlassNavigation`。（`<glass-switch>` 做了，见下。）
+- `GlassTabBar`、`GlassBottomBar`、`GlassNavigation`。（`<glass-switch>`、`<glass-slider>` 做了，见下。）
 - 形状变形过渡（多块玻璃的**合并**做了，**变形**没做）。
 - 逐面板不同的 backdrop。
 - Android / iOS 渲染器 —— 只交付 `spec/` 里的平台中立契约。
@@ -159,14 +159,18 @@ GPU 输出由 `playground/verify.html` 在浏览器里逐项验证（光学探�
       平时旋钮是白的，按下时鼓起来变成透明的透镜，透过它看得见底下的轨道（实测旋钮中心从 247/253/248 变成轨道的绿
       29/212/75；轨道不是填充时只看得到灰色的场景），松开时切换。行为与原生 `<input type="checkbox" switch>` 相同：
       `role="switch"`、空格切换、可以拖动旋钮、`input` / `change`、表单关联、`<label>`、fieldset 禁用、表单重置
+- [x] **滑块 `<glass-slider>`**（`src/components/glass-slider.ts`）：轨道与进度是填充、旋钮是玻璃，拖动时旋钮变成透镜，
+      左半边透出蓝色进度（0/132/255）、右半边透出轨道。行为与原生 `<input type="range">` 相同：`role="slider"`、
+      方向键 / PageUp / Home / End、按在轨道上跳过去、按在旋钮上不跳、拖动时 `input`、松手 `change`、
+      `min` / `max` / `step`（`any`）按原生的规则规整（小数档不带浮点尾巴）、表单关联与重置
 
 GPU 设备丢失时会在新设备上整套重建（实测约 30 ms，恢复后画面逐位相同），第二次丢失则降到
 WebGL2（WebGL2 的上下文丢失同理，第二次降到 CSS 兜底）。T5 到 T8 期间这一点是坏的：
 日志说会重新初始化，实际上画布会冻住 —— 现已修复，见 [docs/limitations.md](docs/limitations.md)。
 
-**207 条测试全绿**，playground 可跑（`npm run dev`），只用公开 API 搭的示例页在 `/demo.html`，
+**211 条测试全绿**，playground 可跑（`npm run dev`），只用公开 API 搭的示例页在 `/demo.html`，
 逐项自动验证在 `/verify.html`
-（现在 WebGPU 上 **PASS 28/28**、WebGL2 上 **PASS 27/27**）。
+（现在 WebGPU 上 **PASS 29/29**、WebGL2 上 **PASS 28/28**）。
 
 T5 顺带把两个计划阶段悬着的硬件问题测掉了，结果记在
 [docs/calibration.md](docs/calibration.md)：`minUniformBufferOffsetAlignment` 实测 256
@@ -224,8 +228,10 @@ T5 顺带把两个计划阶段悬着的硬件问题测掉了，结果记在
 <glass-fill class="track"></glass-fill>
 ```
 
-开关是现成的：`<glass-switch name="wifi" checked></glass-switch>`，颜色用 `--glass-switch-on` / `--glass-switch-off` 改。
-别把它放进 `<glass-card>`（玻璃不叠玻璃），也别放在不透明的 CSS 背景上（R1）—— 要一块底板就用 `<glass-fill>`。
+开关与滑块是现成的：`<glass-switch name="wifi" checked></glass-switch>`、
+`<glass-slider name="volume" value="40"></glass-slider>`，颜色用 `--glass-switch-on` / `--glass-switch-off`、
+`--glass-slider-fill` / `--glass-slider-track` 改。别把它们放进 `<glass-card>`（玻璃不叠玻璃），也别放在不透明的
+CSS 背景上（R1）—— 要一块底板就用 `<glass-fill>`。
 
 不用组件也行：`stage.register(element, material)` 可以把任意元素注册成玻璃面板，
 `stage.registerFill(element)` 注册填充。

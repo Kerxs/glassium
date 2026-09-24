@@ -251,6 +251,11 @@
         border-top: 0.5px solid rgba(255, 255, 255, 0.16);
       }
 
+      .settings glass-slider {
+        flex: 1 1 auto;
+        max-width: 260px;
+      }
+
       .toast {
         position: fixed;
         left: 50%;
@@ -349,11 +354,12 @@
         <glass-button preset="thick" name="plan" value="weekly">每周订阅</glass-button>
       </form>
 
-      <p class="section-title">设置（按住开关的旋钮，它变成透镜）</p>
+      <p class="section-title">设置（按住开关或滑块的旋钮，它变成透镜）</p>
       <glass-fill class="settings" id="settings">
         <label><span>无线局域网</span><glass-switch name="wifi" checked></glass-switch></label>
         <label><span>蓝牙</span><glass-switch name="bluetooth" checked></glass-switch></label>
         <label><span>飞行模式</span><glass-switch name="airplane" style="--glass-switch-on: #ff9f0a"></glass-switch></label>
+        <label><span>亮度</span><glass-slider name="brightness" value="70" aria-label="亮度"></glass-slider></label>
       </glass-fill>
 
       <p class="fine">

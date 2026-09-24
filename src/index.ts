@@ -150,7 +150,16 @@ export { GlassCard } from './components/glass-card.ts'
 export { GlassButton, type GlassButtonType } from './components/glass-button.ts'
 export { GlassContainer } from './components/glass-container.ts'
 export { GlassFill } from './components/glass-fill.ts'
-export { GlassSwitch, THUMB_PRESSED, THUMB_REST, thumbMaterial } from './components/glass-switch.ts'
+export { GlassSwitch } from './components/glass-switch.ts'
+export {
+  GlassSlider,
+  defaultValue as sliderDefaultValue,
+  parseRange as parseSliderRange,
+  ratioOf as sliderRatio,
+  snapValue as snapSliderValue,
+  type SliderRange
+} from './components/glass-slider.ts'
+export { PressTween, THUMB_PRESSED, THUMB_REST, thumbMaterial, type ThumbParams } from './components/thumb.ts'
 export { MATERIAL_ATTRIBUTES, parseMaterialAttributes } from './components/attributes.ts'
 
 // —— 玻璃面板（T7 起）与合并组（T10 起）——

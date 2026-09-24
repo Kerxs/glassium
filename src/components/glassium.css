@@ -50,6 +50,15 @@
   background-color: rgba(120, 120, 128, 0.32);
 }
 
+/* 滑块同理：upgrade 之前先占住位置，画一条轨道 */
+:where(glass-slider:not(:defined)) {
+  display: inline-block;
+  width: 200px;
+  height: 28px;
+  vertical-align: middle;
+  background: linear-gradient(rgba(120, 120, 128, 0.2), rgba(120, 120, 128, 0.2)) center / 100% 6px no-repeat;
+}
+
 /*
  * 没有玻璃时，填充就是一块普通的 CSS 背景。有玻璃时颜色画在场景里（玻璃看得见它），
  * 元素自己必须透明 —— 否则它会挡住放在它上面的玻璃（R1）。

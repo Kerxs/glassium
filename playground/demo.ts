@@ -52,11 +52,11 @@ async function main(): Promise<void> {
     say(`已订阅 ${String(data.get('email'))}（${data.get('plan') === 'weekly' ? '每周' : '其它'}）`)
   })
 
-  // 设置：<glass-switch> 与 checkbox 一样派发 change
+  // 设置：<glass-switch> 与 checkbox、<glass-slider> 与 range 一样派发 change
   document.getElementById('settings')!.addEventListener('change', (e) => {
-    const sw = e.target as HTMLElement & { checked: boolean }
-    const label = sw.closest('label')?.textContent?.trim() ?? ''
-    say(`${label}：${sw.checked ? '开' : '关'}`)
+    const target = e.target as HTMLElement & { checked?: boolean; value?: string }
+    const label = target.closest('label')?.querySelector('span')?.textContent?.trim() ?? ''
+    say(target.localName === 'glass-slider' ? `${label}：${target.value}%` : `${label}：${target.checked ? '开' : '关'}`)
   })
 }
 

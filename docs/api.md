@@ -24,7 +24,7 @@
 
 ## 组件
 
-五个自定义元素，`defineGlassElements()` 注册（重复调用无害），同时把 `--glass-fill` 注册成 `<color>`。
+六个自定义元素，`defineGlassElements()` 注册（重复调用无害），同时把 `--glass-fill` 注册成 `<color>`。
 玻璃组件的材质写在 HTML 属性上。
 
 ### `<glass-card>`
@@ -89,6 +89,29 @@
   默认 64×28，宽高可以改（旋钮高 = 宿主高 − 4px，宽高比 13:8）。`::part(track)`、`::part(thumb)` 可以从外面选中。
 - 别放进 `<glass-card>`（玻璃不叠玻璃：卡片会把轨道一起模糊掉），也别放在不透明的 CSS 背景上（R1）。
   要一块底板，用 `<glass-fill>`（它也在场景里，画在轨道下面）。
+
+### `<glass-slider>`
+
+滑块：轨道与进度是填充、旋钮是玻璃（与 `<glass-switch>` 同一个旋钮，拖动时变成透镜）。
+
+- 宿主就是滑块：`role="slider"`、`aria-valuenow` / `aria-valuemin` / `aria-valuemax`、可聚焦。方向键走一档，
+  PageUp / PageDown 走十分之一，Home / End 到两头。
+- 按在轨道上跳到那里并可以接着拖；按在旋钮上从原处拖，不跳。
+- 值变了就派发 `input`；松手（或一次键盘操作）之后值与按下时不同就派发 `change`；程序改 `value` 不派发。
+- **表单**：表单关联的自定义元素，与 range 相同。
+
+  | 属性 / 属性访问器 | 说明 |
+  |---|---|
+  | `value`（属性访问器） | 当前值，字符串；设置时规整到范围与档上。`valueAsNumber` 是数 |
+  | `value`（HTML 属性）、`defaultValue` | 初始值，表单重置回到它；不写时是范围的中点 |
+  | `min`、`max`、`step` | 默认 0 / 100 / 1；`step="any"` 连续。值落到最近的一档（从 min 起算），与原生的规则相同 |
+  | `name` | 当前值进表单数据 |
+  | `disabled` | 禁用（祖先 `<fieldset disabled>` 同样生效） |
+  | `form`、`labels`（只读） | 表单归属、关联的 `<label>` |
+
+- CSS：`--glass-slider-fill`（进度，默认 `#007aff`）、`--glass-slider-track`（默认 `rgba(120, 120, 128, 0.2)`）。
+  默认 200×28，宽度可以改；轨道 6px 高、旋钮 38×24。`::part(track)`、`::part(progress)`、`::part(thumb)`。
+- 放在哪里与 `<glass-switch>` 相同：别放进 `<glass-card>`，别放在不透明的 CSS 背景上。
 
 ### 材质属性
 

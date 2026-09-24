@@ -20,76 +20,17 @@
  * 尺寸：默认 64×28，可以用 CSS 改宽高：旋钮高度 = 宿主高度 − 4px，宽高比 13:8。
  */
 
-import type { GlassMaterial } from '../core/material.ts'
 import type { GlassPanel } from '../renderer/panels.ts'
-import { prefersReducedMotion } from '../renderer/stage.ts'
 import { HTMLElementBase, sharedSheet } from './base.ts'
-import { approach, SETTLE_EPSILON, TAU_MS } from './motion.ts'
 import { StageLink } from './stage-link.ts'
+import { PressTween, thumbMaterial } from './thumb.ts'
+
+export { THUMB_PRESSED, THUMB_REST, thumbMaterial } from './thumb.ts'
 
 /** 旋钮与轨道边缘的间隙，CSS 像素（与样式里的 2px 一致）。 */
 const INSET = 2
 /** 拖过这么多 CSS 像素才算拖动（否则是点击）。 */
 const DRAG_THRESHOLD = 3
-
-/** 旋钮材质里随按压变化的那几项。 */
-interface ThumbParams {
-  readonly blur: number
-  readonly refraction: number
-  readonly distortion: number
-  readonly saturation: number
-  readonly highlight: number
-  readonly dispersion: number
-  readonly shadow: number
-  /** 白色 tint 的 alpha：静止时几乎不透明（白旋钮），按下时几乎透明（透镜）。 */
-  readonly whiteness: number
-}
-
-/** 静止：白色、几乎不透明的玻璃，带一圈亮边和影子。 */
-export const THUMB_REST: ThumbParams = {
-  blur: 3,
-  refraction: 0.25,
-  distortion: 0.2,
-  saturation: 1,
-  highlight: 0.5,
-  dispersion: 0,
-  shadow: 0.35,
-  whiteness: 0.96
-}
-
-/** 按下：透明的透镜 —— 折射带深、位移强、带一点色散，透过它看得见底下的轨道。 */
-export const THUMB_PRESSED: ThumbParams = {
-  blur: 0,
-  refraction: 0.7,
-  distortion: 0.4,
-  saturation: 1.3,
-  highlight: 1,
-  dispersion: 0.2,
-  shadow: 0.2,
-  whiteness: 0.04
-}
-
-/** 按压能量 0–1 时旋钮的材质：各项在静止与按下之间线性插值。 */
-export function thumbMaterial(energy: number): GlassMaterial {
-  const e = Math.min(Math.max(energy, 0), 1)
-  // a·(1 − e) + b·e 而不是 a + (b − a)·e：两头都精确落在端点上（后者在 e = 1 时带出末位误差）
-  const mix = (a: number, b: number): number => a * (1 - e) + b * e
-  const r = THUMB_REST
-  const p = THUMB_PRESSED
-  return {
-    cornerRadius: '1frac',
-    blur: mix(r.blur, p.blur),
-    refraction: mix(r.refraction, p.refraction),
-    distortion: mix(r.distortion, p.distortion),
-    saturation: mix(r.saturation, p.saturation),
-    highlight: mix(r.highlight, p.highlight),
-    dispersion: mix(r.dispersion, p.dispersion),
-    shadow: mix(r.shadow, p.shadow),
-    tint: `rgba(255, 255, 255, ${mix(r.whiteness, p.whiteness)})`,
-    adaptive: 0,
-    depthEffect: 1
-  }
-}
 
 const CSS = `
 :host {
@@ -200,7 +141,7 @@ export class GlassSwitch extends HTMLElementBase {
   readonly #thumb: HTMLElement
   #panel: GlassPanel | null = null
   readonly #link = new StageLink(this, (stage) => {
-    const panel = stage.register(this.#thumb, thumbMaterial(this.#energy))
+    const panel = stage.register(this.#thumb, thumbMaterial(this.#tween.energy))
     const fill = stage.registerFill(this.#track)
     this.#panel = panel
     return () => {
@@ -215,11 +156,8 @@ export class GlassSwitch extends HTMLElementBase {
   #formDisabled = false
   #ownsTabindex = false
 
-  /** 按压能量（0 静止、1 按下）与它的缓动。 */
-  #energy = 0
-  #target = 0
-  #raf = 0
-  #lastTick = 0
+  /** 按压能量（0 静止、1 按下）的缓动：每一步把旋钮的材质推给面板。 */
+  readonly #tween = new PressTween((energy) => this.#panel?.setMaterial(thumbMaterial(energy)))
 
   /** 指针按下时的状态：拖动与点击的区分。 */
   #pointerId: number | null = null
@@ -313,10 +251,8 @@ export class GlassSwitch extends HTMLElementBase {
 
   disconnectedCallback(): void {
     this.#link.disconnect()
-    if (this.#raf !== 0) cancelAnimationFrame(this.#raf)
-    this.#raf = 0
-    this.#energy = 0
-    this.#target = 0
+    this.#tween.reset()
+    this.toggleAttribute('data-pressed', false)
     this.#endPointer()
   }
 
@@ -389,7 +325,8 @@ export class GlassSwitch extends HTMLElementBase {
     this.#dragging = true
     this.#offset = Math.min(this.#travel, Math.max(0, this.#startOffset + dx))
     this.toggleAttribute('data-dragging', true)
-    this.style.setProperty('--glass-switch-drag', `${this.#offset}px`)
+    // 写在旋钮上而不是宿主的 style 上：宿主的 style 是作者（或框架）的
+    this.#thumb.style.setProperty('--glass-switch-drag', `${this.#offset}px`)
   }
 
   #onPointerUp = (e: PointerEvent): void => {
@@ -417,7 +354,7 @@ export class GlassSwitch extends HTMLElementBase {
     this.#pointerId = null
     this.#dragging = false
     this.removeAttribute('data-dragging')
-    this.style.removeProperty('--glass-switch-drag')
+    this.#thumb.style.removeProperty('--glass-switch-drag')
   }
 
   #onKeyDown = (e: KeyboardEvent): void => {
@@ -481,30 +418,10 @@ export class GlassSwitch extends HTMLElementBase {
     this.dispatchEvent(new Event('change', { bubbles: true }))
   }
 
-  // —— 按压的动画 ——
+  // —— 按压：旋钮的大小交给 CSS（data-pressed），材质交给缓动 ——
 
   #press(pressed: boolean): void {
     this.toggleAttribute('data-pressed', pressed)
-    this.#target = pressed ? 1 : 0
-    if (prefersReducedMotion()) {
-      if (this.#raf !== 0) cancelAnimationFrame(this.#raf)
-      this.#raf = 0
-      this.#energy = this.#target
-      this.#panel?.setMaterial(thumbMaterial(this.#energy))
-      return
-    }
-    if (this.#energy !== this.#target && this.#raf === 0) {
-      this.#lastTick = performance.now()
-      this.#raf = requestAnimationFrame(this.#tick)
-    }
-  }
-
-  #tick = (now: number): void => {
-    const dt = now - this.#lastTick
-    this.#lastTick = now
-    this.#energy = approach(this.#energy, this.#target, dt, TAU_MS)
-    if (Math.abs(this.#energy - this.#target) < SETTLE_EPSILON) this.#energy = this.#target
-    this.#panel?.setMaterial(thumbMaterial(this.#energy))
-    this.#raf = this.#energy === this.#target ? 0 : requestAnimationFrame(this.#tick)
+    this.#tween.press(pressed)
   }
 }

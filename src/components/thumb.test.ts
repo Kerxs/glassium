@@ -2,7 +2,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 
 import { lowerMaterial, parseTint } from '../core/material.ts'
-import { THUMB_PRESSED, THUMB_REST, thumbMaterial } from './glass-switch.ts'
+import { THUMB_PRESSED, THUMB_REST, thumbMaterial } from './thumb.ts'
 
 test('旋钮材质：能量 0 是静止（白旋钮），1 是按下（透镜），出界的钳住', () => {
   const rest = thumbMaterial(0)
