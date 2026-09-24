@@ -58,7 +58,7 @@ import type {
 import { GpuRenderer } from './gpu.ts'
 import { unchangedFrame, type FrameSnapshot } from './idle.ts'
 import { LayerWatcher, type LayerProblem } from './layering.ts'
-import { PanelRegistry, type GlassGroup, type GlassPanel, type MaterialFilter } from './panels.ts'
+import { PanelRegistry, type GlassGroup, type GlassPanel, type MaterialFilter, type SceneFill } from './panels.ts'
 import {
   SceneSlot,
   sceneFallbackCss,
@@ -105,6 +105,8 @@ export interface GlassStats {
   readonly panels: number
   /** 本帧画了几个合并组。每组一次 draw call，与成员数无关。 */
   readonly groups: number
+  /** 本帧画了几块填充（`<glass-fill>`，屏外的、完全透明的不算）。每块两次 draw：场景一次、画布一次。 */
+  readonly fills: number
   /**
    * 上一帧主线程上的耗时，毫秒：measure 是量所有面板（getBoundingClientRect 等）的那一段，
    * total 是整帧（测量 + 打包 + 编码与提交）。不含 GPU 执行时间。没有画的帧只有测量与比较。
@@ -230,6 +232,12 @@ export interface GlassStage {
    */
   group(options?: { readonly smoothing?: number }): GlassGroup
   /**
+   * 把一个 DOM 元素注册成填充：它的盒子（含圆角、变换、裁剪、不透明度）按 CSS 自定义属性
+   * `--glass-fill` 的颜色画进场景 —— 玻璃折射它、模糊它，与场景里的任何东西一样。
+   * `<glass-fill>` 背后就是它。元素自己的 CSS 背景要透明（R1），颜色只写在 `--glass-fill` 上。
+   */
+  registerFill(element: HTMLElement): SceneFill
+  /**
    * 玻璃后面画什么：一张图、一段视频或一块画布，按 fit 铺满视口。传 null 回到内置场景。
    *
    * 返回的 Promise 在新场景可以画出来时 resolve（图片已解码并缩放好、视频有了第一帧），
@@ -257,6 +265,11 @@ export interface GlassStage {
     readonly probe: BackendReport | null
     /** 调整全屏背景视图的参数。见 BackdropDebugParams。 */
     setBackdrop(params: BackdropDebugParams): void
+    /**
+     * 临时换一个像素预算（maxPixels），null 恢复创建时的值。下一帧按新预算重新分配场景目标。
+     * 验证「场景分辨率低于画布」时的行为用 —— DPR 1 的小视口上预算从来不紧，那条路径平时走不到。
+     */
+    setPixelBudget(maxPixels: number | null): void
     /**
      * 回读画布上一块区域的像素。不给 region 时取画布中心 READBACK_SIZE 见方。
      *
@@ -557,6 +570,7 @@ async function buildStage(options: GlassStageOptions): Promise<GlassStage> {
   let blurPasses = 0
   let panelsLastFrame = 0
   let groupsLastFrame = 0
+  let fillsLastFrame = 0
   let measureMs = 0
   let frameMs = 0
   let sceneUploads = 0
@@ -579,6 +593,8 @@ async function buildStage(options: GlassStageOptions): Promise<GlassStage> {
     radialRadius: 0.5
   }
   let panelDebugMode: PanelDebugMode = 'off'
+  /** 调试用的像素预算（debug.setPixelBudget），null 用创建时的 options.maxPixels。 */
+  let pixelBudget: number | null = null
 
   const panels = new PanelRegistry(() => requestRender())
   const scene = new SceneSlot(
@@ -649,7 +665,7 @@ async function buildStage(options: GlassStageOptions): Promise<GlassStage> {
     const cssWidth = Math.max(1, box.width)
     const cssHeight = Math.max(1, box.height)
     const dpr = window.devicePixelRatio || 1
-    const next = resolveViewport(cssWidth, cssHeight, dpr, options.maxPixels, options.minSceneRatio)
+    const next = resolveViewport(cssWidth, cssHeight, dpr, pixelBudget ?? options.maxPixels, options.minSceneRatio)
 
     const changed =
       forceResize ||
@@ -708,6 +724,7 @@ async function buildStage(options: GlassStageOptions): Promise<GlassStage> {
       sceneImage: scene.frame(viewport),
       panels: measured.panels,
       groups: measured.groups,
+      fills: measured.fills,
       panelDebugMode
     }
 
@@ -750,6 +767,7 @@ async function buildStage(options: GlassStageOptions): Promise<GlassStage> {
     for (const g of measured.groups) grouped += g.members.length
     panelsLastFrame = measured.panels.length + grouped
     groupsLastFrame = measured.groups.length
+    fillsLastFrame = measured.fills.length
     tickFps(now, true)
   }
 
@@ -1081,6 +1099,7 @@ async function buildStage(options: GlassStageOptions): Promise<GlassStage> {
           blurLevels: renderer?.blurLevels ?? 0,
           panels: panelsLastFrame,
           groups: groupsLastFrame,
+          fills: fillsLastFrame,
           cpuMs: { measure: measureMs, total: frameMs },
           deviceLosses,
           pipelineCreations: gpuCreated.pipelines + glCreated.programs,
@@ -1162,6 +1181,10 @@ async function buildStage(options: GlassStageOptions): Promise<GlassStage> {
           requestRender()
         })
       },
+      setPixelBudget(maxPixels: number | null): void {
+        pixelBudget = maxPixels !== null && Number.isFinite(maxPixels) && maxPixels > 0 ? maxPixels : null
+        requestRender()
+      },
       setBackdrop(params: BackdropDebugParams): void {
         backdrop = {
           blurDp: params.blurDp ?? backdrop.blurDp,
@@ -1192,6 +1215,9 @@ async function buildStage(options: GlassStageOptions): Promise<GlassStage> {
     },
     group(options: { readonly smoothing?: number } = {}): GlassGroup {
       return panels.group(options)
+    },
+    registerFill(element: HTMLElement): SceneFill {
+      return panels.registerFill(element)
     },
     setScene(source: GlassSceneSource | null, sceneOptions: SceneOptions = {}): Promise<void> {
       return scene.set(source, sceneOptions).then(() => {
@@ -1285,6 +1311,7 @@ function makeInertStage(canvas: HTMLCanvasElement, options: GlassStageOptions): 
     debug: {
       probe: null,
       setBackdrop(): void {},
+      setPixelBudget(): void {},
       readback: (): Promise<ReadbackResult> =>
         Promise.reject(new Error('[Glassium] 没有 GPU 后端，无法回读')),
       setPanelDebug(): void {},
@@ -1306,6 +1333,7 @@ function makeInertStage(canvas: HTMLCanvasElement, options: GlassStageOptions): 
         blurLevels: 0,
         panels: 0,
         groups: 0,
+        fills: 0,
         cpuMs: { measure: 0, total: 0 },
         deviceLosses: 0,
         pipelineCreations: 0,
@@ -1326,6 +1354,10 @@ function makeInertStage(canvas: HTMLCanvasElement, options: GlassStageOptions): 
     },
     group(): GlassGroup {
       return { setMembers(): void {}, setSmoothing(): void {}, dissolve(): void {} }
+    },
+    // 没有 GPU 时填充由 glassium.css 画成 CSS 背景（没有 data-glassium-active 时）
+    registerFill(element: HTMLElement): SceneFill {
+      return { element, unregister(): void {} }
     },
     setScene,
     refreshScene(): void {},

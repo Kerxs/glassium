@@ -29,6 +29,9 @@ Glassium 自己渲染的纹理。**面板背后的正文文字、图片、iframe
 换来的是 SVG 路线拿不到的东西：浮点精度位移（SVG 位移贴图被 8bit 通道锁死在 ±128px/轴，
 有可见色阶）、真正的逐通道色散、任意动画扭曲场、以及一次 pass 内合并多块玻璃。
 
+要让玻璃底下有颜色（开关的轨道、滑块的进度条、卡片后面的色块），用 `<glass-fill>`：
+它的颜色由 Glassium 画进场景，玻璃看得见它（见「用法」）。
+
 **编写规则见 [docs/limitations.md](docs/limitations.md)。** 不读那三条，第一次用就会遇到
 「玻璃完全不可见且毫无报错」。
 
@@ -147,14 +150,19 @@ GPU 输出由 `playground/verify.html` 在浏览器里逐项验证（光学探�
       玻璃换成更实的磨砂：模糊至少 24dp、关掉色散、按文字颜色选深色或浅色磨砂（保证与文字的对比度 ≥ 4.5:1），
       形状与高光保留；更高对比度时组件再描一圈边。实测卡片内部的图案起伏从 ±22.7 降到 ±0，关掉之后逐位复原。
       加上减少动效与强制配色，四个系统设置都有反应
+- [x] **填充 `<glass-fill>`**（`src/renderer/fills.ts`、`src/shaders/fill.wgsl.ts`）：玻璃只折射场景，DOM 的背景它看不见 ——
+      开关的轨道、滑块的进度条这类「玻璃底下的纯色形状」一直没法做。填充是 CSS 摆位、Glassium 画进场景的纯色圆角矩形：
+      盒子、圆角、变换、裁剪、不透明度都来自 CSS，颜色来自 `--glass-fill`（注册成可以过渡的 `<color>`）。
+      玻璃折射它、模糊它、按它的亮度调自适应；直接看到的部分按画布分辨率另画一遍，边缘与 DOM 一样锐利 ——
+      场景压到画布 0.6 倍时，边缘 1 个像素以外与没有填充时逐像素相同。颜色过渡到一半时画出来的就是那一刻的计算值
 
 GPU 设备丢失时会在新设备上整套重建（实测约 30 ms，恢复后画面逐位相同），第二次丢失则降到
 WebGL2（WebGL2 的上下文丢失同理，第二次降到 CSS 兜底）。T5 到 T8 期间这一点是坏的：
 日志说会重新初始化，实际上画布会冻住 —— 现已修复，见 [docs/limitations.md](docs/limitations.md)。
 
-**196 条测试全绿**，playground 可跑（`npm run dev`），只用公开 API 搭的示例页在 `/demo.html`，
+**205 条测试全绿**，playground 可跑（`npm run dev`），只用公开 API 搭的示例页在 `/demo.html`，
 逐项自动验证在 `/verify.html`
-（现在 WebGPU 上 **PASS 26/26**、WebGL2 上 **PASS 25/25**）。
+（现在 WebGPU 上 **PASS 27/27**、WebGL2 上 **PASS 26/26**）。
 
 T5 顺带把两个计划阶段悬着的硬件问题测掉了，结果记在
 [docs/calibration.md](docs/calibration.md)：`minUniformBufferOffsetAlignment` 实测 256
@@ -201,7 +209,19 @@ T5 顺带把两个计划阶段悬着的硬件问题测掉了，结果记在
 （hex 或 rgb()/rgba()）、`opacity`、`corner-radius`（`16`、`0.5frac` 或四个数 `4 32 8 28`）、
 `squircle`、`depth-effect`、`adaptive`、`shadow`。写错的属性会在控制台报出来并被忽略，不会让整块面板失效。
 
-不用组件也行：`stage.register(element, material)` 可以把任意元素注册成玻璃面板。
+玻璃底下要有颜色时用 `<glass-fill>`：颜色写在 `--glass-fill` 上（不是 `background`），由 Glassium 画进场景，
+玻璃折射它。可以用 CSS 过渡：
+
+```html
+<style>
+  .track { width: 51px; height: 31px; border-radius: 999px; --glass-fill: #e9e9eb; transition: --glass-fill 0.25s; }
+  .track.on { --glass-fill: #34c759; }
+</style>
+<glass-fill class="track"></glass-fill>
+```
+
+不用组件也行：`stage.register(element, material)` 可以把任意元素注册成玻璃面板，
+`stage.registerFill(element)` 注册填充。
 全部公开接口见 [docs/api.md](docs/api.md)。
 
 ### 背景：场景

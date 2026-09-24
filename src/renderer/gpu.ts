@@ -14,6 +14,13 @@ import type { MemberGeometry } from '../core/merge.ts'
 import type { ResolvedViewport } from '../core/units.ts'
 import { BACKDROP_WGSL, BLUR_WGSL } from '../shaders/blur.wgsl.ts'
 import {
+  FILL_DEST_BYTES,
+  FILL_STRIDE,
+  FILL_STRIDE_FLOATS,
+  FILL_STRUCT_BYTES,
+  FILL_WGSL
+} from '../shaders/fill.wgsl.ts'
+import {
   GLASS_GROUP_WGSL,
   GROUP_STRIDE,
   GROUP_STRIDE_FLOATS,
@@ -40,6 +47,7 @@ import {
   sourceReady
 } from './backend.ts'
 import { BACKDROP_FORMAT, BlurChain, levelForSigma } from './blur.ts'
+import { CANVAS_DEST, packFill, sceneDest, sceneScissor } from './fills.ts'
 import {
   PANEL_STRUCT_FLOATS,
   packGroup,
@@ -74,6 +82,12 @@ export class GpuRenderer implements Renderer {
   readonly #groupPipeline: GPURenderPipeline
   readonly #groupProbePipeline: GPURenderPipeline
   readonly #groupLayout: GPUBindGroupLayout
+  // 填充：同一个着色器、两个目标格式（场景目标 rgba8unorm，画布是 getPreferredCanvasFormat 的格式）
+  readonly #fillLayout: GPUBindGroupLayout
+  readonly #fillScenePipeline: GPURenderPipeline
+  readonly #fillCanvasPipeline: GPURenderPipeline
+  readonly #fillSceneDest: GPUBuffer
+  readonly #fillCanvasDest: GPUBuffer
 
   readonly #sceneUniforms: GPUBuffer
   readonly #sceneUniformData = new Float32Array(8)
@@ -86,6 +100,8 @@ export class GpuRenderer implements Renderer {
   readonly #probeStageUniforms: GPUBuffer
 
   #backdropBindGroup: GPUBindGroup | null = null
+  /** 背景上屏用「没有填充的场景」（草稿纹理的第 0 级）。有填充、背景调试视图原样时用它。 */
+  #cleanBackdropBindGroup: GPUBindGroup | null = null
   #glassBindGroup: GPUBindGroup | null = null
   #probeBindGroup: GPUBindGroup | null = null
   #panelCapacity = 0
@@ -96,6 +112,11 @@ export class GpuRenderer implements Renderer {
   #groupCapacity = 0
   #groupBuffer: GPUBuffer | null = null
   #groupData = new Float32Array(0)
+  #fillSceneBindGroup: GPUBindGroup | null = null
+  #fillCanvasBindGroup: GPUBindGroup | null = null
+  #fillCapacity = 0
+  #fillBuffer: GPUBuffer | null = null
+  #fillData = new Float32Array(0)
   #destroyed = false
 
   /** 构造函数不跑能力探测（那是异步的），请用 GpuRenderer.create。 */
@@ -290,6 +311,58 @@ export class GpuRenderer implements Renderer {
       primitive: { topology: 'triangle-list' }
     })
 
+    // 填充：Fill 结构体按动态偏移切换，Dest（画到哪里）两份 —— 场景目标一份、画布一份，
+    // 同一帧里两个 pass 各用各的，不共用一块 buffer（同一帧两次 writeBuffer 只有后写的生效）
+    this.#fillLayout = device.createBindGroupLayout({
+      label: 'glassium:fill',
+      entries: [
+        {
+          binding: 0,
+          visibility: GPUShaderStage.FRAGMENT,
+          buffer: { type: 'uniform', hasDynamicOffset: true, minBindingSize: FILL_STRUCT_BYTES }
+        },
+        { binding: 1, visibility: GPUShaderStage.FRAGMENT, buffer: { type: 'uniform' } }
+      ]
+    })
+    const fillPipelineLayout = device.createPipelineLayout({
+      label: 'glassium:fill',
+      bindGroupLayouts: [this.#fillLayout]
+    })
+    const fillModule = device.createShaderModule({ label: 'glassium:fill', code: FILL_WGSL })
+    const fillPipeline = (label: string, target: GPUTextureFormat): GPURenderPipeline =>
+      device.createRenderPipeline({
+        label,
+        layout: fillPipelineLayout,
+        vertex: { module: fillModule, entryPoint: 'vs' },
+        fragment: {
+          module: fillModule,
+          entryPoint: 'fs',
+          targets: [
+            {
+              format: target,
+              blend: {
+                color: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha', operation: 'add' },
+                alpha: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha', operation: 'add' }
+              }
+            }
+          ]
+        },
+        primitive: { topology: 'triangle-list' }
+      })
+    this.#fillScenePipeline = fillPipeline('glassium:fill-scene', BACKDROP_FORMAT)
+    this.#fillCanvasPipeline = fillPipeline('glassium:fill-canvas', format)
+    this.#fillSceneDest = device.createBuffer({
+      label: 'glassium:fill-scene-dest',
+      size: FILL_DEST_BYTES,
+      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
+    })
+    this.#fillCanvasDest = device.createBuffer({
+      label: 'glassium:fill-canvas-dest',
+      size: FILL_DEST_BYTES,
+      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
+    })
+    device.queue.writeBuffer(this.#fillCanvasDest, 0, new Float32Array(CANVAS_DEST))
+
     this.#stageUniforms = device.createBuffer({
       label: 'glassium:stage-uniforms',
       size: 16,
@@ -303,6 +376,7 @@ export class GpuRenderer implements Renderer {
 
     this.#ensurePanelCapacity(16)
     this.#ensureGroupCapacity(4)
+    this.#ensureFillCapacity(4)
   }
 
   static async create(
@@ -338,13 +412,54 @@ export class GpuRenderer implements Renderer {
         { binding: 2, resource: textures.chainView }
       ]
     })
+    this.#cleanBackdropBindGroup = this.device.createBindGroup({
+      label: 'glassium:backdrop-clean',
+      layout: this.#backdropPipeline.getBindGroupLayout(0),
+      entries: [
+        { binding: 0, resource: { buffer: this.#backdropUniforms } },
+        { binding: 1, resource: this.#sampler },
+        { binding: 2, resource: textures.cleanView }
+      ]
+    })
     this.device.queue.writeBuffer(
       this.#stageUniforms,
       0,
       new Float32Array([viewport.compositeWidth, viewport.compositeHeight, 0, 0])
     )
+    this.device.queue.writeBuffer(
+      this.#fillSceneDest,
+      0,
+      new Float32Array(sceneDest(textures.width, textures.height, viewport.compositeWidth, viewport.compositeHeight))
+    )
     this.#rebuildGlassBindGroups()
     return textures.levels
+  }
+
+  /** 按需扩容填充的 uniform buffer（翻倍），扩容后重建两个 bind group。 */
+  #ensureFillCapacity(count: number): void {
+    if (count <= this.#fillCapacity && this.#fillBuffer) return
+    let next = Math.max(4, this.#fillCapacity)
+    while (next < count) next *= 2
+    this.#fillBuffer?.destroy()
+    const buffer = this.device.createBuffer({
+      label: 'glassium:fills',
+      size: next * FILL_STRIDE,
+      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
+    })
+    this.#fillBuffer = buffer
+    this.#fillData = new Float32Array(next * FILL_STRIDE_FLOATS)
+    this.#fillCapacity = next
+    const bindGroup = (label: string, dest: GPUBuffer): GPUBindGroup =>
+      this.device.createBindGroup({
+        label,
+        layout: this.#fillLayout,
+        entries: [
+          { binding: 0, resource: { buffer, size: FILL_STRUCT_BYTES } },
+          { binding: 1, resource: { buffer: dest } }
+        ]
+      })
+    this.#fillSceneBindGroup = bindGroup('glassium:fill-scene', this.#fillSceneDest)
+    this.#fillCanvasBindGroup = bindGroup('glassium:fill-canvas', this.#fillCanvasDest)
   }
 
   #rebuildGlassBindGroups(): void {
@@ -476,6 +591,14 @@ export class GpuRenderer implements Renderer {
       device.queue.writeBuffer(this.#groupBuffer, 0, this.#groupData, 0, groups.length * GROUP_STRIDE_FLOATS)
     }
 
+    const fills = input.fills
+    this.#ensureFillCapacity(fills.length)
+    for (let i = 0; i < fills.length; i++) packFill(this.#fillData, i, fills[i]!)
+    if (fills.length > 0 && this.#fillBuffer) {
+      device.queue.writeBuffer(this.#fillBuffer, 0, this.#fillData, 0, fills.length * FILL_STRIDE_FLOATS)
+    }
+    let fillDraws = 0
+
     const encoder = device.createCommandEncoder({ label: 'glassium:frame' })
 
     // 1) 场景 -> 模糊链的 mip 0（锐利背景就是这一级，不需要额外拷贝）
@@ -502,6 +625,34 @@ export class GpuRenderer implements Renderer {
     scenePass.draw(3)
     scenePass.end()
 
+    // 1.5) 填充画进场景：之后建的模糊链、玻璃的采样都看得见它。画之前把「没有填充的场景」
+    //      拷到草稿纹理闲着的第 0 级 —— 背景上屏用那一份，填充另按画布分辨率画（见 3.5）
+    const withFills = fills.length > 0 && this.#fillSceneBindGroup !== null
+    const crispFills = withFills && backdropIsPlain(bd)
+    if (withFills) {
+      if (crispFills) {
+        encoder.copyTextureToTexture(
+          { texture: textures.chain, mipLevel: 0 },
+          { texture: textures.clean, mipLevel: 0 },
+          { width: textures.width, height: textures.height }
+        )
+      }
+      const fillPass = encoder.beginRenderPass({
+        label: 'glassium:fill-scene',
+        colorAttachments: [{ view: textures.sceneView, loadOp: 'load', storeOp: 'store' }]
+      })
+      fillPass.setPipeline(this.#fillScenePipeline)
+      for (let i = 0; i < fills.length; i++) {
+        const s = sceneScissor(fills[i]!.scissor, textures.width, textures.height, viewport.compositeWidth, viewport.compositeHeight)
+        if (!s) continue
+        fillPass.setScissorRect(s[0], s[1], s[2], s[3])
+        fillPass.setBindGroup(0, this.#fillSceneBindGroup!, [i * FILL_STRIDE])
+        fillPass.draw(3)
+        fillDraws++
+      }
+      fillPass.end()
+    }
+
     // 2) 建模糊链。趟数只和级数有关，与面板数量无关。
     this.#blurChain.build(encoder)
 
@@ -519,8 +670,22 @@ export class GpuRenderer implements Renderer {
       ]
     })
     presentPass.setPipeline(this.#backdropPipeline)
-    presentPass.setBindGroup(0, backdropBindGroup)
+    presentPass.setBindGroup(0, crispFills && this.#cleanBackdropBindGroup ? this.#cleanBackdropBindGroup : backdropBindGroup)
     presentPass.draw(3)
+
+    // 3.5) 填充按画布分辨率画：场景目标常常比画布粗，直接看到的边缘要和 DOM 一样锐利。
+    //      背景调试视图在调色或模糊时不画 —— 那时背景用的是整条链，里面已经有（被调过、模糊过的）填充了
+    if (crispFills && this.#fillCanvasBindGroup) {
+      presentPass.setPipeline(this.#fillCanvasPipeline)
+      for (let i = 0; i < fills.length; i++) {
+        const [sx, sy, sw, sh] = fills[i]!.scissor
+        presentPass.setScissorRect(sx, sy, sw, sh)
+        presentPass.setBindGroup(0, this.#fillCanvasBindGroup, [i * FILL_STRIDE])
+        presentPass.draw(3)
+        fillDraws++
+      }
+      presentPass.setScissorRect(0, 0, canvasTexture.width, canvasTexture.height)
+    }
 
     // 4) 玻璃。和背景在同一个 pass 里：玻璃采样的是模糊链而不是画布，
     //    所以没有读写冲突，也就不需要单独的合成目标。
@@ -560,7 +725,7 @@ export class GpuRenderer implements Renderer {
     finishReadback?.()
 
     return {
-      drawCalls: 2 + this.#blurChain.passesLastFrame + panels.length + groups.length,
+      drawCalls: 2 + this.#blurChain.passesLastFrame + panels.length + groups.length + fillDraws,
       blurPasses: this.#blurChain.passesLastFrame,
       sceneUploads: image === 'uploaded' ? 1 : 0
     }
@@ -867,6 +1032,9 @@ export class GpuRenderer implements Renderer {
     this.#probeStageUniforms.destroy()
     this.#panelBuffer?.destroy()
     this.#groupBuffer?.destroy()
+    this.#fillBuffer?.destroy()
+    this.#fillSceneDest.destroy()
+    this.#fillCanvasDest.destroy()
     this.#imageTexture?.destroy()
     this.#imageUniforms.destroy()
     this.#blurChain.destroy()
@@ -876,4 +1044,12 @@ export class GpuRenderer implements Renderer {
       // 设备已经丢失时 unconfigure 可能抛；画布照样会被下一次 configure 覆盖，不影响恢复
     }
   }
+}
+
+/**
+ * 背景调试视图（BackdropUniforms：tint、saturation、level）是不是原样上屏。
+ * 原样时场景目标里的填充按画布分辨率再画一遍；调过色或模糊过时不画，背景里已经有它了。
+ */
+export function backdropIsPlain(bd: Float32Array): boolean {
+  return bd[3] === 0 && bd[4] === 1 && bd[5] === 0
 }

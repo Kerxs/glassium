@@ -22,6 +22,7 @@ import {
   GROUP_STRIDE_FLOATS,
   GROUP_STRUCT_BYTES
 } from '../shaders/glass-group.wgsl.ts'
+import { FILL_STRIDE, FILL_STRIDE_FLOATS, FILL_STRUCT_BYTES } from '../shaders/fill.wgsl.ts'
 import { PANEL_STRIDE, PANEL_STRIDE_FLOATS, PANEL_STRUCT_BYTES } from '../shaders/glass.wgsl.ts'
 import {
   READBACK_SIZE,
@@ -37,6 +38,7 @@ import {
   sourceReady
 } from '../renderer/backend.ts'
 import { LOCAL_SIGMA, MAX_LEVELS, levelForSigma } from '../renderer/blur.ts'
+import { CANVAS_DEST, packFill, sceneDest, sceneScissor, type MeasuredFill } from '../renderer/fills.ts'
 import {
   PANEL_STRUCT_FLOATS,
   packGroup,
@@ -47,6 +49,7 @@ import {
 import {
   BACKDROP_FS,
   BLUR_FS,
+  FILL_FS,
   FULLSCREEN_VS,
   GLASS_FS,
   SCENE_FS,
@@ -77,6 +80,7 @@ interface Program {
 /** UBO 的绑定点。 */
 const PANEL_BINDING = 0
 const GROUP_BINDING = 1
+const FILL_BINDING = 2
 
 export class Gl2Renderer implements Renderer {
   readonly kind = 'webgl2' as const
@@ -93,6 +97,7 @@ export class Gl2Renderer implements Renderer {
   readonly #backdrop: Program
   readonly #glass: Program
   readonly #group: Program
+  readonly #fill: Program
   readonly #vao: WebGLVertexArrayObject
   /** 对齐值整除步长时，整块上传一次、按偏移绑定；否则每次 draw 前把那一块传到偏移 0。 */
   readonly #rangeBinding: boolean
@@ -112,6 +117,9 @@ export class Gl2Renderer implements Renderer {
   #groupUbo: WebGLBuffer | null = null
   #groupCapacity = 0
   #groupData = new Float32Array(0)
+  #fillUbo: WebGLBuffer | null = null
+  #fillCapacity = 0
+  #fillData = new Float32Array(0)
 
   #destroyed = false
 
@@ -126,7 +134,8 @@ export class Gl2Renderer implements Renderer {
       colorBufferFloat
     }
     const alignment = this.report.uniformBufferOffsetAlignment
-    this.#rangeBinding = PANEL_STRIDE % alignment === 0 && GROUP_STRIDE % alignment === 0
+    this.#rangeBinding =
+      PANEL_STRIDE % alignment === 0 && GROUP_STRIDE % alignment === 0 && FILL_STRIDE % alignment === 0
     console.info(
       `[Glassium] WebGL2：UNIFORM_BUFFER_OFFSET_ALIGNMENT=${alignment}` +
         `（${this.#rangeBinding ? '256B 步长成立，按偏移绑定' : '不整除 256，退回逐次上传'}）` +
@@ -140,8 +149,10 @@ export class Gl2Renderer implements Renderer {
     this.#backdrop = compile(gl, BACKDROP_FS, 'backdrop')
     this.#glass = compile(gl, GLASS_FS, 'glass')
     this.#group = compile(gl, glassGroupFs(GROUP_CAPACITY), 'glass-group')
+    this.#fill = compile(gl, FILL_FS, 'fill')
     bindBlock(gl, this.#glass, 'PanelBlock', PANEL_BINDING, PANEL_STRUCT_BYTES)
     bindBlock(gl, this.#group, 'GroupBlock', GROUP_BINDING, GROUP_STRUCT_BYTES)
+    bindBlock(gl, this.#fill, 'FillBlock', FILL_BINDING, FILL_STRUCT_BYTES)
 
     // 没有顶点属性（全屏三角形用 gl_VertexID），但 WebGL2 仍要求绑定一个 VAO
     const vao = gl.createVertexArray()
@@ -150,6 +161,7 @@ export class Gl2Renderer implements Renderer {
 
     this.#ensurePanelCapacity(16)
     this.#ensureGroupCapacity(4)
+    this.#ensureFillCapacity(4)
 
     const err = gl.getError()
     if (err !== gl.NO_ERROR) throw new Error(`[Glassium] WebGL2 初始化后 getError() = 0x${err.toString(16)}`)
@@ -237,9 +249,10 @@ export class Gl2Renderer implements Renderer {
     const chain = makeTexture()
     const scratch = makeTexture()
     this.#chainFbos = []
-    this.#scratchFbos = [null]
+    this.#scratchFbos = []
     for (let k = 0; k < levels; k++) this.#chainFbos.push(makeFbo(chain, k))
-    for (let k = 1; k < levels; k++) this.#scratchFbos.push(makeFbo(scratch, k))
+    // 草稿的第 0 级模糊用不到；有填充时放「没有填充的场景」（与 WebGPU 那边的 BlurChainTextures.clean 相同）
+    for (let k = 0; k < levels; k++) this.#scratchFbos.push(makeFbo(scratch, k))
     gl.bindFramebuffer(gl.FRAMEBUFFER, null)
 
     this.#chain = chain
@@ -279,6 +292,50 @@ export class Gl2Renderer implements Renderer {
     this.#groupUbo = this.#replaceBuffer(this.#groupUbo, next * GROUP_STRIDE)
     this.#groupData = new Float32Array(next * GROUP_STRIDE_FLOATS)
     this.#groupCapacity = next
+  }
+
+  #ensureFillCapacity(count: number): void {
+    if (count <= this.#fillCapacity && this.#fillUbo) return
+    let next = Math.max(4, this.#fillCapacity)
+    while (next < count) next *= 2
+    this.#fillUbo = this.#replaceBuffer(this.#fillUbo, next * FILL_STRIDE)
+    this.#fillData = new Float32Array(next * FILL_STRIDE_FLOATS)
+    this.#fillCapacity = next
+  }
+
+  /**
+   * 画填充。离屏（场景目标）不翻 y、scissor 直接用；画布上翻一次、scissor 换成左下原点。
+   * 调用方已经打包、上传好了填充的 UBO。返回画了几次。
+   */
+  #drawFills(
+    fills: readonly MeasuredFill[],
+    dest: readonly [number, number, number, number],
+    onScreen: boolean,
+    targetHeight: number,
+    scissorOf: (fill: MeasuredFill) => readonly [number, number, number, number] | null
+  ): number {
+    const gl = this.gl
+    const p = this.#fill
+    useProgram(gl, p)
+    gl.uniform1f(loc(gl, p, 'uFlipUv'), onScreen ? 1 : 0)
+    gl.uniform4f(loc(gl, p, 'uDest'), dest[0], dest[1], dest[2], onScreen ? 1 : 0)
+    gl.uniform1f(loc(gl, p, 'uDestHeight'), targetHeight)
+    gl.enable(gl.BLEND)
+    gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA)
+    gl.enable(gl.SCISSOR_TEST)
+    let draws = 0
+    for (let i = 0; i < fills.length; i++) {
+      const s = scissorOf(fills[i]!)
+      if (!s) continue
+      const [sx, sy, sw, sh] = s
+      gl.scissor(sx, onScreen ? targetHeight - sy - sh : sy, sw, sh)
+      this.#bindSlot(this.#fillUbo!, this.#fillData, FILL_BINDING, i, FILL_STRIDE, FILL_STRUCT_BYTES)
+      gl.drawArrays(gl.TRIANGLES, 0, 3)
+      draws++
+    }
+    gl.disable(gl.BLEND)
+    gl.disable(gl.SCISSOR_TEST)
+    return draws
   }
 
   #replaceBuffer(old: WebGLBuffer | null, bytes: number): WebGLBuffer {
@@ -360,6 +417,30 @@ export class Gl2Renderer implements Renderer {
     }
     gl.drawArrays(gl.TRIANGLES, 0, 3)
 
+    // 1.5) 填充画进场景：之后建的模糊链、玻璃的采样都看得见它。画之前把「没有填充的场景」
+    //      拷到草稿的第 0 级，背景上屏用那一份（理由见 gpu.ts 的同一步）
+    const fills = input.fills
+    let fillDraws = 0
+    const backdropLevel = levelForSigma(backdrop.blurDp * viewport.sceneScale, this.#levels)
+    const crispFills = fills.length > 0 && backdrop.tint[3] === 0 && backdrop.saturation === 1 && backdropLevel === 0
+    if (fills.length > 0) {
+      this.#ensureFillCapacity(fills.length)
+      for (let i = 0; i < fills.length; i++) packFill(this.#fillData, i, fills[i]!)
+      if (this.#rangeBinding) {
+        gl.bindBuffer(gl.UNIFORM_BUFFER, this.#fillUbo)
+        gl.bufferSubData(gl.UNIFORM_BUFFER, 0, this.#fillData, 0, fills.length * FILL_STRIDE_FLOATS)
+      }
+      if (crispFills) {
+        gl.bindFramebuffer(gl.READ_FRAMEBUFFER, this.#chainFbos[0]!)
+        gl.bindFramebuffer(gl.DRAW_FRAMEBUFFER, this.#scratchFbos[0]!)
+        gl.blitFramebuffer(0, 0, W, H, 0, 0, W, H, gl.COLOR_BUFFER_BIT, gl.NEAREST)
+        gl.bindFramebuffer(gl.FRAMEBUFFER, this.#chainFbos[0]!)
+      }
+      fillDraws += this.#drawFills(fills, sceneDest(W, H, cw, ch), false, H, (f) =>
+        sceneScissor(f.scissor, W, H, cw, ch)
+      )
+    }
+
     // 2) 模糊链：每级两趟，与面板数量无关
     useProgram(gl, this.#blur)
     gl.uniform1f(loc(gl, this.#blur, 'uFlipUv'), 0)
@@ -386,22 +467,21 @@ export class Gl2Renderer implements Renderer {
       passes += 2
     }
 
-    // 3) 背景上屏（翻 y）
+    // 3) 背景上屏（翻 y）。有要按画布分辨率画的填充时，用没有填充的那一份场景
     gl.bindFramebuffer(gl.FRAMEBUFFER, null)
     gl.viewport(0, 0, cw, ch)
-    gl.bindTexture(gl.TEXTURE_2D, chain)
+    gl.bindTexture(gl.TEXTURE_2D, crispFills ? scratch : chain)
     useProgram(gl, this.#backdrop)
     gl.uniform1f(loc(gl, this.#backdrop, 'uFlipUv'), 1)
     gl.uniform1i(loc(gl, this.#backdrop, 'uChain'), 0)
     gl.uniform4f(loc(gl, this.#backdrop, 'uTint'), ...backdrop.tint)
-    gl.uniform4f(
-      loc(gl, this.#backdrop, 'uParams'),
-      backdrop.saturation,
-      levelForSigma(backdrop.blurDp * viewport.sceneScale, this.#levels),
-      0,
-      0
-    )
+    gl.uniform4f(loc(gl, this.#backdrop, 'uParams'), backdrop.saturation, backdropLevel, 0, 0)
     gl.drawArrays(gl.TRIANGLES, 0, 3)
+
+    // 3.5) 填充按画布分辨率画（背景调试视图调过色或模糊过时不画，理由见 gpu.ts）
+    if (crispFills) {
+      fillDraws += this.#drawFills(fills, CANVAS_DEST, true, ch, (f) => f.scissor)
+    }
 
     // 4) 面板与合并组：同一份打包字节
     this.#ensurePanelCapacity(panels.length)
@@ -457,7 +537,7 @@ export class Gl2Renderer implements Renderer {
     if (input.groupProbe) this.#probeGroup(input.groupProbe, groups, cw, ch)
 
     return {
-      drawCalls: 2 + passes + panels.length + groups.length,
+      drawCalls: 2 + passes + panels.length + groups.length + fillDraws,
       blurPasses: passes,
       sceneUploads: scene === 'uploaded' ? 1 : 0
     }
@@ -656,12 +736,13 @@ export class Gl2Renderer implements Renderer {
     const gl = this.gl
     this.#destroyTargets()
     if (this.#imageTexture) gl.deleteTexture(this.#imageTexture)
-    for (const p of [this.#scene, this.#sceneImage, this.#blur, this.#backdrop, this.#glass, this.#group]) {
+    for (const p of [this.#scene, this.#sceneImage, this.#blur, this.#backdrop, this.#glass, this.#group, this.#fill]) {
       gl.deleteProgram(p.program)
     }
     gl.deleteVertexArray(this.#vao)
     if (this.#panelUbo) gl.deleteBuffer(this.#panelUbo)
     if (this.#groupUbo) gl.deleteBuffer(this.#groupUbo)
+    if (this.#fillUbo) gl.deleteBuffer(this.#fillUbo)
   }
 }
 

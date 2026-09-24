@@ -149,6 +149,7 @@ export { GlassElement } from './components/base.ts'
 export { GlassCard } from './components/glass-card.ts'
 export { GlassButton, type GlassButtonType } from './components/glass-button.ts'
 export { GlassContainer } from './components/glass-container.ts'
+export { GlassFill } from './components/glass-fill.ts'
 export { MATERIAL_ATTRIBUTES, parseMaterialAttributes } from './components/attributes.ts'
 
 // —— 玻璃面板（T7 起）与合并组（T10 起）——
@@ -158,8 +159,11 @@ export {
   LIGHT_SIGMA_FRAC,
   type GlassGroup,
   type GlassPanel,
-  type PanelLight
+  type PanelLight,
+  type SceneFill
 } from './renderer/panels.ts'
+// —— 填充：画进场景的纯色形状（`<glass-fill>`）——
+export { FILL_PROPERTY, parseFillColor } from './renderer/fills.ts'
 export { DEBUG_MODES, type PanelDebugMode } from './shaders/glass.wgsl.ts'
 export {
   SECTORS,

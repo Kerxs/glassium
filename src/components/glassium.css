@@ -27,6 +27,28 @@
 }
 
 /*
+ * 填充的颜色：不继承、可以过渡的 <color>（`transition: --glass-fill 0.25s` 直接可用）。
+ * register.ts 里 JS 也注册一次，没引这份 CSS 时由那边兜底。
+ */
+@property --glass-fill {
+  syntax: '<color>';
+  inherits: false;
+  initial-value: transparent;
+}
+
+:where(glass-fill) {
+  display: block;
+}
+
+/*
+ * 没有玻璃时，填充就是一块普通的 CSS 背景。有玻璃时颜色画在场景里（玻璃看得见它），
+ * 元素自己必须透明 —— 否则它会挡住放在它上面的玻璃（R1）。
+ */
+:where(glass-fill:not([data-glassium-active])) {
+  background-color: var(--glass-fill);
+}
+
+/*
  * 没有玻璃的时候，给一层可读的表面。
  *
  * 「没有玻璃」= 没有 data-glassium-active 属性，这一条同时覆盖：

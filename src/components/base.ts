@@ -33,7 +33,7 @@ export const ACTIVE_ATTRIBUTE = 'data-glassium-active'
  * `extends HTMLElement` 会让服务端 import 这个包时当场 ReferenceError。
  * 真正的注册（customElements.define）只在 defineGlassElements() 里做，那里有环境判断。
  */
-const HTMLElementBase: typeof HTMLElement =
+export const HTMLElementBase: typeof HTMLElement =
   typeof HTMLElement === 'undefined' ? (class {} as unknown as typeof HTMLElement) : HTMLElement
 
 export class GlassElement extends HTMLElementBase {

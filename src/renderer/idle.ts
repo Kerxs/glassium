@@ -16,11 +16,13 @@
  *   dynamic 的每帧都变，其余比源、版本号与铺法
  * - 面板：同一块面板、同样的矩形 / 裁剪、同一个降级结果（材质或尺寸变了会重新降级，换一个新对象）
  * - 合并组：成员逐个同上，外加 smoothing 与裁剪矩形
+ * - 填充：同一块、同样的矩形 / 裁剪 / 圆角 / 颜色（颜色的 CSS 过渡期间每帧都不同）
  */
 
 import type { ResolvedViewport } from '../core/units.ts'
 import type { PanelDebugMode } from '../shaders/glass.wgsl.ts'
 import type { BackdropState, SceneImage } from './backend.ts'
+import type { MeasuredFill } from './fills.ts'
 import type { MeasuredGroup, MeasuredPanel } from './panels.ts'
 
 /** 决定一帧像素的全部输入（FrameInput 去掉回读与探针请求）。 */
@@ -31,6 +33,7 @@ export interface FrameSnapshot {
   readonly sceneImage: SceneImage | null
   readonly panels: readonly MeasuredPanel[]
   readonly groups: readonly MeasuredGroup[]
+  readonly fills: readonly MeasuredFill[]
   readonly panelDebugMode: PanelDebugMode
 }
 
@@ -109,6 +112,31 @@ function sameGroups(a: readonly MeasuredGroup[], b: readonly MeasuredGroup[]): b
   return true
 }
 
+function sameFill(a: MeasuredFill, b: MeasuredFill): boolean {
+  return (
+    a.record === b.record &&
+    a.x === b.x &&
+    a.y === b.y &&
+    a.w === b.w &&
+    a.h === b.h &&
+    sameTuple(a.rotation, b.rotation) &&
+    sameTuple(a.scissor, b.scissor) &&
+    a.clip.x0 === b.clip.x0 &&
+    a.clip.y0 === b.clip.y0 &&
+    a.clip.x1 === b.clip.x1 &&
+    a.clip.y1 === b.clip.y1 &&
+    sameTuple(a.clipRadii, b.clipRadii) &&
+    sameTuple(a.radii, b.radii) &&
+    sameTuple(a.color, b.color)
+  )
+}
+
+function sameFills(a: readonly MeasuredFill[], b: readonly MeasuredFill[]): boolean {
+  if (a.length !== b.length) return false
+  for (let i = 0; i < a.length; i++) if (!sameFill(a[i]!, b[i]!)) return false
+  return true
+}
+
 /** next 画出来与 prev 逐像素相同吗。没有 prev（第一帧、刚换过后端或画布）时一律为否。 */
 export function unchangedFrame(prev: FrameSnapshot | null, next: FrameSnapshot): boolean {
   if (prev === null) return false
@@ -122,6 +150,7 @@ export function unchangedFrame(prev: FrameSnapshot | null, next: FrameSnapshot):
     sameViewport(prev.viewport, next.viewport) &&
     sameScene(prev.sceneImage, next.sceneImage) &&
     samePanels(prev.panels, next.panels) &&
-    sameGroups(prev.groups, next.groups)
+    sameGroups(prev.groups, next.groups) &&
+    sameFills(prev.fills, next.fills)
   )
 }

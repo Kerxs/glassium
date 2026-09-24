@@ -10,6 +10,7 @@
 import type { ResolvedViewport } from '../core/units.ts'
 import type { PanelDebugMode } from '../shaders/glass.wgsl.ts'
 import type { ProbeReport } from '../webgpu/probe.ts'
+import type { MeasuredFill } from './fills.ts'
 import type { MeasuredGroup, MeasuredPanel } from './panels.ts'
 import type { GroupOpticsProbe, OpticsProbe } from './verify.ts'
 
@@ -116,6 +117,8 @@ export interface FrameInput {
   readonly sceneImage: SceneImage | null
   readonly panels: readonly MeasuredPanel[]
   readonly groups: readonly MeasuredGroup[]
+  /** 填充：先画进场景（玻璃看得见），再按画布分辨率画到画布上（见 fill.wgsl.ts）。 */
+  readonly fills: readonly MeasuredFill[]
   readonly panelDebugMode: PanelDebugMode
   readonly probe: ProbeRequest | null
   readonly groupProbe: GroupProbeRequest | null

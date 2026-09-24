@@ -24,7 +24,8 @@
 
 ## 组件
 
-三个自定义元素，`defineGlassElements()` 注册（重复调用无害）。材质写在 HTML 属性上。
+四个自定义元素，`defineGlassElements()` 注册（重复调用无害），同时把 `--glass-fill` 注册成 `<color>`。
+玻璃组件的材质写在 HTML 属性上。
 
 ### `<glass-card>`
 
@@ -55,9 +56,22 @@
 缝隙小于它的一半时两块连成一片，0 是硬并集。成员是 `closest('glass-container')` 为它的后代玻璃组件。
 容器自己没有玻璃，排版交给你（常见的是 `display: flex`）。
 
+### `<glass-fill>`
+
+画进场景的纯色圆角矩形：玻璃看得见它（开关的轨道、滑块的进度条、卡片后面的色块）。样式全在 CSS 里：
+
+| CSS | 说明 |
+|---|---|
+| `--glass-fill` | 颜色。注册成不继承、可以过渡的 `<color>`，初始透明。`currentcolor` 取元素的 `color` |
+| 盒子、`transform`、`opacity`、裁剪祖先 | 与玻璃面板一样每帧跟着 |
+| `border-radius` | 圆角（椭圆角取短的那个半径） |
+
+**别写 `background`**：颜色画在场景里，元素自己在 stage 生效时是透明的。没有玻璃时 glassium.css 把 `--glass-fill`
+画成 CSS 背景。里面的内容照常是 DOM。
+
 ### 材质属性
 
-三个组件都认，与 `GlassMaterial` 一一对应。写错的属性在控制台报一次并被忽略。
+三个玻璃组件都认，与 `GlassMaterial` 一一对应。写错的属性在控制台报一次并被忽略。
 
 | 属性 | 取值 | 默认 |
 |---|---|---|
@@ -108,6 +122,7 @@
 | `canvas` | 画布。降级时会换一块新的，别缓存 |
 | `register(element, material?)` → `GlassPanel` | 把任意元素注册成玻璃面板（组件背后就是它）。材质写错在这里就抛 |
 | `group({ smoothing? })` → `GlassGroup` | 建一个合并组（`<glass-container>` 背后就是它） |
+| `registerFill(element)` → `SceneFill` | 把任意元素注册成填充（`<glass-fill>` 背后就是它）：颜色取它的 `--glass-fill`。返回 `{ element, unregister() }` |
 | `setScene(source, options?)` → `Promise` | 换场景，见下 |
 | `refreshScene()` | 非 dynamic 的画布、ImageData 内容变了：下一帧重新上传 |
 | `requestRender()` | 请求重画一帧（通常不需要：变化会自己触发） |
@@ -139,6 +154,7 @@
 | `checkLayers()` | 立即检查所有面板与画布之间有什么，返回全部问题（R1） |
 | `probe` | 当前后端的能力探测结果 |
 | `setBackdrop({ blurDp?, saturation?, tint?, scene?, radialCenter?, radialRadius? })` | 背景的调试参数；`scene` 是内置场景：`calibration` / `gradient` / `radial` / `flat` |
+| `setPixelBudget(maxPixels \| null)` | 临时换像素预算（null 恢复）。验证「场景分辨率低于画布」时的行为用 |
 | `readback(region?)` → `Promise<{ region, rgba }>` | 回读画布像素（一律 RGBA 顺序） |
 | `renderNow()` | 立刻同步画一帧（总是画，不管有没有变化）。面板隐藏、rAF 暂停时验证用 |
 | `simulateContextLoss()` | 模拟一次设备 / 上下文丢失 |
@@ -151,8 +167,8 @@
 |---|---|
 | `backend`、`viewport` | 当前后端、解析后的各级分辨率 |
 | `fps`、`frames`、`skippedFrames` | 最近一秒实际画了几帧、画了的总帧数、因为与上一帧逐像素相同而没画的帧数 |
-| `drawCalls`、`blurPasses`、`blurLevels` | 上一帧的 draw 数 = 2 + 模糊趟数 + 单独绘制的面板 + 组数；模糊趟数 = 2 × (级数 − 1) |
-| `panels`、`groups` | 上一帧画了的面板（含组员）与组 |
+| `drawCalls`、`blurPasses`、`blurLevels` | 上一帧的 draw 数 = 2 + 模糊趟数 + 单独绘制的面板 + 组数 + 2 × 填充数；模糊趟数 = 2 × (级数 − 1) |
+| `panels`、`groups`、`fills` | 上一帧画了的面板（含组员）、组、填充 |
 | `cpuMs` | 上一帧主线程耗时：`measure`（量面板）与 `total` |
 | `pipelineCreations`、`bindGroupCreations`、`targetAllocations` | 创建计数，预热后应当走平 |
 | `deviceLosses` | 意外丢失的次数 |

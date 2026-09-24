@@ -112,6 +112,12 @@ export interface Box {
 
 export const UNBOUNDED: Box = { x0: -Infinity, y0: -Infinity, x1: Infinity, y1: Infinity }
 
+/**
+ * 没有裁剪的方向写进 uniform 的值。不写 ±∞：着色器里 ∞ − ∞ 是 NaN。
+ * 画布最大 16384 像素，±65536 离得足够远，f32 在这个量级上仍有 1/256 像素的精度。
+ */
+export const CLIP_UNBOUNDED_PX = 65536
+
 /** 一个长度：px，或百分比（圆角的百分比按 border box 的宽 / 高算）。 */
 export interface Length {
   readonly value: number

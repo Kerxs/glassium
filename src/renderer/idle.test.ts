@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 
 import type { ResolvedViewport } from '../core/units.ts'
 import type { BackdropState, SceneImage } from './backend.ts'
+import type { FillRecord, MeasuredFill } from './fills.ts'
 import { unchangedFrame, type FrameSnapshot } from './idle.ts'
 import type { MeasuredGroup, MeasuredPanel, PanelRecord } from './panels.ts'
 
@@ -50,6 +51,23 @@ const panel = (over: Partial<MeasuredPanel> = {}): MeasuredPanel => ({
   ...over
 })
 
+const fillRecord = { element: {} } as unknown as FillRecord
+
+const fill = (over: Partial<MeasuredFill> = {}): MeasuredFill => ({
+  record: fillRecord,
+  x: 40,
+  y: 60,
+  w: 51,
+  h: 31,
+  rotation: [1, 0],
+  scissor: [38, 58, 55, 35],
+  clip: { x0: -Infinity, y0: -Infinity, x1: Infinity, y1: Infinity },
+  clipRadii: [0, 0, 0, 0],
+  radii: [15.5, 15.5, 15.5, 15.5],
+  color: [0.2, 0.78, 0.35, 1],
+  ...over
+})
+
 const image = (over: Partial<SceneImage> = {}): SceneImage => ({
   source: {} as SceneImage['source'],
   width: 900,
@@ -71,6 +89,7 @@ const frame = (over: Partial<FrameSnapshot> = {}): FrameSnapshot => ({
   sceneImage: null,
   panels: [panel()],
   groups: [],
+  fills: [],
   panelDebugMode: 'off',
   ...over
 })
@@ -151,4 +170,23 @@ test('视口、背景参数、调试视图', () => {
   // 背景参数比引用：setBackdrop 每次都换一个新对象，值相同也画一次 —— 保守，但只多画一帧
   assert.equal(unchangedFrame(frame(), frame({ backdrop: backdrop(1) })), false)
   assert.equal(unchangedFrame(frame(), frame({ panelDebugMode: 'sdf' })), false)
+})
+
+test('填充：值相同算相同；颜色（过渡中）、位置、圆角、裁剪、多一块少一块都要画', () => {
+  assert.equal(unchangedFrame(frame({ fills: [fill()] }), frame({ fills: [fill()] })), true)
+  assert.equal(unchangedFrame(frame({ fills: [fill()] }), frame({ fills: [fill({ color: [0.2, 0.78, 0.35, 0.9] })] })), false, '颜色')
+  assert.equal(unchangedFrame(frame({ fills: [fill()] }), frame({ fills: [fill({ x: 41 })] })), false, '位置')
+  assert.equal(unchangedFrame(frame({ fills: [fill()] }), frame({ fills: [fill({ radii: [8, 8, 8, 8] })] })), false, '圆角')
+  assert.equal(
+    unchangedFrame(frame({ fills: [fill()] }), frame({ fills: [fill({ clip: { x0: 0, y0: -Infinity, x1: Infinity, y1: Infinity } })] })),
+    false,
+    '裁剪'
+  )
+  assert.equal(unchangedFrame(frame({ fills: [fill()] }), frame({ fills: [fill({ rotation: [0.9, 0.1] })] })), false, '旋转')
+  assert.equal(unchangedFrame(frame({ fills: [fill()] }), frame({ fills: [] })), false)
+  assert.equal(
+    unchangedFrame(frame({ fills: [fill()] }), frame({ fills: [fill({ record: { element: {} } as unknown as FillRecord })] })),
+    false,
+    '换了一块'
+  )
 })

@@ -26,6 +26,20 @@ export const PANEL_STRIDE = 256
 /** Float32 视角下的步长。 */
 export const PANEL_STRIDE_FLOATS = PANEL_STRIDE / 4
 
+/**
+ * 旋转：屏幕上的向量转进面板自己的坐标系（转 −θ），与转回来（转 +θ）。
+ * 玻璃（单块与合并组）与填充（fill.wgsl.ts）共用。
+ */
+export const POSE_WGSL = /* wgsl */ `// 旋转：屏幕上的向量转进面板自己的坐标系（转 −θ），与转回来（转 +θ）。
+// pose = (1, 0) 时两者都逐位原样返回（乘 1 加 0）。
+fn toLocal(v: vec2f, pose: vec4f) -> vec2f {
+  return vec2f(pose.x * v.x + pose.y * v.y, pose.x * v.y - pose.y * v.x);
+}
+
+fn toWorld(v: vec2f, pose: vec4f) -> vec2f {
+  return vec2f(pose.x * v.x - pose.y * v.y, pose.x * v.y + pose.y * v.x);
+}`
+
 /** 调试视图。数值同时写进 uniform，所以顺序不能随便改。 */
 export const DEBUG_MODES = ['off', 'sdf', 'mask', 'grad', 'displacement'] as const
 export type PanelDebugMode = (typeof DEBUG_MODES)[number]
@@ -97,15 +111,7 @@ fn lightAt(px: vec2f, light: vec4f) -> f32 {
   return light.w * exp(-dot(d, d) / (2.0 * light.z * light.z));
 }
 
-// 旋转：屏幕上的向量转进面板自己的坐标系（转 −θ），与转回来（转 +θ）。
-// pose = (1, 0) 时两者都逐位原样返回（乘 1 加 0）。
-fn toLocal(v: vec2f, pose: vec4f) -> vec2f {
-  return vec2f(pose.x * v.x + pose.y * v.y, pose.x * v.y - pose.y * v.x);
-}
-
-fn toWorld(v: vec2f, pose: vec4f) -> vec2f {
-  return vec2f(pose.x * v.x - pose.y * v.y, pose.x * v.y + pose.y * v.x);
-}
+${POSE_WGSL}
 
 // 投影：形状往下挪 offset 之后的 SDF，外面按高斯衰减，里面是峰值（被玻璃盖住的那部分看不见）。
 // 强度 0 时恰好是 0 —— 该丢弃的片元照样丢弃，其余加上去逐位不变。

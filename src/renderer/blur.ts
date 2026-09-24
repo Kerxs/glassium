@@ -64,6 +64,13 @@ export interface BlurChainTextures {
   readonly chainView: GPUTextureView
   /** 场景 pass 的渲染目标（mip 0）。 */
   readonly sceneView: GPUTextureView
+  /**
+   * 草稿纹理的第 0 级（模糊只用 1 级以上，这一级本来闲着）。有填充时，场景画完、填充画进去之前
+   * 拷一份到这里：背景上屏用它，填充另按画布分辨率画 —— 否则场景分辨率的填充放大上屏，
+   * 边缘外会渗出一圈（见 fill.wgsl.ts）。
+   */
+  readonly clean: GPUTexture
+  readonly cleanView: GPUTextureView
   readonly levels: number
   readonly width: number
   readonly height: number
@@ -123,7 +130,12 @@ export class BlurChain {
     const maxBySize = Math.floor(Math.log2(Math.max(1, Math.min(width, height)))) + 1
     const levels = Math.max(1, Math.min(MAX_LEVELS, maxBySize))
 
-    const usage = GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING
+    // COPY_SRC / COPY_DST：有填充时 mip 0 要拷到草稿的第 0 级（见 BlurChainTextures.clean）
+    const usage =
+      GPUTextureUsage.RENDER_ATTACHMENT |
+      GPUTextureUsage.TEXTURE_BINDING |
+      GPUTextureUsage.COPY_SRC |
+      GPUTextureUsage.COPY_DST
 
     const chain = this.#device.createTexture({
       label: 'glassium:backdrop-chain',
@@ -203,6 +215,8 @@ export class BlurChain {
       chain,
       chainView: chain.createView(),
       sceneView: chain.createView({ baseMipLevel: 0, mipLevelCount: 1 }),
+      clean: scratch,
+      cleanView: scratch.createView({ baseMipLevel: 0, mipLevelCount: 1 }),
       levels,
       width,
       height

@@ -165,6 +165,16 @@ void main() {
 }
 `
 
+/** 与 glass.wgsl.ts 的 POSE_WGSL 对应。玻璃与填充共用。 */
+const POSE_GLSL = `// 与 glass.wgsl.ts 的 toLocal / toWorld 对应。
+vec2 toLocal(vec2 v, vec4 pose) {
+  return vec2(pose.x * v.x + pose.y * v.y, pose.x * v.y - pose.y * v.x);
+}
+
+vec2 toWorld(vec2 v, vec4 pose) {
+  return vec2(pose.x * v.x - pose.y * v.y, pose.x * v.y + pose.y * v.x);
+}`
+
 /** 与 glass.wgsl.ts 的 GLASS_COMMON_WGSL 对应。 */
 const GLASS_COMMON = `
 ${OPTICS_GLSL}
@@ -299,14 +309,7 @@ float lightAt(vec2 px, vec4 light) {
   return light.w * exp(-dot(d, d) / (2.0 * light.z * light.z));
 }
 
-// 与 glass.wgsl.ts 的 toLocal / toWorld 对应。
-vec2 toLocal(vec2 v, vec4 pose) {
-  return vec2(pose.x * v.x + pose.y * v.y, pose.x * v.y - pose.y * v.x);
-}
-
-vec2 toWorld(vec2 v, vec4 pose) {
-  return vec2(pose.x * v.x - pose.y * v.y, pose.x * v.y + pose.y * v.x);
-}
+${POSE_GLSL}
 
 // 与 glass.wgsl.ts 的 shadowAlpha 对应。
 float shadowAlpha(float sdShifted, float strength, float sigma) {
@@ -422,6 +425,56 @@ void main() {
   s.veil = adaptVeil(panelAverage(panel.rect), panel.adapt, panel.saturation, panel.tint);
   vec4 glass = shade(px, s);
   outColor = vec4(glass.rgb, glass.a + shade0 * (1.0 - glass.a));
+}
+`
+
+/**
+ * 与 fill.wgsl.ts 的 FILL_WGSL 对应。
+ *
+ * 画进场景目标时是离屏（不翻 y），画到画布上时翻一次 —— 与其它 pass 同一个约定，由 uDest.w 区分。
+ */
+export const FILL_FS = `${HEADER}
+${OPTICS_GLSL}
+${POSE_GLSL}
+
+struct Fill {
+  vec4 rect;
+  vec4 radii;
+  vec4 color;
+  vec4 clip;
+  vec4 clipRadii;
+  vec4 pose;
+};
+layout(std140) uniform FillBlock {
+  Fill fill;
+};
+uniform vec4 uDest;         // scale.xy（一个目标像素是几个画布设备像素）, aa, 翻不翻（1 = 画布）
+uniform float uDestHeight;  // 目标的高：翻 y 用
+out vec4 outColor;
+
+// 与 fill.wgsl.ts 的 clipSd 对应。
+float clipSd(vec2 px, vec4 box, vec4 radii) {
+  vec2 c = (box.xy + box.zw) * 0.5;
+  bool right = px.x > c.x;
+  bool bottom = px.y > c.y;
+  float r = bottom ? (right ? radii.z : radii.w) : (right ? radii.y : radii.x);
+  vec2 e = vec2(max(box.x - px.x, px.x - box.z), max(box.y - px.y, px.y - box.w)) + r;
+  return length(max(e, vec2(0.0))) + min(max(e.x, e.y), 0.0) - r;
+}
+
+void main() {
+  vec2 frag = uDest.w > 0.5 ? vec2(gl_FragCoord.x, uDestHeight - gl_FragCoord.y) : gl_FragCoord.xy;
+  vec2 px = frag * uDest.xy;
+  vec2 halfSize = fill.rect.zw * 0.5;
+  vec2 c = toLocal(px - (fill.rect.xy + halfSize), fill.pose);
+  float sd = sdRoundedRect(c, halfSize, radiusAt(c, fill.radii));
+  float shape = clamp(0.5 - sd / uDest.z, 0.0, 1.0);
+  float clip = clamp(0.5 - clipSd(px, fill.clip, fill.clipRadii) / uDest.z, 0.0, 1.0);
+  float a = fill.color.a * shape * clip;
+  if (a <= 0.0) {
+    discard;
+  }
+  outColor = vec4(fill.color.rgb * a, a);
 }
 `
 

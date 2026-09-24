@@ -692,6 +692,132 @@ async function run(): Promise<void> {
     return along >= 250 && across === 0 && max <= 2 && changed / total < 0.02 ? pass(detail) : fail(detail)
   })
 
+  await check('fill', async () => {
+    // 填充（<glass-fill>）：
+    // 1) 直接看到的部分按画布分辨率画：离边缘 1 个设备像素以外与没有填充时逐像素相同（场景分辨率的那一份
+    //    不能渗出来），离边缘 1 个像素以内的里面是填充的颜色；
+    // 2) 玻璃看得见它：盖在填充上的玻璃被染上它的颜色（没有填充时这里 R ≈ G）；
+    // 3) 颜色跟着 CSS 过渡逐帧走：过渡到一半时画出来的颜色就是那一刻的计算值。
+    //
+    // 场景目标压到画布的 0.6 倍（DPR 1 的小视口上预算从来不紧，场景与画布同分辨率，渗色根本不会发生，
+    // 第 1 条就验了个寂寞）。
+    stage.debug.setBackdrop({ scene: 'flat' })
+    const full = stage.debug.stats().viewport!
+    stage.debug.setPixelBudget(Math.floor(full.compositeWidth * full.compositeHeight * 0.36))
+    stage.debug.renderNow()
+    const v = stage.debug.stats().viewport!
+    const s = v.compositeWidth / v.cssWidth
+    const canvasBox = stage.canvas.getBoundingClientRect()
+    const fill = document.createElement('glass-fill')
+    Object.assign(fill.style, { position: 'absolute', left: '440px', top: '480px', width: '200px', height: '100px', borderRadius: '24px' })
+    fill.style.setProperty('--glass-fill', 'rgb(255, 0, 0)')
+    document.body.append(fill)
+    await sleep(0)
+    const region = regionOf([fill], 6)
+    const withFill = await readback(region)
+    const r = fill.getBoundingClientRect()
+    const rx = (r.left - canvasBox.left) * s
+    const ry = (r.top - canvasBox.top) * s
+    const hw = (r.width * s) / 2
+    const hh = (r.height * s) / 2
+    const radius = 24 * s
+    const sdAt = (px: number, py: number): number => {
+      const qx = Math.abs(px - rx - hw) - (hw - radius)
+      const qy = Math.abs(py - ry - hh) - (hh - radius)
+      return Math.hypot(Math.max(qx, 0), Math.max(qy, 0)) + Math.min(Math.max(qx, qy), 0) - radius
+    }
+
+    // 2) 右半边盖一块玻璃
+    const card = document.createElement('glass-card')
+    card.setAttribute('corner-radius', '16')
+    card.setAttribute('shadow', '0')
+    Object.assign(card.style, { left: '560px', top: '490px', width: '120px', height: '80px' })
+    document.body.append(card)
+    await sleep(0)
+    const glassRegion = regionOf([card], -20) // 玻璃内部、折射带之外；横向落在填充上的是 580–640
+    const onFill = await readback(glassRegion)
+
+    // 3) 过渡到一半
+    fill.style.transition = '--glass-fill 1000ms linear'
+    fill.style.setProperty('--glass-fill', 'rgb(0, 0, 255)')
+    const transition = fill.getAnimations()[0]
+    let mid: number[] = []
+    let midCss = ''
+    if (transition) {
+      transition.pause()
+      transition.currentTime = 500
+      midCss = getComputedStyle(fill).getPropertyValue('--glass-fill')
+      mid = Array.from(await readback({ x: Math.floor(rx + 20 * s), y: Math.floor(ry + 50 * s), width: 1, height: 1 }))
+      transition.cancel()
+    }
+
+    fill.remove()
+    await sleep(0)
+    const noFillGlass = await readback(glassRegion)
+    card.remove()
+    await sleep(0)
+    const without = await readback(region)
+    stage.debug.setPixelBudget(null)
+    calibrationScene()
+    stage.debug.renderNow()
+
+    let outsideChanged = 0
+    let inside = 0
+    let insideWrong = 0
+    for (let j = 0; j < region.height; j++) {
+      for (let i = 0; i < region.width; i++) {
+        const d = sdAt(region.x + i + 0.5, region.y + j + 0.5)
+        const k = (j * region.width + i) * 4
+        if (d > 1) {
+          const diff = Math.max(
+            Math.abs(withFill[k]! - without[k]!),
+            Math.abs(withFill[k + 1]! - without[k + 1]!),
+            Math.abs(withFill[k + 2]! - without[k + 2]!)
+          )
+          if (diff > 0) outsideChanged++
+        } else if (d < -1) {
+          inside++
+          if (withFill[k] !== 255 || withFill[k + 1] !== 0 || withFill[k + 2] !== 0) insideWrong++
+        }
+      }
+    }
+    // 玻璃里、落在填充上的那几列：R − G 的平均（填充是红的，灰场景上 R ≈ G）
+    const redness = (rgba: Uint8Array): number => {
+      let sum = 0
+      let n = 0
+      for (let j = 0; j < glassRegion.height; j++) {
+        for (let i = 0; i < glassRegion.width; i++) {
+          const x = (glassRegion.x + i + 0.5) / s + canvasBox.left
+          if (x > 635) continue // 只要落在填充上的（填充右边界 640，留 5px）
+          const k = (j * glassRegion.width + i) * 4
+          sum += rgba[k]! - rgba[k + 1]!
+          n++
+        }
+      }
+      return n > 0 ? sum / n : NaN
+    }
+    const glassRed = redness(onFill)
+    const glassGray = redness(noFillGlass)
+    const expected = /rgba?\(([^)]+)\)/.exec(midCss)?.[1]?.split(',').map((t) => Math.round(parseFloat(t))) ?? []
+    const midOk =
+      mid.length === 4 &&
+      expected.length >= 3 &&
+      Math.abs(mid[0]! - expected[0]!) <= 1 &&
+      Math.abs(mid[1]! - expected[1]!) <= 1 &&
+      Math.abs(mid[2]! - expected[2]!) <= 1 &&
+      mid[0]! > 40 &&
+      mid[2]! > 40
+    const detail =
+      `场景 ${v.sceneWidth}×${v.sceneHeight}、画布 ${v.compositeWidth}×${v.compositeHeight} · ` +
+      `边缘外 1px 以外变了的像素 ${outsideChanged} 个（应为 0）· 边缘内 ${inside} 个像素里颜色不对的 ${insideWrong} 个 · ` +
+      `玻璃里 R − G：有填充 ${glassRed.toFixed(1)}、没有 ${glassGray.toFixed(1)} · ` +
+      `过渡到一半：计算值 ${midCss || '（没有过渡）'}，画出来 ${mid.slice(0, 3).join('/')}`
+    const reduced = v.sceneWidth < v.compositeWidth * 0.7
+    return reduced && outsideChanged === 0 && inside > 10000 && insideWrong === 0 && glassRed > 100 && Math.abs(glassGray) < 5 && midOk
+      ? pass(detail)
+      : fail(detail)
+  })
+
   await check('component-equals-register', async () => {
     // 同一个位置先放组件、再放手动注册的 div，材质相同：区域哈希必须逐位相同
     const place = (el: HTMLElement): void => {

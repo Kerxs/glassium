@@ -19,8 +19,18 @@ import {
   type PanelDebugMode
 } from '../shaders/glass.wgsl.ts'
 import { levelForSigma } from './blur.ts'
+import {
+  fillRadii,
+  parseFillColor,
+  readFillStyle,
+  type FillRecord,
+  type FillStyle,
+  type MeasuredFill,
+  type Rgba
+} from './fills.ts'
 import { poseOf, type PoseStyle } from './pose.ts'
 import {
+  CLIP_UNBOUNDED_PX,
   UNBOUNDED,
   NO_CLIP,
   roundClipOf,
@@ -42,6 +52,14 @@ export interface GlassPanel {
   setLight(light: PanelLight | null): void
   unregister(): void
 }
+
+/** 一块注册过的填充（见 fills.ts）。`<glass-fill>` 背后就是它。 */
+export interface SceneFill {
+  readonly element: HTMLElement
+  unregister(): void
+}
+
+export { CLIP_UNBOUNDED_PX }
 
 /** 按压处的光。x、y 是相对面板元素左上角的 CSS 像素；strength 0–1。 */
 export interface PanelLight {
@@ -100,6 +118,8 @@ export interface MeasureResult {
   /** 单独绘制的面板（不在任何组里、且至少有一部分在屏上）。 */
   readonly panels: readonly MeasuredPanel[]
   readonly groups: readonly MeasuredGroup[]
+  /** 在屏上、不透明度不为 0 的填充，按注册顺序（先注册的画在下面）。 */
+  readonly fills: readonly MeasuredFill[]
 }
 
 /** 一帧里量到的面板，已换算到画布设备像素。 */
@@ -151,6 +171,38 @@ export interface MaterialFilter {
   apply(material: GlassMaterial, key: string): GlassMaterial
 }
 
+/** 面板与填充共用的几何缓存：从样式读出来、按样式代数过期的东西。 */
+interface GeometryCache {
+  readonly element: HTMLElement
+  /** 缓存的裁剪祖先（要读计算样式，所以不每帧重找）。clipGeneration 过期时重找。 */
+  clips?: readonly ClipEntry[]
+  clipGeneration?: number
+  /** 决定 CSS 不透明度的那几层的计算样式（活对象，每帧读 opacity）与找它们时的样式代数。 */
+  opacityStyles?: readonly CSSStyleDeclaration[]
+  opacityGeneration?: number
+}
+
+/** 一块面板或填充在这一帧的几何，画布设备像素。 */
+interface Geometry {
+  readonly bounds: Box
+  /** 矩形。有旋转时是转之前的矩形（中心 = 包围盒的中心）。 */
+  readonly x: number
+  readonly y: number
+  readonly w: number
+  readonly h: number
+  /**
+   * 变换之前的 CSS 尺寸：没有缩放、旋转时就是量到的（带小数）；有时是布局尺寸（offsetWidth，取整过）。
+   * 按尺寸算的东西（降级、百分比圆角）都用它。
+   */
+  readonly cssW: number
+  readonly cssH: number
+  readonly visualScale: number
+  readonly rotation: readonly [number, number]
+  readonly clip: Box
+  readonly clipRadii: [number, number, number, number]
+  readonly fade: number
+}
+
 export interface PanelRecord {
   readonly element: HTMLElement
   material: GlassMaterial
@@ -158,13 +210,11 @@ export interface PanelRecord {
   light?: PanelLight | null
   /** 按 CSS 尺寸缓存的降级结果。尺寸或材质变了才重算。 */
   cached: { readonly w: number; readonly h: number; readonly chain: EffectChain } | null
-  /** 缓存的裁剪祖先（要读计算样式，所以不每帧重找）。clipGeneration 过期时重找。 */
   clips?: readonly ClipEntry[]
   clipGeneration?: number
   /** 材质变换的 key 与读它时的样式代数（见 MaterialFilter）。 */
   filterKey?: string
   filterGeneration?: number
-  /** 决定 CSS 不透明度的那几层的计算样式（活对象，每帧读 opacity）与找它们时的样式代数。 */
   opacityStyles?: readonly CSSStyleDeclaration[]
   opacityGeneration?: number
   /** 文字深浅（自适应用）：+1 浅色文字，−1 深色文字；与读它时的样式代数。 */
@@ -238,20 +288,59 @@ const AA_MARGIN_PX = 2
  */
 export const RIM_WIDTH_DP = 1.5
 
+/** 读一块填充的样式。默认从元素的计算样式读；单元测试（没有 DOM）换成假的。 */
+export type FillStyleReader = (record: FillRecord) => FillStyle | null
+
+const readFillStyleFromDom: FillStyleReader = (record) => {
+  if (typeof getComputedStyle !== 'function') return null
+  record.style ??= getComputedStyle(record.element)
+  return readFillStyle(record.style)
+}
+
 export class PanelRegistry {
   readonly #records: PanelRecord[] = []
   readonly #groups: GroupRecord[] = []
+  readonly #fills: FillRecord[] = []
   readonly #onChange: () => void
+  readonly #readFillStyle: FillStyleReader
   /** 样式代数：DOM 或样式每变一次加一，从样式读出来的缓存（裁剪祖先、材质变换的 key）据此过期。 */
   #styleGeneration = 0
   #filter: MaterialFilter | null = null
 
-  constructor(onChange: () => void) {
+  constructor(onChange: () => void, options: { readonly readFillStyle?: FillStyleReader } = {}) {
     this.#onChange = onChange
+    this.#readFillStyle = options.readFillStyle ?? readFillStyleFromDom
   }
 
   get size(): number {
     return this.#records.length
+  }
+
+  /** 注册过的填充数（含不在屏上的）。 */
+  get fillCount(): number {
+    return this.#fills.length
+  }
+
+  /**
+   * 把一个元素注册成填充：它的盒子与 `--glass-fill` 颜色画进场景（见 fills.ts）。
+   * 重复注册同一个元素返回同一块。
+   */
+  registerFill(element: HTMLElement): SceneFill {
+    let record = this.#fills.find((r) => r.element === element)
+    if (!record) {
+      record = { element }
+      this.#fills.push(record)
+      this.#onChange()
+    }
+    const r = record
+    return {
+      element,
+      unregister: (): void => {
+        const i = this.#fills.indexOf(r)
+        if (i >= 0) this.#fills.splice(i, 1)
+        this.#onChange()
+      }
+    }
   }
 
   register(element: HTMLElement, material: GlassMaterial): GlassPanel {
@@ -375,14 +464,13 @@ export class PanelRegistry {
       y1: (b.y1 - originY) * sy
     })
 
-    // 1) 每块画出来了的面板都量一遍。屏外的也量 —— 它可能是某个组的成员，
-    //    自己不在屏上，与邻居连起来的颈部却在。
-    const measured = new Map<PanelRecord, MeasuredPanel>()
-    for (const record of this.#records) {
-      if (!record.element.isConnected) continue
-      if (!isRendered(record.element)) continue
+    const styleGeneration = this.#styleGeneration
+    // 一块面板或填充的几何：包围盒、（有旋转时）转之前的矩形、视觉缩放、裁剪、CSS 上的不透明度
+    const geometry = (record: GeometryCache): Geometry | null => {
+      if (!record.element.isConnected) return null
+      if (!isRendered(record.element)) return null
       const r = record.element.getBoundingClientRect()
-      if (r.width <= 0 || r.height <= 0) continue
+      if (r.width <= 0 || r.height <= 0) return null
 
       // 相对画布原点。inset:0 的画布原点通常就是 (0,0)，但宿主不是 body 时未必。
       // 先按包围盒算；有旋转时下面再换成转之前的矩形
@@ -396,17 +484,6 @@ export class PanelRegistry {
       let y = bounds.y0
       let w = r.width * sx
       let h = r.height * sy
-
-      // 材质变换的 key 只在样式可能变了之后重读；变了才让降级缓存作废
-      const filter = this.#filter
-      if (filter && record.filterGeneration !== this.#styleGeneration) {
-        const key = filter.key(record.element)
-        if (key !== record.filterKey) {
-          record.filterKey = key
-          record.cached = null
-        }
-        record.filterGeneration = this.#styleGeneration
-      }
 
       // 视觉缩放：getBoundingClientRect 量的是变换之后的盒子，offsetWidth 是布局尺寸。
       // offsetWidth 取整过，所以差不到 1% 时当作没有缩放（仍按量到的尺寸降级，结果与之前逐位相同）；
@@ -422,9 +499,9 @@ export class PanelRegistry {
       // 旋转：自己与祖先的变换合起来是「转过的矩形」时，包围盒的中心就是它的中心，尺寸是布局尺寸 × 缩放。
       // 读的是不透明度那一串的计算样式（活对象，同一批祖先），不多读样式。
       // 倾斜、3D 这类画不了的照旧按包围盒画，由 layering.ts 警告
-      if (record.opacityStyles === undefined || record.opacityGeneration !== this.#styleGeneration) {
+      if (record.opacityStyles === undefined || record.opacityGeneration !== styleGeneration) {
         record.opacityStyles = opacityChainOf(record.element, canvas)
-        record.opacityGeneration = this.#styleGeneration
+        record.opacityGeneration = styleGeneration
       }
       const pose = poseOf(record.opacityStyles as readonly PoseStyle[])
       let rotation: [number, number] = [1, 0]
@@ -439,66 +516,89 @@ export class PanelRegistry {
         rotation = [Math.cos(pose.angle), Math.sin(pose.angle)]
       }
       const rotated = rotation[1] !== 0
-      const lowerW = visualScale === 1 && !rotated ? r.width : layoutW
-      const lowerH = visualScale === 1 && !rotated ? r.height : layoutH
+      const cssW = visualScale === 1 && !rotated ? r.width : layoutW
+      const cssH = visualScale === 1 && !rotated ? r.height : layoutH
 
-      // 降级按尺寸缓存：材质的分数参数（refraction / distortion / 'frac' 圆角）
-      // 是按短边算的，尺寸不变就不必重算。
-      const cached = record.cached
-      let chain: EffectChain
-      if (cached && cached.w === lowerW && cached.h === lowerH) {
-        chain = cached.chain
-      } else {
-        const material = filter ? filter.apply(record.material, record.filterKey ?? '') : record.material
-        chain = lowerMaterial(material, [lowerW, lowerH])
-        record.cached = { w: lowerW, h: lowerH, chain }
-      }
-
-      if (record.clips === undefined || record.clipGeneration !== this.#styleGeneration) {
+      if (record.clips === undefined || record.clipGeneration !== styleGeneration) {
         record.clips = findClipEntries(record.element)
-        record.clipGeneration = this.#styleGeneration
+        record.clipGeneration = styleGeneration
       }
       const visible = record.clips.length > 0 ? roundClipOf(record.clips, clipRects) : NO_CLIP
       const clipBox = visible === NO_CLIP ? UNBOUNDED : toDevice(visible.box)
       const clipRadii = visible.radii.map((r) => r * sx) as [number, number, number, number]
-      // 有投影时 scissor 往外扩到影子够得着的地方
-      const reach = AA_MARGIN_PX + (chain.shadow > 0 ? SHADOW_REACH_DP * sx * visualScale : 0)
-      const own = intersect(
-        { x0: bounds.x0 - reach, y0: bounds.y0 - reach, x1: bounds.x1 + reach, y1: bounds.y1 + reach },
-        roundBox(clipBox)
-      )
-      const scissor = clip(own.x0, own.y0, own.x1, own.y1)
-      if (record.tone === undefined || record.toneGeneration !== this.#styleGeneration) {
-        record.tone = toneOf(record.element)
-        record.toneGeneration = this.#styleGeneration
-      }
 
       let fade = 1
       for (const s of record.opacityStyles) {
         const o = parseFloat(s.opacity)
         if (Number.isFinite(o)) fade *= o
       }
+      return { bounds, x, y, w, h, cssW, cssH, visualScale, rotation, clip: clipBox, clipRadii, fade }
+    }
+    // 包围盒外扩 reach、与裁剪祖先求交、钳到画布
+    const scissorOf = (g: Geometry, reach: number): [number, number, number, number] => {
+      const b = g.bounds
+      const own = intersect({ x0: b.x0 - reach, y0: b.y0 - reach, x1: b.x1 + reach, y1: b.y1 + reach }, roundBox(g.clip))
+      return clip(own.x0, own.y0, own.x1, own.y1)
+    }
+
+    // 1) 每块画出来了的面板都量一遍。屏外的也量 —— 它可能是某个组的成员，
+    //    自己不在屏上，与邻居连起来的颈部却在。
+    const measured = new Map<PanelRecord, MeasuredPanel>()
+    for (const record of this.#records) {
+      const g = geometry(record)
+      if (!g) continue
+
+      // 材质变换的 key 只在样式可能变了之后重读；变了才让降级缓存作废
+      const filter = this.#filter
+      if (filter && record.filterGeneration !== styleGeneration) {
+        const key = filter.key(record.element)
+        if (key !== record.filterKey) {
+          record.filterKey = key
+          record.cached = null
+        }
+        record.filterGeneration = styleGeneration
+      }
+
+      // 降级按尺寸缓存：材质的分数参数（refraction / distortion / 'frac' 圆角）
+      // 是按短边算的，尺寸不变就不必重算。
+      const cached = record.cached
+      let chain: EffectChain
+      if (cached && cached.w === g.cssW && cached.h === g.cssH) {
+        chain = cached.chain
+      } else {
+        const material = filter ? filter.apply(record.material, record.filterKey ?? '') : record.material
+        chain = lowerMaterial(material, [g.cssW, g.cssH])
+        record.cached = { w: g.cssW, h: g.cssH, chain }
+      }
+
+      // 有投影时 scissor 往外扩到影子够得着的地方
+      const reach = AA_MARGIN_PX + (chain.shadow > 0 ? SHADOW_REACH_DP * sx * g.visualScale : 0)
+      const scissor = scissorOf(g, reach)
+      if (record.tone === undefined || record.toneGeneration !== styleGeneration) {
+        record.tone = toneOf(record.element)
+        record.toneGeneration = styleGeneration
+      }
 
       const l = record.light
       const light: [number, number, number, number] = l
         ? // 光的位置相对元素的包围盒（组件用 getBoundingClientRect 量的），画在屏幕坐标里
-          [bounds.x0 + l.x * sx, bounds.y0 + l.y * sy, LIGHT_SIGMA_FRAC * Math.min(w, h), Math.min(1, Math.max(0, l.strength)) * LIGHT_GAIN]
+          [g.bounds.x0 + l.x * sx, g.bounds.y0 + l.y * sy, LIGHT_SIGMA_FRAC * Math.min(g.w, g.h), Math.min(1, Math.max(0, l.strength)) * LIGHT_GAIN]
         : [0, 0, 1, 0]
       measured.set(record, {
         record,
-        x,
-        y,
-        w,
-        h,
+        x: g.x,
+        y: g.y,
+        w: g.w,
+        h: g.h,
         scissor,
-        clip: clipBox,
-        clipRadii,
+        clip: g.clip,
+        clipRadii: g.clipRadii,
         light,
-        fade,
+        fade: g.fade,
         tone: record.tone,
-        visualScale,
-        rotation,
-        bounds,
+        visualScale: g.visualScale,
+        rotation: g.rotation,
+        bounds: g.bounds,
         chain
       })
     }
@@ -568,8 +668,56 @@ export class PanelRegistry {
       if (m.scissor[2] === 0 || m.scissor[3] === 0) continue
       panels.push(m)
     }
-    return { panels, groups }
+
+    // 4) 填充：几何与面板同一套，颜色每帧读（CSS 过渡要逐帧跟上），圆角按变换之前的尺寸解算
+    const fills: MeasuredFill[] = []
+    for (const record of this.#fills) {
+      const g = geometry(record)
+      if (!g) continue
+      const scissor = scissorOf(g, AA_MARGIN_PX)
+      if (scissor[2] === 0 || scissor[3] === 0) continue
+      const style = this.#readFillStyle(record)
+      if (!style) continue
+      const color = fillColorOf(record, style)
+      const alpha = color[3] * g.fade
+      if (!(alpha > 0)) continue
+      const k = sx * g.visualScale
+      const cap = Math.min(g.w, g.h) / 2
+      const [tl, tr, br, bl] = fillRadii(style.radii, g.cssW, g.cssH).map((r) => Math.min(r * k, cap))
+      fills.push({
+        record,
+        x: g.x,
+        y: g.y,
+        w: g.w,
+        h: g.h,
+        rotation: g.rotation,
+        scissor,
+        clip: g.clip,
+        clipRadii: g.clipRadii,
+        radii: [tl!, tr!, br!, bl!],
+        color: [color[0], color[1], color[2], alpha]
+      })
+    }
+    return { panels, groups, fills }
   }
+}
+
+/**
+ * 填充的颜色：`--glass-fill` 的计算值（`currentcolor` 取元素的 color）。文本没变就用上一次解析的结果；
+ * 解析不了按透明处理并警告一次。
+ */
+function fillColorOf(record: FillRecord, style: FillStyle): Rgba {
+  let text = style.color.trim()
+  if (text.toLowerCase() === 'currentcolor') text = style.currentColor.trim()
+  if (record.color && text === record.colorText) return record.color
+  const parsed = parseFillColor(text)
+  if (!parsed && !record.warnedColor) {
+    record.warnedColor = true
+    console.warn(`[Glassium] 填充的 ${'--glass-fill'} 解析不了（${text}），按透明处理：`, record.element)
+  }
+  record.colorText = text
+  record.color = parsed ?? [0, 0, 0, 0]
+  return record.color
 }
 
 /**
@@ -592,12 +740,6 @@ export function packPanel(
 
 /** Panel 结构体占几个 float（176B / 4）。合并组里的成员按这个步长紧挨着排。 */
 export const PANEL_STRUCT_FLOATS = PANEL_STRUCT_BYTES / 4
-
-/**
- * 没有裁剪的方向写进 uniform 的值。不写 ±∞：着色器里 ∞ − ∞ 是 NaN。
- * 画布最大 16384 像素，±65536 离得足够远，f32 在这个量级上仍有 1/256 像素的精度。
- */
-export const CLIP_UNBOUNDED_PX = 65536
 
 /**
  * 把一个合并组写进 uniform 数组的第 index 个组槽位（每槽 768B）。
