@@ -90,7 +90,8 @@ function samePanel(a: MeasuredPanel, b: MeasuredPanel): boolean {
     a.fade === b.fade &&
     a.tone === b.tone &&
     a.visualScale === b.visualScale &&
-    sameTuple(a.rotation, b.rotation)
+    sameTuple(a.rotation, b.rotation) &&
+    a.layer === b.layer
   )
 }
 
@@ -105,7 +106,12 @@ function sameGroups(a: readonly MeasuredGroup[], b: readonly MeasuredGroup[]): b
   for (let i = 0; i < a.length; i++) {
     const g = a[i]!
     const h = b[i]!
-    if (g.smoothingPx !== h.smoothingPx || !sameTuple(g.scissor, h.scissor) || !samePanels(g.members, h.members)) {
+    if (
+      g.smoothingPx !== h.smoothingPx ||
+      g.layer !== h.layer ||
+      !sameTuple(g.scissor, h.scissor) ||
+      !samePanels(g.members, h.members)
+    ) {
       return false
     }
   }
@@ -127,7 +133,8 @@ function sameFill(a: MeasuredFill, b: MeasuredFill): boolean {
     a.clip.y1 === b.clip.y1 &&
     sameTuple(a.clipRadii, b.clipRadii) &&
     sameTuple(a.radii, b.radii) &&
-    sameTuple(a.color, b.color)
+    sameTuple(a.color, b.color) &&
+    a.layer === b.layer
   )
 }
 

@@ -54,7 +54,8 @@ test('packFill 写入的每个字段都落在 WGSL struct 的对应偏移上', (
     clip: { x0: 5, y0: -Infinity, x1: 400, y1: Infinity },
     clipRadii: [1, 2, 3, 4],
     radii: [5, 6, 7, 8],
-    color: [0.1, 0.2, 0.3, 0.4]
+    color: [0.1, 0.2, 0.3, 0.4],
+    layer: 0
   }
   const data = new Float32Array(FILL_STRIDE_FLOATS * 3)
   packFill(data, 2, fill)

@@ -240,6 +240,8 @@ export function union(a: Box, b: Box): Box {
 export function flatParent(el: Element): Element | null {
   if (el.assignedSlot) return el.assignedSlot
   if (el.parentElement) return el.parentElement
+  // 单元测试里的假元素没有 getRootNode；没有 ShadowRoot 的环境（Node）同理
+  if (typeof el.getRootNode !== 'function' || typeof ShadowRoot === 'undefined') return null
   const root = el.getRootNode()
   return root instanceof ShadowRoot ? root.host : null
 }

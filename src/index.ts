@@ -168,6 +168,7 @@ export {
   DEFAULT_SMOOTHING_DP,
   LIGHT_GAIN,
   LIGHT_SIGMA_FRAC,
+  MAX_GLASS_LAYER,
   type GlassGroup,
   type GlassPanel,
   type PanelLight,

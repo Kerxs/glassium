@@ -48,6 +48,7 @@ const panel = (over: Partial<MeasuredPanel> = {}): MeasuredPanel => ({
   rotation: [1, 0],
   bounds: { x0: 10, y0: 20, x1: 110, y1: 70 },
   chain,
+  layer: 0,
   ...over
 })
 
@@ -65,6 +66,7 @@ const fill = (over: Partial<MeasuredFill> = {}): MeasuredFill => ({
   clipRadii: [0, 0, 0, 0],
   radii: [15.5, 15.5, 15.5, 15.5],
   color: [0.2, 0.78, 0.35, 1],
+  layer: 0,
   ...over
 })
 
@@ -145,6 +147,7 @@ test('面板：动了、换了降级结果、换了裁剪、多一块少一块�
   assert.equal(unchangedFrame(frame(), frame({ panels: [panel({ tone: -1 })] })), false, '文字深浅')
   assert.equal(unchangedFrame(frame(), frame({ panels: [panel({ visualScale: 0.9 })] })), false, '缩放动画中')
   assert.equal(unchangedFrame(frame(), frame({ panels: [panel({ rotation: [0.9, 0.1] })] })), false, '旋转动画中')
+  assert.equal(unchangedFrame(frame(), frame({ panels: [panel({ layer: 1 })] })), false, '挪进了一块玻璃里（换了层）')
   assert.equal(unchangedFrame(frame(), frame({ panels: [] })), false)
   assert.equal(unchangedFrame(frame(), frame({ panels: [panel({ record: { element: {} } as unknown as PanelRecord })] })), false)
 })
@@ -154,6 +157,7 @@ test('合并组：成员、smoothing、裁剪矩形', () => {
     members: [panel(), panel({ x: 140 })],
     smoothingPx: 36,
     scissor: [0, 0, 300, 80],
+    layer: 0,
     ...over
   })
   assert.equal(unchangedFrame(frame({ groups: [group()] }), frame({ groups: [group()] })), true)
@@ -183,6 +187,7 @@ test('填充：值相同算相同；颜色（过渡中）、位置、圆角、�
     '裁剪'
   )
   assert.equal(unchangedFrame(frame({ fills: [fill()] }), frame({ fills: [fill({ rotation: [0.9, 0.1] })] })), false, '旋转')
+  assert.equal(unchangedFrame(frame({ fills: [fill()] }), frame({ fills: [fill({ layer: 1 })] })), false, '换了层')
   assert.equal(unchangedFrame(frame({ fills: [fill()] }), frame({ fills: [] })), false)
   assert.equal(
     unchangedFrame(frame({ fills: [fill()] }), frame({ fills: [fill({ record: { element: {} } as unknown as FillRecord })] })),

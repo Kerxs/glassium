@@ -47,7 +47,8 @@ import {
   sourceReady
 } from './backend.ts'
 import { BACKDROP_FORMAT, BlurChain, levelForSigma } from './blur.ts'
-import { CANVAS_DEST, packFill, sceneDest, sceneScissor } from './fills.ts'
+import { CANVAS_DEST, packFill, sceneDest, sceneScissor, type MeasuredFill } from './fills.ts'
+import { layerRegion, splitLayers, type LayerItems } from './layers.ts'
 import {
   PANEL_STRUCT_FLOATS,
   packGroup,
@@ -88,6 +89,12 @@ export class GpuRenderer implements Renderer {
   readonly #fillCanvasPipeline: GPURenderPipeline
   readonly #fillSceneDest: GPUBuffer
   readonly #fillCanvasDest: GPUBuffer
+  // 玻璃的层（layers.ts）：画布上已经画好的那一块拷进 layerSource，再重采样回场景目标。
+  // 重采样用背景视图的着色器（原样参数），只是目标格式换成场景目标的
+  readonly #resamplePipeline: GPURenderPipeline
+  readonly #resampleUniforms: GPUBuffer
+  #layerSource: GPUTexture | null = null
+  #resampleBindGroup: GPUBindGroup | null = null
 
   readonly #sceneUniforms: GPUBuffer
   readonly #sceneUniformData = new Float32Array(8)
@@ -169,6 +176,20 @@ export class GpuRenderer implements Renderer {
       fragment: { module: backdropModule, entryPoint: 'fs', targets: [{ format }] },
       primitive: { topology: 'triangle-list' }
     })
+    this.#resamplePipeline = device.createRenderPipeline({
+      label: 'glassium:layer-resample',
+      layout: 'auto',
+      vertex: { module: backdropModule, entryPoint: 'vs' },
+      fragment: { module: backdropModule, entryPoint: 'fs', targets: [{ format: BACKDROP_FORMAT }] },
+      primitive: { topology: 'triangle-list' }
+    })
+    // 原样：tint 的 alpha 0、saturation 1、第 0 级
+    this.#resampleUniforms = device.createBuffer({
+      label: 'glassium:layer-resample-uniforms',
+      size: 32,
+      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
+    })
+    device.queue.writeBuffer(this.#resampleUniforms, 0, new Float32Array([1, 1, 1, 0, 1, 0, 0, 0]))
 
     // 用户场景：一张图按 object-fit 铺进场景目标（与内置场景画进同一个地方：模糊链的第 0 级）
     const imageModule = device.createShaderModule({ label: 'glassium:scene-image', code: SCENE_IMAGE_WGSL })
@@ -625,9 +646,15 @@ export class GpuRenderer implements Renderer {
     scenePass.draw(3)
     scenePass.end()
 
-    // 1.5) 填充画进场景：之后建的模糊链、玻璃的采样都看得见它。画之前把「没有填充的场景」
+    // 分层（layers.ts）：第 0 层（直接在场景上的玻璃与场景里的填充）照旧；写在玻璃里面的东西在更高的层，
+    // 画之前把画布上已经画好的那一块采回来、只在那一块里重建模糊链
+    const layers = splitLayers(panels, groups, fills)
+    const base: LayerItems = layers[0]?.layer === 0 ? layers[0] : { layer: 0, panels: [], groups: [], fills: [] }
+    let draws = 2 // 场景与背景
+
+    // 1.5) 第 0 层的填充画进场景：之后建的模糊链、玻璃的采样都看得见它。画之前把「没有填充的场景」
     //      拷到草稿纹理闲着的第 0 级 —— 背景上屏用那一份，填充另按画布分辨率画（见 3.5）
-    const withFills = fills.length > 0 && this.#fillSceneBindGroup !== null
+    const withFills = base.fills.length > 0 && this.#fillSceneBindGroup !== null
     const crispFills = withFills && backdropIsPlain(bd)
     if (withFills) {
       if (crispFills) {
@@ -641,20 +668,12 @@ export class GpuRenderer implements Renderer {
         label: 'glassium:fill-scene',
         colorAttachments: [{ view: textures.sceneView, loadOp: 'load', storeOp: 'store' }]
       })
-      fillPass.setPipeline(this.#fillScenePipeline)
-      for (let i = 0; i < fills.length; i++) {
-        const s = sceneScissor(fills[i]!.scissor, textures.width, textures.height, viewport.compositeWidth, viewport.compositeHeight)
-        if (!s) continue
-        fillPass.setScissorRect(s[0], s[1], s[2], s[3])
-        fillPass.setBindGroup(0, this.#fillSceneBindGroup!, [i * FILL_STRIDE])
-        fillPass.draw(3)
-        fillDraws++
-      }
+      draws += this.#drawSceneFills(fillPass, base.fills, fills, viewport)
       fillPass.end()
     }
 
     // 2) 建模糊链。趟数只和级数有关，与面板数量无关。
-    this.#blurChain.build(encoder)
+    let blurPasses = this.#blurChain.build(encoder)
 
     // 3) 背景 -> 画布
     const canvasTexture = this.#context.getCurrentTexture()
@@ -675,40 +694,49 @@ export class GpuRenderer implements Renderer {
 
     // 3.5) 填充按画布分辨率画：场景目标常常比画布粗，直接看到的边缘要和 DOM 一样锐利。
     //      背景调试视图在调色或模糊时不画 —— 那时背景用的是整条链，里面已经有（被调过、模糊过的）填充了
-    if (crispFills && this.#fillCanvasBindGroup) {
-      presentPass.setPipeline(this.#fillCanvasPipeline)
-      for (let i = 0; i < fills.length; i++) {
-        const [sx, sy, sw, sh] = fills[i]!.scissor
-        presentPass.setScissorRect(sx, sy, sw, sh)
-        presentPass.setBindGroup(0, this.#fillCanvasBindGroup, [i * FILL_STRIDE])
-        presentPass.draw(3)
-        fillDraws++
-      }
-      presentPass.setScissorRect(0, 0, canvasTexture.width, canvasTexture.height)
-    }
+    if (crispFills) draws += this.#drawCanvasFills(presentPass, base.fills, fills, canvasTexture)
 
     // 4) 玻璃。和背景在同一个 pass 里：玻璃采样的是模糊链而不是画布，
     //    所以没有读写冲突，也就不需要单独的合成目标。
-    if (panels.length > 0 && this.#glassBindGroup) {
-      presentPass.setPipeline(this.#glassPipeline)
-      for (let i = 0; i < panels.length; i++) {
-        const [sx, sy, sw, sh] = panels[i]!.scissor
-        presentPass.setScissorRect(sx, sy, sw, sh)
-        presentPass.setBindGroup(0, this.#glassBindGroup, [i * PANEL_STRIDE])
-        presentPass.draw(3)
-      }
-    }
     // 5) 合并组：每组一次 draw，与成员数无关。画在单块面板之后。
-    if (groups.length > 0 && this.#groupBindGroup) {
-      presentPass.setPipeline(this.#groupPipeline)
-      for (let i = 0; i < groups.length; i++) {
-        const [sx, sy, sw, sh] = groups[i]!.scissor
-        presentPass.setScissorRect(sx, sy, sw, sh)
-        presentPass.setBindGroup(0, this.#groupBindGroup, [i * GROUP_STRIDE])
-        presentPass.draw(3)
-      }
-    }
+    draws += this.#drawGlass(presentPass, base, panels, groups)
     presentPass.end()
+
+    // 6) 更高的层，逐层：拷画布 → 重采样回场景目标 → 这一层的填充 → 局部重建模糊链 → 填充、玻璃、合并组上屏
+    for (const layer of layers) {
+      if (layer.layer === 0) continue
+      const region = layerRegion(layer, panels, groups, fills, viewport, textures.levels)
+      if (!region) continue
+      const source = this.#ensureLayerSource(viewport)
+      const [cx, cy, cw, ch] = region.composite
+      encoder.copyTextureToTexture(
+        { texture: canvasTexture, origin: { x: cx, y: cy } },
+        { texture: source, origin: { x: cx, y: cy } },
+        { width: cw, height: ch }
+      )
+      const [sx, sy, sw, sh] = region.scene
+      const resample = encoder.beginRenderPass({
+        label: `glassium:layer-${layer.layer}-resample`,
+        colorAttachments: [{ view: textures.sceneView, loadOp: 'load', storeOp: 'store' }]
+      })
+      resample.setScissorRect(sx, sy, sw, sh)
+      resample.setPipeline(this.#resamplePipeline)
+      resample.setBindGroup(0, this.#resampleBindGroup!)
+      resample.draw(3)
+      draws++
+      if (layer.fills.length > 0) draws += this.#drawSceneFills(resample, layer.fills, fills, viewport)
+      resample.end()
+
+      blurPasses += this.#blurChain.build(encoder, region.scene)
+
+      const layerPass = encoder.beginRenderPass({
+        label: `glassium:layer-${layer.layer}`,
+        colorAttachments: [{ view: canvasTexture.createView(), loadOp: 'load', storeOp: 'store' }]
+      })
+      if (layer.fills.length > 0) draws += this.#drawCanvasFills(layerPass, layer.fills, fills, canvasTexture)
+      draws += this.#drawGlass(layerPass, layer, panels, groups)
+      layerPass.end()
+    }
 
     const finishProbe = input.probe ? this.#encodeProbe(encoder, input.probe, panels, viewport) : null
     const finishGroupProbe = input.groupProbe
@@ -725,10 +753,107 @@ export class GpuRenderer implements Renderer {
     finishReadback?.()
 
     return {
-      drawCalls: 2 + this.#blurChain.passesLastFrame + panels.length + groups.length + fillDraws,
-      blurPasses: this.#blurChain.passesLastFrame,
+      drawCalls: draws + blurPasses,
+      blurPasses,
       sceneUploads: image === 'uploaded' ? 1 : 0
     }
+  }
+
+  /** 把这些填充画进场景目标（pass 由调用方开好，目标是模糊链的第 0 级）。返回画了几次。 */
+  #drawSceneFills(
+    pass: GPURenderPassEncoder,
+    indices: readonly number[],
+    fills: readonly MeasuredFill[],
+    viewport: ResolvedViewport
+  ): number {
+    const textures = this.#blurChain.textures
+    if (!textures || !this.#fillSceneBindGroup) return 0
+    pass.setPipeline(this.#fillScenePipeline)
+    let n = 0
+    for (const i of indices) {
+      const s = sceneScissor(fills[i]!.scissor, textures.width, textures.height, viewport.compositeWidth, viewport.compositeHeight)
+      if (!s) continue
+      pass.setScissorRect(s[0], s[1], s[2], s[3])
+      pass.setBindGroup(0, this.#fillSceneBindGroup, [i * FILL_STRIDE])
+      pass.draw(3)
+      n++
+    }
+    return n
+  }
+
+  /** 把这些填充按画布分辨率画到画布上（之后把 scissor 还原成整块画布）。返回画了几次。 */
+  #drawCanvasFills(
+    pass: GPURenderPassEncoder,
+    indices: readonly number[],
+    fills: readonly MeasuredFill[],
+    canvasTexture: GPUTexture
+  ): number {
+    if (!this.#fillCanvasBindGroup) return 0
+    pass.setPipeline(this.#fillCanvasPipeline)
+    for (const i of indices) {
+      const [sx, sy, sw, sh] = fills[i]!.scissor
+      pass.setScissorRect(sx, sy, sw, sh)
+      pass.setBindGroup(0, this.#fillCanvasBindGroup, [i * FILL_STRIDE])
+      pass.draw(3)
+    }
+    pass.setScissorRect(0, 0, canvasTexture.width, canvasTexture.height)
+    return indices.length
+  }
+
+  /** 一层的玻璃：单块面板，再合并组（每组一次 draw，与成员数无关）。返回画了几次。 */
+  #drawGlass(
+    pass: GPURenderPassEncoder,
+    layer: LayerItems,
+    panels: readonly MeasuredPanel[],
+    groups: readonly MeasuredGroup[]
+  ): number {
+    let n = 0
+    if (layer.panels.length > 0 && this.#glassBindGroup) {
+      pass.setPipeline(this.#glassPipeline)
+      for (const i of layer.panels) {
+        const [sx, sy, sw, sh] = panels[i]!.scissor
+        pass.setScissorRect(sx, sy, sw, sh)
+        pass.setBindGroup(0, this.#glassBindGroup, [i * PANEL_STRIDE])
+        pass.draw(3)
+        n++
+      }
+    }
+    if (layer.groups.length > 0 && this.#groupBindGroup) {
+      pass.setPipeline(this.#groupPipeline)
+      for (const i of layer.groups) {
+        const [sx, sy, sw, sh] = groups[i]!.scissor
+        pass.setScissorRect(sx, sy, sw, sh)
+        pass.setBindGroup(0, this.#groupBindGroup, [i * GROUP_STRIDE])
+        pass.draw(3)
+        n++
+      }
+    }
+    return n
+  }
+
+  /** 层的来源纹理：画布大小、画布的格式（拷贝要求格式相同）。视口变了重新分配，连同重采样的 bind group。 */
+  #ensureLayerSource(viewport: ResolvedViewport): GPUTexture {
+    const w = viewport.compositeWidth
+    const h = viewport.compositeHeight
+    if (this.#layerSource && this.#layerSource.width === w && this.#layerSource.height === h) return this.#layerSource
+    this.#layerSource?.destroy()
+    const source = this.device.createTexture({
+      label: 'glassium:layer-source',
+      size: { width: w, height: h },
+      format: this.format,
+      usage: GPUTextureUsage.COPY_DST | GPUTextureUsage.TEXTURE_BINDING
+    })
+    this.#layerSource = source
+    this.#resampleBindGroup = this.device.createBindGroup({
+      label: 'glassium:layer-resample',
+      layout: this.#resamplePipeline.getBindGroupLayout(0),
+      entries: [
+        { binding: 0, resource: { buffer: this.#resampleUniforms } },
+        { binding: 1, resource: this.#sampler },
+        { binding: 2, resource: source.createView() }
+      ]
+    })
+    return source
   }
 
   /**
@@ -1035,6 +1160,8 @@ export class GpuRenderer implements Renderer {
     this.#fillBuffer?.destroy()
     this.#fillSceneDest.destroy()
     this.#fillCanvasDest.destroy()
+    this.#layerSource?.destroy()
+    this.#resampleUniforms.destroy()
     this.#imageTexture?.destroy()
     this.#imageUniforms.destroy()
     this.#blurChain.destroy()

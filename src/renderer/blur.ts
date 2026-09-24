@@ -12,6 +12,7 @@
  */
 
 import type { ResolvedViewport } from '../core/units.ts'
+import { levelRegion } from './layers.ts'
 
 /** 第 1 级的屏幕空间 σ（场景目标像素）。之后每级翻倍。 */
 export const SIGMA_BASE = 2
@@ -112,7 +113,7 @@ export class BlurChain {
     return this.#allocations
   }
 
-  /** 上一帧实际跑了多少趟模糊。应当等于 2×(K−1)，且与面板数量无关。 */
+  /** 上一次整条链跑了多少趟模糊。应当等于 2×(K−1)，且与面板数量无关。 */
   get passesLastFrame(): number {
     return this.#passesLastFrame
   }
@@ -229,13 +230,21 @@ export class BlurChain {
    *
    * 每级两趟，共 2×(K−1) 趟。每级的像素数是上一级的 1/4，所以整条链的总开销
    * 约等于第 1 级的 4/3，而第 1 级只有场景的 1/4 —— 合计约场景的 1/3。
+   *
+   * 给了 region（场景像素 [x, y, w, h]）时只重建这一块（玻璃的第 L 层，见 layers.ts）：各级按比例缩小、
+   * 往外扩几个纹素，用 scissor 限住，不清屏 —— 这一块外面保持原样。返回这一次跑了多少趟。
    */
-  build(encoder: GPUCommandEncoder): void {
+  build(encoder: GPUCommandEncoder, region?: readonly [number, number, number, number]): number {
     const textures = this.#textures
-    if (!textures) return
+    if (!textures) return 0
 
     let passes = 0
-    for (const level of this.#levels) {
+    this.#levels.forEach((level, i) => {
+      const k = i + 1
+      const r = region
+        ? levelRegion(region, k, Math.max(1, textures.width >> k), Math.max(1, textures.height >> k))
+        : null
+      if (r && (r[2] === 0 || r[3] === 0)) return
       for (const [label, view, bind] of [
         ['h', level.hView, level.hBind],
         ['v', level.vView, level.vBind]
@@ -246,19 +255,21 @@ export class BlurChain {
             {
               view,
               clearValue: { r: 0, g: 0, b: 0, a: 1 },
-              loadOp: 'clear',
+              loadOp: r ? 'load' : 'clear',
               storeOp: 'store'
             }
           ]
         })
         pass.setPipeline(this.#pipeline)
         pass.setBindGroup(0, bind)
+        if (r) pass.setScissorRect(r[0], r[1], r[2], r[3])
         pass.draw(3)
         pass.end()
         passes++
       }
-    }
-    this.#passesLastFrame = passes
+    })
+    if (!region) this.#passesLastFrame = passes
+    return passes
   }
 
   #destroyTextures(): void {

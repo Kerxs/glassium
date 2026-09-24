@@ -1024,6 +1024,72 @@ async function run(): Promise<void> {
       : fail(detail)
   })
 
+  await check('nested-glass', async () => {
+    // 玻璃的层：写在一块玻璃里面的玻璃看得见外面那块。
+    // 1) 灰场景上一块 tint 很红的卡片，里面一块普通的卡片：里面那块的中心是红的（透过它看到外面那块）；
+    //    挪出来放在同一个位置（不再嵌套）时它只看得到灰色的场景 —— 在红卡片上开了一个灰洞，这是以前的样子；
+    // 2) 外面那块离里面那块远的地方，嵌套与不嵌套逐像素相同（它在第 0 层，画法没变）；
+    // 3) 卡片里的开关：轨道（填充）在卡片之上，按画布分辨率画出来就是它自己的绿，不被卡片模糊、染色。
+    stage.debug.setBackdrop({ scene: 'flat' })
+    const outer = document.createElement('glass-card')
+    outer.setAttribute('tint', 'rgba(255, 0, 0, 0.5)')
+    outer.setAttribute('shadow', '0')
+    Object.assign(outer.style, { left: '440px', top: '480px', width: '300px', height: '220px', padding: '40px', boxSizing: 'border-box' })
+    const inner = document.createElement('glass-card')
+    inner.setAttribute('shadow', '0')
+    inner.setAttribute('corner-radius', '16')
+    Object.assign(inner.style, { position: 'static', display: 'block', width: '180px', height: '80px' })
+    const sw = document.createElement('glass-switch')
+    sw.toggleAttribute('checked', true)
+    Object.assign(sw.style, { marginTop: '12px' })
+    outer.append(inner, sw)
+    document.body.append(outer)
+    await sleep(0)
+    for (const a of sw.shadowRoot!.getAnimations()) a.finish()
+    const v = stage.debug.stats().viewport!
+    const s = v.compositeWidth / v.cssWidth
+    const canvasBox = stage.canvas.getBoundingClientRect()
+    const pixel = async (x: number, y: number): Promise<[number, number, number]> => {
+      const d = await readback({ x: Math.floor((x - canvasBox.left) * s), y: Math.floor((y - canvasBox.top) * s), width: 1, height: 1 })
+      return [d[0]!, d[1]!, d[2]!]
+    }
+    const ir = inner.getBoundingClientRect()
+    const or = outer.getBoundingClientRect()
+    const swr = sw.getBoundingClientRect()
+    const strip: ReadbackRegion = {
+      x: Math.floor((or.right - 30 - canvasBox.left) * s),
+      y: Math.floor((or.top + 30 - canvasBox.top) * s),
+      width: Math.floor(10 * s),
+      height: Math.floor(100 * s)
+    }
+    const nested = await pixel(ir.left + ir.width / 2, ir.top + ir.height / 2)
+    const track = await pixel(swr.left + 7, swr.top + swr.height / 2)
+    const stripNested = await readback(strip)
+    const passesNested = stage.debug.stats().blurPasses
+    // 挪出来放在同一个位置
+    document.body.append(inner)
+    Object.assign(inner.style, { position: 'absolute', left: `${ir.left - canvasBox.left + window.scrollX}px`, top: `${ir.top - canvasBox.top + window.scrollY}px` })
+    await sleep(0)
+    const loose = await pixel(ir.left + ir.width / 2, ir.top + ir.height / 2)
+    sw.remove()
+    await sleep(0)
+    const stripLoose = await readback(strip)
+    outer.remove()
+    inner.remove()
+    calibrationScene()
+    stage.debug.renderNow()
+
+    const same = (await sha(stripNested)) === (await sha(stripLoose))
+    const f = (c: readonly number[]): string => c.join('/')
+    const detail =
+      `嵌套的卡片中心 ${f(nested)}、挪出来 ${f(loose)} · 外层远处逐像素${same ? '相同' : '不同'} · ` +
+      `卡片里开关的轨道 ${f(track)} · 嵌套时模糊 ${passesNested} 趟`
+    return nested[0]! - nested[1]! > 100 && Math.abs(loose[0]! - loose[1]!) < 10 && same &&
+      Math.abs(track[0]! - 52) <= 12 && Math.abs(track[1]! - 199) <= 12 && Math.abs(track[2]! - 89) <= 12
+      ? pass(detail)
+      : fail(detail)
+  })
+
   await check('component-equals-register', async () => {
     // 同一个位置先放组件、再放手动注册的 div，材质相同：区域哈希必须逐位相同
     const place = (el: HTMLElement): void => {
@@ -1359,6 +1425,18 @@ async function run(): Promise<void> {
   await check('cross-backend', async () => {
     // 同一个固定场景，两个后端各画一帧：calibration 一次，用户图片（cover，放大、带斜条纹硬边）一次
     if (stage.backend !== 'webgpu') return skip(`当前是 ${stage.backend}，只在 WebGPU 起步时比两个后端`)
+    // 加一对嵌套的透明玻璃（玻璃的第 1 层，layers.ts）：WebGL2 那边的重采样要把默认帧缓冲（左下原点）拷出来再
+    // 翻一次，翻错了在对称的内容上看不出来 —— 这里的背景（calibration、斜条纹）上下不对称，翻错就是一大片不同
+    const outer = document.createElement('glass-card')
+    outer.setAttribute('preset', 'clear')
+    Object.assign(outer.style, { left: '440px', top: '480px', width: '300px', height: '220px', padding: '40px', boxSizing: 'border-box' })
+    const inner = document.createElement('glass-card')
+    inner.setAttribute('preset', 'clear')
+    inner.setAttribute('corner-radius', '16')
+    Object.assign(inner.style, { position: 'static', display: 'block', width: '200px', height: '120px' })
+    outer.append(inner)
+    document.body.append(outer)
+    await sleep(0)
     const full = { x: 0, y: 0, width: stage.canvas.width, height: stage.canvas.height }
     const photo = stripes(480, 320)
     const a = await readback(full)
@@ -1375,6 +1453,7 @@ async function run(): Promise<void> {
     await stage.setScene(photo)
     const b2 = await readback(full)
     await stage.setScene(null)
+    outer.remove()
     if (a.length !== b.length) return fail(`两帧尺寸不同：${a.length / 4} vs ${b.length / 4}`)
     const total = a.length / 4
     const W = stage.canvas.width
@@ -1382,7 +1461,7 @@ async function run(): Promise<void> {
     const img = diffFrames(a2, b2, W)
     const detail =
       `calibration：${total} 像素里 ${cal.changed} 个不同，最大差 ${cal.max}/255${cal.where}` +
-      `；图片场景：${img.changed} 个不同，最大差 ${img.max}/255${img.where}`
+      `；图片场景：${img.changed} 个不同，最大差 ${img.max}/255${img.where}（都含一对嵌套的玻璃）`
     const ok = (d: typeof cal): boolean => d.max <= 2 && d.changed / total <= 1e-3
     return ok(cal) && ok(img) ? pass(detail) : fail(detail)
   })

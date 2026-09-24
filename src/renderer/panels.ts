@@ -96,6 +96,14 @@ export interface GlassGroup {
   dissolve(): void
 }
 
+/**
+ * 玻璃最多叠几层（层号 0 起）。写在一块玻璃里面的玻璃（卡片里的按钮、卡片里开关的旋钮）在它上面一层：
+ * 画它之前先把画布上已经画好的那一块（下面那层的玻璃也在里面）重新采回场景目标、重建那一块的模糊链，
+ * 于是它折射、模糊的是下面那层玻璃，而不是在下面那层上开一个洞。每多一层多一轮局部的重采样与模糊。
+ * 更深的按最深的这一层画。
+ */
+export const MAX_GLASS_LAYER = 3
+
 /** 平滑半径的默认值，dp。并排两个按钮留 8dp 左右的缝时，默认就会连起来。 */
 export const DEFAULT_SMOOTHING_DP = 20
 
@@ -112,6 +120,8 @@ export interface MeasuredGroup {
   readonly smoothingPx: number
   /** 成员并集外扩 k/4 再加抗锯齿余量，已与画布求交。 */
   readonly scissor: readonly [number, number, number, number]
+  /** 在第几层：成员里最深的那一层。 */
+  readonly layer: number
 }
 
 export interface MeasureResult {
@@ -158,6 +168,8 @@ export interface MeasuredPanel {
   /** 画布设备像素下的轴对齐包围盒（没有旋转时与 x / y / w / h 相同）。合并组的范围按它算。 */
   readonly bounds: Box
   readonly chain: EffectChain
+  /** 在第几层：0 是直接在场景上；写在别的玻璃里面时是那块玻璃的层号加一（见 MAX_GLASS_LAYER）。 */
+  readonly layer: number
 }
 
 /**
@@ -174,6 +186,9 @@ export interface MaterialFilter {
 /** 面板与填充共用的几何缓存：从样式读出来、按样式代数过期的东西。 */
 interface GeometryCache {
   readonly element: HTMLElement
+  /** 最近的玻璃祖先（没有是 null）与找它时的树代数（DOM 变了或注册的玻璃变了就重找）。 */
+  glassParent?: object | null
+  glassParentGeneration?: number
   /** 缓存的裁剪祖先（要读计算样式，所以不每帧重找）。clipGeneration 过期时重找。 */
   clips?: readonly ClipEntry[]
   clipGeneration?: number
@@ -305,6 +320,8 @@ export class PanelRegistry {
   readonly #readFillStyle: FillStyleReader
   /** 样式代数：DOM 或样式每变一次加一，从样式读出来的缓存（裁剪祖先、材质变换的 key）据此过期。 */
   #styleGeneration = 0
+  /** 树代数：DOM 变了、或者注册的玻璃变了（多一块少一块）就加一。玻璃祖先（层号）据此重找。 */
+  #treeGeneration = 0
   #filter: MaterialFilter | null = null
 
   constructor(onChange: () => void, options: { readonly readFillStyle?: FillStyleReader } = {}) {
@@ -355,6 +372,7 @@ export class PanelRegistry {
     }
     const record: PanelRecord = { element, material, cached: null }
     this.#records.push(record)
+    this.#treeGeneration++
     this.#onChange()
     return this.#handle(record)
   }
@@ -395,6 +413,7 @@ export class PanelRegistry {
    */
   invalidateStyles(): void {
     this.#styleGeneration++
+    this.#treeGeneration++
   }
 
   /** 换注册表级的材质变换（null 去掉）。所有面板下一帧重新降级。 */
@@ -429,6 +448,7 @@ export class PanelRegistry {
       unregister: (): void => {
         const i = this.#records.indexOf(record)
         if (i >= 0) this.#records.splice(i, 1)
+        this.#treeGeneration++
         this.#onChange()
       }
     }
@@ -534,6 +554,31 @@ export class PanelRegistry {
       }
       return { bounds, x, y, w, h, cssW, cssH, visualScale, rotation, clip: clipBox, clipRadii, fade }
     }
+    // 层：最近的玻璃祖先（沿渲染树往上，自己不算）是谁，缓存到树代数变了为止；层号 = 玻璃祖先的层号 + 1
+    const treeGeneration = this.#treeGeneration
+    let glassByElement: Map<Element, PanelRecord> | null = null
+    const glassParentOf = (record: GeometryCache): PanelRecord | null => {
+      if (record.glassParentGeneration !== treeGeneration) {
+        glassByElement ??= new Map(this.#records.map((r) => [r.element, r]))
+        let found: PanelRecord | null = null
+        for (let e = flatParent(record.element); e; e = flatParent(e)) {
+          const hit = glassByElement.get(e)
+          if (hit) {
+            found = hit
+            break
+          }
+        }
+        record.glassParent = found
+        record.glassParentGeneration = treeGeneration
+      }
+      return (record.glassParent as PanelRecord | null | undefined) ?? null
+    }
+    const layerOf = (record: GeometryCache): number => {
+      let layer = 0
+      for (let p = glassParentOf(record); p && layer < MAX_GLASS_LAYER; p = glassParentOf(p)) layer++
+      return layer
+    }
+
     // 包围盒外扩 reach、与裁剪祖先求交、钳到画布
     const scissorOf = (g: Geometry, reach: number): [number, number, number, number] => {
       const b = g.bounds
@@ -599,7 +644,8 @@ export class PanelRegistry {
         visualScale: g.visualScale,
         rotation: g.rotation,
         bounds: g.bounds,
-        chain
+        chain,
+        layer: layerOf(record)
       })
     }
 
@@ -657,7 +703,7 @@ export class PanelRegistry {
         )
         const scissor = clip(bounded.x0, bounded.y0, bounded.x1, bounded.y1)
         if (scissor[2] === 0 || scissor[3] === 0) continue // 整组都在屏外
-        groups.push({ members, smoothingPx: k, scissor })
+        groups.push({ members, smoothingPx: k, scissor, layer: Math.max(...members.map((m) => m.layer)) })
       }
     }
 
@@ -695,7 +741,8 @@ export class PanelRegistry {
         clip: g.clip,
         clipRadii: g.clipRadii,
         radii: [tl!, tr!, br!, bl!],
-        color: [color[0], color[1], color[2], alpha]
+        color: [color[0], color[1], color[2], alpha],
+        layer: layerOf(record)
       })
     }
     return { panels, groups, fills }

@@ -39,6 +39,7 @@ import {
 } from '../renderer/backend.ts'
 import { LOCAL_SIGMA, MAX_LEVELS, levelForSigma } from '../renderer/blur.ts'
 import { CANVAS_DEST, packFill, sceneDest, sceneScissor, type MeasuredFill } from '../renderer/fills.ts'
+import { layerRegion, levelRegion, splitLayers, type LayerItems } from '../renderer/layers.ts'
 import {
   PANEL_STRUCT_FLOATS,
   packGroup,
@@ -120,6 +121,11 @@ export class Gl2Renderer implements Renderer {
   #fillUbo: WebGLBuffer | null = null
   #fillCapacity = 0
   #fillData = new Float32Array(0)
+  /** 玻璃的层（layers.ts）：默认帧缓冲上已经画好的那一块 blit 进来，再重采样回场景目标。 */
+  #layerSource: WebGLTexture | null = null
+  #layerSourceFbo: WebGLFramebuffer | null = null
+  #layerSourceWidth = 0
+  #layerSourceHeight = 0
 
   #destroyed = false
 
@@ -309,6 +315,7 @@ export class Gl2Renderer implements Renderer {
    */
   #drawFills(
     fills: readonly MeasuredFill[],
+    indices: readonly number[],
     dest: readonly [number, number, number, number],
     onScreen: boolean,
     targetHeight: number,
@@ -324,7 +331,7 @@ export class Gl2Renderer implements Renderer {
     gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA)
     gl.enable(gl.SCISSOR_TEST)
     let draws = 0
-    for (let i = 0; i < fills.length; i++) {
+    for (const i of indices) {
       const s = scissorOf(fills[i]!)
       if (!s) continue
       const [sx, sy, sw, sh] = s
@@ -375,7 +382,7 @@ export class Gl2Renderer implements Renderer {
   render(input: FrameInput): FrameResult | null {
     const gl = this.gl
     if (this.#destroyed || gl.isContextLost()) return null
-    const { viewport, backdrop, panels, groups } = input
+    const { viewport, backdrop, panels, groups, fills } = input
     this.#ensureTargets(viewport)
     const chain = this.#chain
     const scratch = this.#scratch
@@ -389,6 +396,37 @@ export class Gl2Renderer implements Renderer {
     gl.disable(gl.BLEND)
     gl.disable(gl.SCISSOR_TEST)
     gl.activeTexture(gl.TEXTURE0)
+
+    // 面板、合并组、填充：同一份打包字节（逐次上传时在 draw 前各传各的槽位）
+    this.#ensurePanelCapacity(panels.length)
+    for (let i = 0; i < panels.length; i++) {
+      packPanel(this.#panelData, i, panels[i]!, viewport, this.#levels, input.panelDebugMode)
+    }
+    this.#ensureGroupCapacity(groups.length)
+    for (let i = 0; i < groups.length; i++) {
+      packGroup(this.#groupData, i, groups[i]!, viewport, this.#levels, input.panelDebugMode)
+    }
+    this.#ensureFillCapacity(fills.length)
+    for (let i = 0; i < fills.length; i++) packFill(this.#fillData, i, fills[i]!)
+    if (this.#rangeBinding) {
+      if (panels.length > 0) {
+        gl.bindBuffer(gl.UNIFORM_BUFFER, this.#panelUbo)
+        gl.bufferSubData(gl.UNIFORM_BUFFER, 0, this.#panelData, 0, panels.length * PANEL_STRIDE_FLOATS)
+      }
+      if (groups.length > 0) {
+        gl.bindBuffer(gl.UNIFORM_BUFFER, this.#groupUbo)
+        gl.bufferSubData(gl.UNIFORM_BUFFER, 0, this.#groupData, 0, groups.length * GROUP_STRIDE_FLOATS)
+      }
+      if (fills.length > 0) {
+        gl.bindBuffer(gl.UNIFORM_BUFFER, this.#fillUbo)
+        gl.bufferSubData(gl.UNIFORM_BUFFER, 0, this.#fillData, 0, fills.length * FILL_STRIDE_FLOATS)
+      }
+    }
+
+    // 分层：第 0 层照旧，更高的层在第 6 步逐层画（与 gpu.ts 相同）
+    const layers = splitLayers(panels, groups, fills)
+    const base: LayerItems = layers[0]?.layer === 0 ? layers[0] : { layer: 0, panels: [], groups: [], fills: [] }
+    let draws = 2 // 场景与背景
 
     // 1) 场景 → 模糊链的 mip 0（离屏：不翻 y，纹理第 0 行 = 屏幕顶部，与 WebGPU 相同）
     const scene = input.sceneImage ? this.#prepareImage(input.sceneImage) : 'none'
@@ -417,31 +455,110 @@ export class Gl2Renderer implements Renderer {
     }
     gl.drawArrays(gl.TRIANGLES, 0, 3)
 
-    // 1.5) 填充画进场景：之后建的模糊链、玻璃的采样都看得见它。画之前把「没有填充的场景」
+    // 1.5) 第 0 层的填充画进场景：之后建的模糊链、玻璃的采样都看得见它。画之前把「没有填充的场景」
     //      拷到草稿的第 0 级，背景上屏用那一份（理由见 gpu.ts 的同一步）
-    const fills = input.fills
-    let fillDraws = 0
     const backdropLevel = levelForSigma(backdrop.blurDp * viewport.sceneScale, this.#levels)
-    const crispFills = fills.length > 0 && backdrop.tint[3] === 0 && backdrop.saturation === 1 && backdropLevel === 0
-    if (fills.length > 0) {
-      this.#ensureFillCapacity(fills.length)
-      for (let i = 0; i < fills.length; i++) packFill(this.#fillData, i, fills[i]!)
-      if (this.#rangeBinding) {
-        gl.bindBuffer(gl.UNIFORM_BUFFER, this.#fillUbo)
-        gl.bufferSubData(gl.UNIFORM_BUFFER, 0, this.#fillData, 0, fills.length * FILL_STRIDE_FLOATS)
-      }
+    const crispFills =
+      base.fills.length > 0 && backdrop.tint[3] === 0 && backdrop.saturation === 1 && backdropLevel === 0
+    if (base.fills.length > 0) {
       if (crispFills) {
         gl.bindFramebuffer(gl.READ_FRAMEBUFFER, this.#chainFbos[0]!)
         gl.bindFramebuffer(gl.DRAW_FRAMEBUFFER, this.#scratchFbos[0]!)
         gl.blitFramebuffer(0, 0, W, H, 0, 0, W, H, gl.COLOR_BUFFER_BIT, gl.NEAREST)
         gl.bindFramebuffer(gl.FRAMEBUFFER, this.#chainFbos[0]!)
       }
-      fillDraws += this.#drawFills(fills, sceneDest(W, H, cw, ch), false, H, (f) =>
+      draws += this.#drawFills(fills, base.fills, sceneDest(W, H, cw, ch), false, H, (f) =>
         sceneScissor(f.scissor, W, H, cw, ch)
       )
     }
 
     // 2) 模糊链：每级两趟，与面板数量无关
+    let passes = this.#buildBlur(null)
+
+    // 3) 背景上屏（翻 y）。有要按画布分辨率画的填充时，用没有填充的那一份场景
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null)
+    gl.viewport(0, 0, cw, ch)
+    gl.bindTexture(gl.TEXTURE_2D, crispFills ? scratch : chain)
+    useProgram(gl, this.#backdrop)
+    gl.uniform1f(loc(gl, this.#backdrop, 'uFlipUv'), 1)
+    gl.uniform1i(loc(gl, this.#backdrop, 'uChain'), 0)
+    gl.uniform4f(loc(gl, this.#backdrop, 'uTint'), ...backdrop.tint)
+    gl.uniform4f(loc(gl, this.#backdrop, 'uParams'), backdrop.saturation, backdropLevel, 0, 0)
+    gl.drawArrays(gl.TRIANGLES, 0, 3)
+
+    // 3.5) 填充按画布分辨率画（背景调试视图调过色或模糊过时不画，理由见 gpu.ts）
+    if (crispFills) draws += this.#drawFills(fills, base.fills, CANVAS_DEST, true, ch, (f) => f.scissor)
+
+    // 4) 第 0 层的面板与合并组
+    draws += this.#drawGlass(base, panels, groups, cw, ch)
+
+    // 6) 更高的层，逐层：拷画布 → 重采样回场景目标 → 这一层的填充 → 局部重建模糊链 → 填充、玻璃上屏
+    for (const layer of layers) {
+      if (layer.layer === 0) continue
+      const region = layerRegion(layer, panels, groups, fills, viewport, this.#levels)
+      if (!region) continue
+      const sourceFbo = this.#ensureLayerSource(cw, ch)
+      // 默认帧缓冲 → 来源纹理，同样左下原点（纹理第 0 行是屏幕底部）。用 blit 不用 copyTexSubImage2D：
+      // alphaMode 是 opaque 时默认帧缓冲没有 alpha 通道，copyTexSubImage2D 不许往 RGBA 里拷
+      const [cx, cy, cww, chh] = region.composite
+      const gy = ch - cy - chh
+      gl.bindFramebuffer(gl.READ_FRAMEBUFFER, null)
+      gl.bindFramebuffer(gl.DRAW_FRAMEBUFFER, sourceFbo)
+      gl.blitFramebuffer(cx, gy, cx + cww, gy + chh, cx, gy, cx + cww, gy + chh, gl.COLOR_BUFFER_BIT, gl.NEAREST)
+
+      // 重采样进场景目标的那一块（离屏，scissor 不翻）。来源纹理第 0 行在下，所以 uFlipUv = 1
+      const [sx, sy, sw, sh] = region.scene
+      gl.bindFramebuffer(gl.FRAMEBUFFER, this.#chainFbos[0]!)
+      gl.viewport(0, 0, W, H)
+      gl.enable(gl.SCISSOR_TEST)
+      gl.scissor(sx, sy, sw, sh)
+      gl.bindTexture(gl.TEXTURE_2D, this.#layerSource)
+      useProgram(gl, this.#backdrop)
+      gl.uniform1f(loc(gl, this.#backdrop, 'uFlipUv'), 1)
+      gl.uniform1i(loc(gl, this.#backdrop, 'uChain'), 0)
+      gl.uniform4f(loc(gl, this.#backdrop, 'uTint'), 1, 1, 1, 0)
+      gl.uniform4f(loc(gl, this.#backdrop, 'uParams'), 1, 0, 0, 0)
+      gl.drawArrays(gl.TRIANGLES, 0, 3)
+      gl.disable(gl.SCISSOR_TEST)
+      draws++
+      if (layer.fills.length > 0) {
+        draws += this.#drawFills(fills, layer.fills, sceneDest(W, H, cw, ch), false, H, (f) =>
+          sceneScissor(f.scissor, W, H, cw, ch)
+        )
+      }
+
+      passes += this.#buildBlur(region.scene)
+
+      gl.bindFramebuffer(gl.FRAMEBUFFER, null)
+      gl.viewport(0, 0, cw, ch)
+      if (layer.fills.length > 0) draws += this.#drawFills(fills, layer.fills, CANVAS_DEST, true, ch, (f) => f.scissor)
+      draws += this.#drawGlass(layer, panels, groups, cw, ch)
+    }
+
+    // 回读必须在上屏之后、交还事件循环之前：preserveDrawingBuffer = false，
+    // 浏览器合成之后默认帧缓冲的内容就没了。
+    if (input.readback) this.#readback(input.readback, cw, ch)
+    if (input.probe) this.#probePanel(input.probe, panels, cw, ch)
+    if (input.groupProbe) this.#probeGroup(input.groupProbe, groups, cw, ch)
+
+    return {
+      drawCalls: draws + passes,
+      blurPasses: passes,
+      sceneUploads: scene === 'uploaded' ? 1 : 0
+    }
+  }
+
+  /**
+   * 建模糊链（或只重建场景目标里的一块，见 layers.ts）：每级两趟。给了 region 时各级用 scissor 限住，
+   * 这一块外面保持原样。返回跑了多少趟。
+   */
+  #buildBlur(region: readonly [number, number, number, number] | null): number {
+    const gl = this.gl
+    const chain = this.#chain
+    const scratch = this.#scratch
+    if (!chain || !scratch) return 0
+    const W = this.#width
+    const H = this.#height
     useProgram(gl, this.#blur)
     gl.uniform1f(loc(gl, this.#blur, 'uFlipUv'), 0)
     gl.uniform1i(loc(gl, this.#blur, 'uSrc'), 0)
@@ -451,6 +568,12 @@ export class Gl2Renderer implements Renderer {
     for (let k = 1; k < this.#levels; k++) {
       const w = Math.max(1, W >> k)
       const h = Math.max(1, H >> k)
+      const r = region ? levelRegion(region, k, w, h) : null
+      if (r && (r[2] === 0 || r[3] === 0)) continue
+      if (r) {
+        gl.enable(gl.SCISSOR_TEST)
+        gl.scissor(r[0], r[1], r[2], r[3]) // 离屏：不翻
+      }
       // 水平（兼降采样）：读 chain 的 k−1 级，写 scratch 的 k 级
       gl.bindFramebuffer(gl.FRAMEBUFFER, this.#scratchFbos[k]!)
       gl.viewport(0, 0, w, h)
@@ -466,81 +589,74 @@ export class Gl2Renderer implements Renderer {
       gl.drawArrays(gl.TRIANGLES, 0, 3)
       passes += 2
     }
+    gl.disable(gl.SCISSOR_TEST)
+    return passes
+  }
 
-    // 3) 背景上屏（翻 y）。有要按画布分辨率画的填充时，用没有填充的那一份场景
-    gl.bindFramebuffer(gl.FRAMEBUFFER, null)
-    gl.viewport(0, 0, cw, ch)
-    gl.bindTexture(gl.TEXTURE_2D, crispFills ? scratch : chain)
-    useProgram(gl, this.#backdrop)
-    gl.uniform1f(loc(gl, this.#backdrop, 'uFlipUv'), 1)
-    gl.uniform1i(loc(gl, this.#backdrop, 'uChain'), 0)
-    gl.uniform4f(loc(gl, this.#backdrop, 'uTint'), ...backdrop.tint)
-    gl.uniform4f(loc(gl, this.#backdrop, 'uParams'), backdrop.saturation, backdropLevel, 0, 0)
-    gl.drawArrays(gl.TRIANGLES, 0, 3)
-
-    // 3.5) 填充按画布分辨率画（背景调试视图调过色或模糊过时不画，理由见 gpu.ts）
-    if (crispFills) {
-      fillDraws += this.#drawFills(fills, CANVAS_DEST, true, ch, (f) => f.scissor)
-    }
-
-    // 4) 面板与合并组：同一份打包字节
-    this.#ensurePanelCapacity(panels.length)
-    for (let i = 0; i < panels.length; i++) {
-      packPanel(this.#panelData, i, panels[i]!, viewport, this.#levels, input.panelDebugMode)
-    }
-    this.#ensureGroupCapacity(groups.length)
-    for (let i = 0; i < groups.length; i++) {
-      packGroup(this.#groupData, i, groups[i]!, viewport, this.#levels, input.panelDebugMode)
-    }
-    if (this.#rangeBinding) {
-      if (panels.length > 0) {
-        gl.bindBuffer(gl.UNIFORM_BUFFER, this.#panelUbo)
-        gl.bufferSubData(gl.UNIFORM_BUFFER, 0, this.#panelData, 0, panels.length * PANEL_STRIDE_FLOATS)
-      }
-      if (groups.length > 0) {
-        gl.bindBuffer(gl.UNIFORM_BUFFER, this.#groupUbo)
-        gl.bufferSubData(gl.UNIFORM_BUFFER, 0, this.#groupData, 0, groups.length * GROUP_STRIDE_FLOATS)
-      }
-    }
-
-    if (panels.length > 0 || groups.length > 0) {
-      gl.enable(gl.BLEND)
-      // 片元输出预乘色，与 WebGPU 的 one / one-minus-src-alpha 相同
-      gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA)
-      gl.enable(gl.SCISSOR_TEST)
-    }
-    if (panels.length > 0) {
+  /** 一层的玻璃：单块面板，再合并组（默认帧缓冲，翻 y）。返回画了几次。 */
+  #drawGlass(
+    layer: LayerItems,
+    panels: readonly MeasuredPanel[],
+    groups: readonly MeasuredGroup[],
+    cw: number,
+    ch: number
+  ): number {
+    const gl = this.gl
+    if (layer.panels.length === 0 && layer.groups.length === 0) return 0
+    gl.enable(gl.BLEND)
+    // 片元输出预乘色，与 WebGPU 的 one / one-minus-src-alpha 相同
+    gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA)
+    gl.enable(gl.SCISSOR_TEST)
+    let n = 0
+    if (layer.panels.length > 0) {
       this.#setGlassUniforms(this.#glass, cw, ch, 0, 0, true)
-      for (let i = 0; i < panels.length; i++) {
+      for (const i of layer.panels) {
         const [sx, sy, sw, sh] = panels[i]!.scissor
         gl.scissor(sx, ch - sy - sh, sw, sh) // GL 的 scissor 是左下原点
         this.#bindSlot(this.#panelUbo!, this.#panelData, PANEL_BINDING, i, PANEL_STRIDE, PANEL_STRUCT_BYTES)
         gl.drawArrays(gl.TRIANGLES, 0, 3)
+        n++
       }
     }
-    if (groups.length > 0) {
+    if (layer.groups.length > 0) {
       this.#setGlassUniforms(this.#group, cw, ch, 0, 0, true)
-      for (let i = 0; i < groups.length; i++) {
+      for (const i of layer.groups) {
         const [sx, sy, sw, sh] = groups[i]!.scissor
         gl.scissor(sx, ch - sy - sh, sw, sh)
         this.#bindSlot(this.#groupUbo!, this.#groupData, GROUP_BINDING, i, GROUP_STRIDE, GROUP_STRUCT_BYTES)
         gl.drawArrays(gl.TRIANGLES, 0, 3)
+        n++
       }
     }
     gl.disable(gl.BLEND)
     gl.disable(gl.SCISSOR_TEST)
+    return n
+  }
 
-    // 回读必须在上屏之后、交还事件循环之前：preserveDrawingBuffer = false，
-    // 浏览器合成之后默认帧缓冲的内容就没了。
-    if (input.readback) this.#readback(input.readback, cw, ch)
-    if (input.probe) this.#probePanel(input.probe, panels, cw, ch)
-    if (input.groupProbe) this.#probeGroup(input.groupProbe, groups, cw, ch)
-
-    return {
-      drawCalls: 2 + passes + panels.length + groups.length + fillDraws,
-      blurPasses: passes,
-      sceneUploads: scene === 'uploaded' ? 1 : 0
-    }
+  /** 层的来源纹理（画布大小、RGBA8）与挂着它的帧缓冲。视口变了重新分配。 */
+  #ensureLayerSource(cw: number, ch: number): WebGLFramebuffer {
+    const gl = this.gl
+    if (this.#layerSourceFbo && this.#layerSourceWidth === cw && this.#layerSourceHeight === ch) return this.#layerSourceFbo
+    if (this.#layerSourceFbo) gl.deleteFramebuffer(this.#layerSourceFbo)
+    if (this.#layerSource) gl.deleteTexture(this.#layerSource)
+    const tex = gl.createTexture()
+    if (!tex) throw new Error('[Glassium] createTexture 返回 null')
+    gl.bindTexture(gl.TEXTURE_2D, tex)
+    gl.texStorage2D(gl.TEXTURE_2D, 1, gl.RGBA8, cw, ch)
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR)
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
+    const fbo = gl.createFramebuffer()
+    if (!fbo) throw new Error('[Glassium] createFramebuffer 返回 null')
+    gl.bindFramebuffer(gl.FRAMEBUFFER, fbo)
+    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, tex, 0)
+    objectsCreated += 2
+    this.#layerSource = tex
+    this.#layerSourceFbo = fbo
+    this.#layerSourceWidth = cw
+    this.#layerSourceHeight = ch
+    return fbo
   }
 
   /**
@@ -743,6 +859,8 @@ export class Gl2Renderer implements Renderer {
     if (this.#panelUbo) gl.deleteBuffer(this.#panelUbo)
     if (this.#groupUbo) gl.deleteBuffer(this.#groupUbo)
     if (this.#fillUbo) gl.deleteBuffer(this.#fillUbo)
+    if (this.#layerSourceFbo) gl.deleteFramebuffer(this.#layerSourceFbo)
+    if (this.#layerSource) gl.deleteTexture(this.#layerSource)
   }
 }
 

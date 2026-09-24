@@ -136,6 +136,9 @@ export interface FillRecord {
   color?: Rgba
   /** 颜色解析不了时只警告一次。 */
   warnedColor?: boolean
+  /** 最近的玻璃祖先（见 panels.ts 的层）与找它时的树代数。 */
+  glassParent?: object | null
+  glassParentGeneration?: number
 }
 
 /** 一帧里量到的填充，已换算到画布设备像素。 */
@@ -156,6 +159,11 @@ export interface MeasuredFill {
   readonly radii: readonly [number, number, number, number]
   /** 颜色，alpha 已乘上 CSS 的不透明度。 */
   readonly color: Rgba
+  /**
+   * 在第几层（见 panels.ts 的 MAX_GLASS_LAYER）：0 是场景里、所有玻璃之下；写在一块玻璃里面的填充在那块玻璃之上，
+   * 是它的层号加一 —— 同一层的玻璃看得见它，下面那层的玻璃看不见。
+   */
+  readonly layer: number
 }
 
 /**

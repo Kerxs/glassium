@@ -163,6 +163,10 @@ GPU 输出由 `playground/verify.html` 在浏览器里逐项验证（光学探�
       左半边透出蓝色进度（0/132/255）、右半边透出轨道。行为与原生 `<input type="range">` 相同：`role="slider"`、
       方向键 / PageUp / Home / End、按在轨道上跳过去、按在旋钮上不跳、拖动时 `input`、松手 `change`、
       `min` / `max` / `step`（`any`）按原生的规则规整（小数档不带浮点尾巴）、表单关联与重置
+- [x] **玻璃叠玻璃**（`src/renderer/layers.ts`）：写在一块玻璃里面的玻璃看得见外面那块 —— 卡片里的按钮、
+      卡片里开关的旋钮不再在卡片上开洞。画这一层之前把画布上已经画好的那一块采回场景目标、只在那一块里重建模糊链。
+      实测红卡片里那块玻璃的中心是 236/89/89，不嵌套时是灰洞 149/149/149；没有嵌套的帧逐位不变（`8aca3e92…`）。
+      最多四层
 - [x] **分段控件 `<glass-segmented>`**（`src/components/glass-segmented.ts`）：底是填充，选中的段下面垫同一个玻璃旋钮，
       换选中时滑过去、宽度跟着变；按住变成透镜，可以按住拖到别的段上松手。单选组语义（`radiogroup` / `radio`、
       roving tabindex、方向键回绕、Home / End）、`input` / `change`、表单关联与重置
@@ -171,9 +175,9 @@ GPU 设备丢失时会在新设备上整套重建（实测约 30 ms，恢复后�
 WebGL2（WebGL2 的上下文丢失同理，第二次降到 CSS 兜底）。T5 到 T8 期间这一点是坏的：
 日志说会重新初始化，实际上画布会冻住 —— 现已修复，见 [docs/limitations.md](docs/limitations.md)。
 
-**211 条测试全绿**，playground 可跑（`npm run dev`），只用公开 API 搭的示例页在 `/demo.html`，
+**212 条测试全绿**，playground 可跑（`npm run dev`），只用公开 API 搭的示例页在 `/demo.html`，
 逐项自动验证在 `/verify.html`
-（现在 WebGPU 上 **PASS 30/30**、WebGL2 上 **PASS 29/29**）。
+（现在 WebGPU 上 **PASS 31/31**、WebGL2 上 **PASS 30/30**）。
 
 T5 顺带把两个计划阶段悬着的硬件问题测掉了，结果记在
 [docs/calibration.md](docs/calibration.md)：`minUniformBufferOffsetAlignment` 实测 256
@@ -234,8 +238,8 @@ T5 顺带把两个计划阶段悬着的硬件问题测掉了，结果记在
 开关、滑块、分段控件是现成的：`<glass-switch name="wifi" checked></glass-switch>`、
 `<glass-slider name="volume" value="40"></glass-slider>`、
 `<glass-segmented name="view" value="list"><span value="grid">网格</span><span value="list">列表</span></glass-segmented>`，颜色用 `--glass-switch-on` / `--glass-switch-off`、
-`--glass-slider-fill` / `--glass-slider-track` 改。别把它们放进 `<glass-card>`（玻璃不叠玻璃），也别放在不透明的
-CSS 背景上（R1）—— 要一块底板就用 `<glass-fill>`。
+`--glass-slider-fill` / `--glass-slider-track` 改。放进 `<glass-card>` 也行（玻璃叠玻璃，见下），但别放在不透明的
+CSS 背景上（R1）—— 要一块纯色底板就用 `<glass-fill>`。
 
 不用组件也行：`stage.register(element, material)` 可以把任意元素注册成玻璃面板，
 `stage.registerFill(element)` 注册填充。

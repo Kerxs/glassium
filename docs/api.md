@@ -87,8 +87,8 @@
 
 - CSS：`--glass-switch-on`（默认 `#34c759`）、`--glass-switch-off`（默认 `rgba(120, 120, 128, 0.32)`），可以写在任何祖先上。
   默认 64×28，宽高可以改（旋钮高 = 宿主高 − 4px，宽高比 13:8）。`::part(track)`、`::part(thumb)` 可以从外面选中。
-- 别放进 `<glass-card>`（玻璃不叠玻璃：卡片会把轨道一起模糊掉），也别放在不透明的 CSS 背景上（R1）。
-  要一块底板，用 `<glass-fill>`（它也在场景里，画在轨道下面）。
+- 可以放进 `<glass-card>`（它在卡片上面一层，见 limitations.md 的 R2）；别放在不透明的 CSS 背景上（R1）。
+  要一块纯色底板，用 `<glass-fill>`（它也在场景里，画在轨道下面）。
 
 ### `<glass-slider>`
 
@@ -111,7 +111,7 @@
 
 - CSS：`--glass-slider-fill`（进度，默认 `#007aff`）、`--glass-slider-track`（默认 `rgba(120, 120, 128, 0.2)`）。
   默认 200×28，宽度可以改；轨道 6px 高、旋钮 38×24。`::part(track)`、`::part(progress)`、`::part(thumb)`。
-- 放在哪里与 `<glass-switch>` 相同：别放进 `<glass-card>`，别放在不透明的 CSS 背景上。
+- 放在哪里与 `<glass-switch>` 相同：可以放进 `<glass-card>`，别放在不透明的 CSS 背景上。
 
 ### `<glass-segmented>`
 
@@ -227,7 +227,7 @@
 |---|---|
 | `backend`、`viewport` | 当前后端、解析后的各级分辨率 |
 | `fps`、`frames`、`skippedFrames` | 最近一秒实际画了几帧、画了的总帧数、因为与上一帧逐像素相同而没画的帧数 |
-| `drawCalls`、`blurPasses`、`blurLevels` | 上一帧的 draw 数 = 2 + 模糊趟数 + 单独绘制的面板 + 组数 + 2 × 填充数；模糊趟数 = 2 × (级数 − 1) |
+| `drawCalls`、`blurPasses`、`blurLevels` | 上一帧的 draw 数 = 2 + 模糊趟数 + 单独绘制的面板 + 组数 + 2 × 填充数（+ 每个更高的层一次重采样）；模糊趟数 = 2 × (级数 − 1)，每个更高的层再加一轮局部的 |
 | `panels`、`groups`、`fills` | 上一帧画了的面板（含组员）、组、填充 |
 | `cpuMs` | 上一帧主线程耗时：`measure`（量面板）与 `total` |
 | `pipelineCreations`、`bindGroupCreations`、`targetAllocations` | 创建计数，预热后应当走平 |

@@ -13,6 +13,7 @@ import { levelForSigma } from './blur.ts'
 import { UNBOUNDED } from './clipping.ts'
 import {
   CLIP_UNBOUNDED_PX,
+  MAX_GLASS_LAYER,
   PanelRegistry,
   RIM_WIDTH_DP,
   SHADOW_OFFSET_DP,
@@ -110,7 +111,8 @@ test('packPanel 写入的每个字段都落在 WGSL struct 的对应偏移上', 
     visualScale: 1,
     rotation: [0.6, 0.8],
     bounds: { x0: 11, y0: 22, x1: 344, y1: 244 },
-    chain
+    chain,
+    layer: 0
   }
 
   // 放在第 2 个槽位，顺带验证步长
@@ -339,4 +341,44 @@ test('compareOptics：能抓到真正错了的偏移', () => {
   probe.data[hit * 4 + 3] = probe.data[hit * 4 + 3]! + 3
   const c = compareOptics(probe)
   assert.ok(c.maxErr.offset > 2.5, `应当报出约 3px 的偏移误差，实得 ${c.maxErr.offset}`)
+})
+
+test('层：写在一块玻璃里面的玻璃与填充在它上面一层；更深的钳到 MAX_GLASS_LAYER；合并组取成员里最深的', () => {
+  const viewport = resolveViewport(800, 600, 1)
+  const registry = new PanelRegistry(() => {}, {
+    readFillStyle: () => ({ color: 'rgb(0, 128, 0)', currentColor: 'rgb(0, 0, 0)', radii: ['0px', '0px', '0px', '0px'] })
+  })
+  const nested = (parent: HTMLElement | null, left: number): HTMLElement => {
+    const el = fakeElement(left, 100, 60, 40)
+    ;(el as unknown as { parentElement: HTMLElement | null }).parentElement = parent
+    return el
+  }
+  const card = nested(null, 10)
+  const wrapper = nested(card, 20) // 不是玻璃的中间一层
+  const button = nested(wrapper, 30)
+  const deep1 = nested(button, 40)
+  const deep2 = nested(deep1, 50)
+  const deep3 = nested(deep2, 60)
+  const track = nested(wrapper, 70) // 卡片里的填充
+  const loose = nested(null, 80) // 场景里的填充
+  for (const el of [card, button, deep1, deep2, deep3]) registry.register(el, {})
+  registry.registerFill(track)
+  registry.registerFill(loose)
+  const m = registry.measure(viewport)
+  const layerAt = (x: number): number | undefined => m.panels.find((p) => p.x === x)?.layer
+  assert.equal(layerAt(10), 0, '卡片直接在场景上')
+  assert.equal(layerAt(30), 1, '卡片里（隔着一层普通元素）的按钮')
+  assert.equal(layerAt(40), 2)
+  assert.equal(layerAt(50), MAX_GLASS_LAYER)
+  assert.equal(layerAt(60), MAX_GLASS_LAYER, '更深的钳住')
+  assert.equal(m.fills.find((f) => f.x === 70)?.layer, 1, '卡片里的填充在卡片之上')
+  assert.equal(m.fills.find((f) => f.x === 80)?.layer, 0, '场景里的填充')
+
+  // 合并组：成员一个在卡片里、一个不在 —— 组取最深的那一层
+  const outside = nested(null, 90)
+  registry.register(outside, {})
+  registry.group().setMembers([outside, button])
+  const g = registry.measure(viewport).groups[0]
+  assert.ok(g)
+  assert.equal(g.layer, 1)
 })
