@@ -1,6 +1,7 @@
 # 性能
 
-`playground/bench.html`（`npm run dev` 之后打开 `/bench.html`）一键跑下面这几组场景，结果可以复制成 JSON。
+`playground/bench.html`（在线版 https://kerxs.github.io/glassium/bench.html ，或者 `npm run dev` 之后打开 `/bench.html`）
+一键跑下面这几组场景，结果可以复制成 JSON。
 在你的目标设备上跑一遍比读这里的数更有用 —— 这里只有一台机器。
 
 ## 方法

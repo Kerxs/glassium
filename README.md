@@ -3,6 +3,9 @@
 Liquid Glass（液态玻璃）UI 的 Web 实现。玻璃的折射、色散、亮边、融合都由 GPU 画（WebGPU，没有时 WebGL2），
 以 Web Components 交付：写 `<glass-card>`、`<glass-button>`，原生 HTML、Vue、React、Svelte 里都能用。
 
+**在线试**：[Playground](https://kerxs.github.io/glassium/)（调材质、拿代码）· [示例页](https://kerxs.github.io/glassium/demo.html) ·
+[性能测试](https://kerxs.github.io/glassium/bench.html)
+
 ```html
 <glass-card preset="regular" corner-radius="24">
   <h2>黄昏 · 18:42</h2>
@@ -137,17 +140,21 @@ await morphGlass(button, menu).finished            // 按钮变成菜单
 
 ## Playground、示例与验证
 
+在线版在 https://kerxs.github.io/glassium/ ，跟着 `main` 分支：每次推送、CI 全部通过之后自动部署。也可以在本地跑：
+
 ```bash
 git clone https://github.com/Kerxs/glassium.git && cd glassium
 npm ci
 npm run dev   # http://localhost:5174
 ```
 
-- `/`：playground —— 调材质、换背景、看调试视图，右边给出对应的 HTML 与 JS
-- `/demo.html`：只用公开 API 搭的一个页面（卡片、控件、标签栏、导航栏、变形、遮罩）
-- `/bench.html`：性能测试（面板数与帧开销，结果见 [docs/benchmark.md](docs/benchmark.md)）
-- `/debug.html`：调试台（给开发 Glassium 本身用：统计、校准场景、各种模拟开关）
-- `/verify.html`：逐项验证，结果写进标题栏（`PASS n/n`）；`?glassium.backend=webgl2` 换后端
+五个页面，在线版和本地一样：
+
+- [`/`](https://kerxs.github.io/glassium/)：playground —— 调材质、换背景、看调试视图，右边给出对应的 HTML 与 JS
+- [`/demo.html`](https://kerxs.github.io/glassium/demo.html)：只用公开 API 搭的一个页面（卡片、控件、标签栏、导航栏、变形、遮罩）
+- [`/bench.html`](https://kerxs.github.io/glassium/bench.html)：性能测试（面板数与帧开销，结果见 [docs/benchmark.md](docs/benchmark.md)）
+- [`/debug.html`](https://kerxs.github.io/glassium/debug.html)：调试台（给开发 Glassium 本身用：统计、校准场景、各种模拟开关）
+- [`/verify.html`](https://kerxs.github.io/glassium/verify.html)：逐项验证，结果写进标题栏（`PASS n/n`）；`?glassium.backend=webgl2` 换后端
 
 ## 开发
 

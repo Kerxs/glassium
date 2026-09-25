@@ -4,6 +4,9 @@ import { defineConfig } from 'vite'
 export default defineConfig({
   // playground 是 dev server 的根：它才有 index.html。库本身没有入口页面。
   root: 'playground',
+  // 资源用相对路径：构建出来的页面部署在 GitHub Pages 的 /glassium/ 子路径下（CI 的 pages 那一步），
+  // 默认的 '/' 会让它们去站点根目录找 /assets/…。相对路径放在哪一层都对，本地 vite preview 也照样能开。
+  base: './',
   publicDir: false,
   resolve: {
     alias: {

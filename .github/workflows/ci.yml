@@ -4,6 +4,12 @@ on:
   push:
     branches: [main]
   pull_request:
+  # 手动重跑一次（比如只想重新部署 playground）
+  workflow_dispatch:
+
+# 默认只读；要写 Pages 的只有下面的 pages job，它自己声明
+permissions:
+  contents: read
 
 jobs:
   check:
@@ -29,6 +35,7 @@ jobs:
 
       # 类型门禁不管打包目标：顶层 await 在 Vite 默认的 es2020 目标下构建直接失败，
       # 开发服务器却照样能跑 —— 只有真的构建一次才暴露（demo.ts 就这样漏过一次）。
+      # 构建出来的 playground/dist 也就是 main 上部署到 GitHub Pages 的那一份。
       - name: 构建
         run: npm run build
 
@@ -52,6 +59,34 @@ jobs:
           npm run gen:glsl
           git diff --exit-code -- src/shaders/generated/
 
+      # 走到这里，上面的检查都过了：main 上的这次构建交给 Pages（部署在下面的 pages job）。
+      # PR 不部署。
+      - name: Playground 交给 Pages
+        if: github.ref == 'refs/heads/main'
+        uses: actions/upload-pages-artifact@v5
+        with:
+          path: playground/dist
+
       # 这个 job 不覆盖 GPU 输出。绿色徽章只代表数学和类型是对的，
       # 不代表像素是对的 —— 像素由 playground/verify.html 手工验证。
       # 详见 spec/golden/README.md。
+
+  # 把 check 交上来的 playground 部署到 https://kerxs.github.io/glassium/ 。
+  # 仓库的 Pages 设置里来源选的是「GitHub Actions」。
+  pages:
+    needs: check
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    # 连着推几次时按顺序一个个部署，不打断正在进行的那次
+    concurrency:
+      group: pages
+      cancel-in-progress: false
+    steps:
+      - id: deploy
+        uses: actions/deploy-pages@v5
