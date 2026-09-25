@@ -6,353 +6,322 @@
     <title>Glassium Playground</title>
     <style>
       /*
-        R1：<glass-*> 到 stage 宿主之间的每个祖先都必须背景透明。
-        页面背景属于**场景**，不属于 CSS（要放背景图就用 stage.setScene）——
-        画布在 z-index:-1，html 与 body 同时设了底色时 body 的底色会把它整块盖掉，
-        表现为完全不可见且无报错。
+        Playground：调材质、换背景，右边给出对应的 HTML 与 JS。
+        R1：html / body 背景透明，页面背景属于场景。两侧的面板是普通的深色 DOM（玻璃坏了也要能用），
+        它们不是预览玻璃的祖先，也不和它重叠。
       */
       html,
       body {
         margin: 0;
-        padding: 0;
         background: transparent;
         min-height: 100%;
       }
 
       body {
-        font: 14px/1.6 system-ui, -apple-system, "Segoe UI", sans-serif;
+        font: 13px/1.5 system-ui, -apple-system, 'Segoe UI', 'PingFang SC', sans-serif;
         color: #fff;
         -webkit-font-smoothing: antialiased;
       }
 
-      /* L1：DOM 内容层。画布在 z-index:-1，这里其实不需要层叠设置；留着是为了 R1 反例好演示 */
-      .content {
-        position: relative;
-        z-index: 1;
-        max-width: 760px;
-        margin: 0 auto;
-        padding: 12vh 24px 40vh;
+      .layout {
+        display: grid;
+        grid-template-columns: 300px minmax(0, 1fr) 380px;
+        min-height: 100vh;
+      }
+
+      .panel,
+      .code {
+        box-sizing: border-box;
+        max-height: 100vh;
+        overflow-y: auto;
+        position: sticky;
+        top: 0;
+        padding: 16px;
+        background: rgba(8, 12, 22, 0.88);
+        border-color: rgba(255, 255, 255, 0.12);
+        border-style: solid;
+        border-width: 0;
+      }
+
+      .panel {
+        border-right-width: 1px;
+      }
+
+      .code {
+        border-left-width: 1px;
+        display: grid;
+        align-content: start;
+        gap: 8px;
       }
 
       h1 {
-        margin: 0 0 8px;
-        font-size: clamp(28px, 6vw, 44px);
-        font-weight: 600;
-        letter-spacing: -0.02em;
+        margin: 0 0 2px;
+        font-size: 17px;
       }
 
-      p {
-        margin: 0 0 16px;
-        max-width: 56ch;
-        color: rgba(255, 255, 255, 0.78);
-      }
-
-      code {
-        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-        font-size: 0.92em;
-        padding: 1px 5px;
-        border-radius: 4px;
-        background: rgba(255, 255, 255, 0.14);
-      }
-
-      /* 统计面板。刻意**不**用玻璃 —— 它要在玻璃坏掉的时候还能读。 */
       .stats {
-        position: fixed;
-        z-index: 2;
-        top: 12px;
-        right: 12px;
-        padding: 10px 12px;
-        border-radius: 10px;
-        background: rgba(6, 14, 26, 0.86);
-        border: 1px solid rgba(255, 255, 255, 0.16);
-        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-        font-size: 11px;
-        line-height: 1.7;
-        white-space: pre;
-        color: rgba(255, 255, 255, 0.9);
-        pointer-events: none;
+        margin: 0 0 12px;
+        font: 11px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
+        color: rgba(255, 255, 255, 0.6);
       }
 
-      .stats b {
-        color: #aed5f3;
+      fieldset {
+        margin: 0 0 14px;
+        padding: 0;
+        border: 0;
+        display: grid;
+        gap: 6px;
+      }
+
+      legend {
+        padding: 0 0 6px;
         font-weight: 600;
+        color: rgba(255, 255, 255, 0.85);
       }
 
-      /* 控件面板。和 stats 一样刻意不用玻璃 —— 玻璃坏掉时它还得能用。 */
-      .controls {
-        position: fixed;
-        z-index: 2;
-        left: 12px;
-        bottom: 12px;
-        padding: 12px 14px;
-        border-radius: 10px;
-        background: rgba(6, 14, 26, 0.86);
-        border: 1px solid rgba(255, 255, 255, 0.16);
-        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-        font-size: 11px;
-        color: rgba(255, 255, 255, 0.9);
+      .row {
         display: grid;
-        gap: 8px;
-        min-width: 240px;
-      }
-
-      .controls label {
-        display: grid;
-        grid-template-columns: 5.5em 1fr 3.2em;
+        grid-template-columns: 5.2em minmax(0, 1fr) 3.4em;
         align-items: center;
         gap: 8px;
       }
 
-      .controls select {
-        background: rgba(255, 255, 255, 0.1);
-        color: #fff;
-        border: 1px solid rgba(255, 255, 255, 0.2);
-        border-radius: 5px;
-        padding: 2px 4px;
-        font: inherit;
+      .row output {
+        text-align: right;
+        font: 12px ui-monospace, SFMono-Regular, Menlo, monospace;
+        color: #aed5f3;
       }
 
-      .controls input[type='range'] {
+      .row.changed span {
+        color: #ffd479; /* 与基准不同的项 */
+      }
+
+      select,
+      button {
+        font: inherit;
+        color: #fff;
+        background: rgba(255, 255, 255, 0.1);
+        border: 1px solid rgba(255, 255, 255, 0.2);
+        border-radius: 6px;
+        padding: 3px 6px;
+      }
+
+      button {
+        cursor: pointer;
+      }
+
+      button:hover {
+        background: rgba(255, 255, 255, 0.18);
+      }
+
+      input[type='range'] {
         width: 100%;
         accent-color: #aed5f3;
       }
 
-      .controls output {
-        text-align: right;
-        color: #aed5f3;
-      }
-
-      /*
-        玻璃组件。不要给它们设背景（R1）—— 玻璃画在它们后面的画布上，
-        元素自己只负责占位和承载文字。没有玻璃时的兜底表面由 glassium.css 负责，
-        玻璃生效时它自己会去掉。
-      */
-      glass-card,
-      glass-button {
-        position: relative;
-        color: #fff;
-      }
-
-      .panel-card {
-        width: min(360px, 80vw);
-        height: 220px;
-        margin: 28px 0;
-        padding: 22px 24px;
-        box-sizing: border-box;
-        border-radius: 28px;
-      }
-
-      .panel-card h2 {
-        margin: 0 0 6px;
-        font-size: 20px;
-        font-weight: 600;
-      }
-
-      .card-input {
+      input[type='color'] {
         width: 100%;
-        box-sizing: border-box;
-        margin-top: 4px;
-        padding: 6px 10px;
-        border-radius: 10px;
-        border: 1px solid rgba(255, 255, 255, 0.35);
-        background: rgba(255, 255, 255, 0.12);
-        color: #fff;
-        font: inherit;
+        height: 22px;
+        padding: 0;
+        border: 1px solid rgba(255, 255, 255, 0.2);
+        border-radius: 5px;
+        background: transparent;
       }
 
-      .card-input::placeholder {
+      .check {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+      }
+
+      .code-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        font-weight: 600;
+        color: rgba(255, 255, 255, 0.85);
+      }
+
+      pre {
+        margin: 0 0 10px;
+        padding: 10px 12px;
+        border-radius: 8px;
+        background: rgba(255, 255, 255, 0.06);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        font: 12px/1.55 ui-monospace, SFMono-Regular, Menlo, monospace;
+        white-space: pre-wrap;
+        word-break: break-all;
+      }
+
+      .hint {
+        margin: 0;
         color: rgba(255, 255, 255, 0.6);
       }
 
-      /*
-        兜底表面（没有 GPU、高对比度时）的圆角来自 CSS，不来自 corner-radius 属性 ——
-        CSS 算不出「短边的比例」这种圆角。四角不同的那块要让兜底表面也对上，就在这里再写一遍。
-      */
-      #pill2 {
-        border-radius: 4px 32px 8px 28px;
+      .hint a {
+        color: #aed5f3;
       }
 
-      /* 合并：两个按钮之间留 10px 的缝。smoothing 超过 20（缝宽的两倍）时颈部闭合。 */
-      #duo {
-        display: flex;
-        gap: 10px;
-        margin: 4px 0 20px;
+      /* 预览区：玻璃放在中间。它的祖先（main）背景透明（R1） */
+      .preview {
+        display: grid;
+        place-items: center;
+        min-height: 100vh;
+        padding: 32px;
+        box-sizing: border-box;
       }
 
-      .duo-btn {
-        width: 120px;
-        height: 56px;
+      .preview glass-card {
+        box-sizing: border-box;
+        padding: 22px 24px;
+        color: #fff;
+        text-shadow: 0 1px 10px rgba(0, 0, 0, 0.35);
+      }
+
+      .preview glass-card h2 {
+        margin: 0 0 6px;
+        font-size: 22px;
+      }
+
+      .preview glass-card p {
+        margin: 0;
+        color: rgba(255, 255, 255, 0.85);
+      }
+
+      .preview glass-button {
+        font-size: 17px;
         font-weight: 600;
+        color: #fff;
       }
 
-      /* R1 反例：内容层加上不透明背景，玻璃被整块挡住。控制台会点名 main.content。 */
-      .content.r1-demo {
-        background: #0e1a2b;
-      }
+      /* 窄屏：预览在上，控件与代码在下面依次排开 */
+      @media (max-width: 1000px) {
+        .layout {
+          grid-template-columns: minmax(0, 1fr);
+        }
 
-      .panel-pill {
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        width: 180px;
-        height: 64px;
-        margin: 0 12px 12px 0;
-        font-weight: 600;
-        user-select: none;
-      }
+        .preview {
+          order: -1;
+          min-height: 60vh;
+        }
 
-      /* L2：预留给 T13+ 的 glass-above-DOM。现在是空的。 */
-      #glassium-overlay {
-        position: fixed;
-        inset: 0;
-        z-index: 3;
-        pointer-events: none;
-      }
-
-      @media (prefers-reduced-motion: reduce) {
-        * {
-          transition: none !important;
-          animation: none !important;
+        .panel,
+        .code {
+          position: static;
+          max-height: none;
+          border-width: 1px 0 0;
         }
       }
     </style>
   </head>
   <body>
-    <main class="content">
-      <h1>Glassium</h1>
-      <p>
-        调试台。下面的玻璃都是组件（<code>&lt;glass-card&gt;</code>、<code>&lt;glass-button&gt;</code>、
-        <code>&lt;glass-container&gt;</code>），材质写在 HTML 属性上，左下角的滑杆改的也是这些属性。
-        按钮有悬停与按压反馈，按下时光从按下的地方亮起来。想看正常页面的样子，去
-        <a href="./demo.html" style="color: #aed5f3">demo.html</a>。
-      </p>
-      <p>
-        默认场景是 calibration（棋盘格 + 硬对角线 + 黑白阶跃）—— 判断折射与色散只能用它。
-        gradient 好看，但平滑渐变在 24px 内只变约 1/255，折射挪了采样点也看不出来。
-        scene 下拉框里的 photo / canvas / video / 本地图片走的是 <code>stage.setScene()</code>，
-        fit 与 CSS 的 object-fit 同义；「减少透明度」开关模拟系统设置，玻璃换成磨砂。
-      </p>
-      <p>
-        这段文字在 L1，画布在 L0（<code>z-index: -1</code>）。
-        文字可以正常选中、聚焦、输入 —— 布局与命中测试始终归 DOM。
-      </p>
+    <div class="layout">
+      <aside class="panel" aria-label="材质与背景">
+        <h1>Glassium Playground</h1>
+        <p class="stats" id="stats">初始化中…</p>
 
-      <glass-card class="panel-card" id="card" preset="regular" corner-radius="0.5frac" dispersion="0.3" highlight="0.7">
-        <h2>玻璃卡片</h2>
-        <p>这段文字在 DOM 里，玻璃画在它正后方的画布上。滚动页面，玻璃应当牢牢跟住它。</p>
-        <input class="card-input" id="cardInput" placeholder="输入框：焦点与输入法都归 DOM" />
-      </glass-card>
-      <glass-button class="panel-pill" id="pill" preset="thick" dispersion="0.3" highlight="0.7">胶囊按钮</glass-button>
-      <glass-card class="panel-pill" id="pill2" preset="regular" corner-radius="4 32 8 28" dispersion="0.3" highlight="0.7">四角不同</glass-card>
-      <glass-container id="duo" smoothing="24">
-        <glass-button class="duo-btn" preset="regular" dispersion="0.3" highlight="0.7">左</glass-button>
-        <glass-button class="duo-btn" preset="regular" dispersion="0.3" highlight="0.7">右</glass-button>
-      </glass-container>
-      <p>
-        几个开关（本机平时走不到这些路径）：<code>?glassium.simulate=no-webgpu</code>
-        强制走降级阶梯，组件换成 CSS 兜底表面；<code>?glassium.forcedColors=1</code>
-        模拟强制配色；<code>?glassium.reducedMotion=1</code> 模拟减少动效；
-        <code>?glassium.reducedTransparency=1</code>、<code>?glassium.moreContrast=1</code> 模拟减少透明度、更高对比度；
-        <code>?glassium.backend=webgl2</code> 强制 WebGL2；<code>?scene=user:photo</code> 直接从某个场景开始。逐项自动验证在
-        <a href="./verify.html" style="color: #aed5f3">verify.html</a>。
-      </p>
-    </main>
+        <fieldset>
+          <legend>背景</legend>
+          <div class="row">
+            <span>场景</span>
+            <select id="scene">
+              <option value="user:photo">照片</option>
+              <option value="gradient">渐变</option>
+              <option value="calibration">校准（棋盘格）</option>
+              <option value="radial">径向（看色散）</option>
+              <option value="flat">纯色（看亮边）</option>
+              <option value="user:canvas">动画画布</option>
+              <option value="user:video">视频</option>
+              <option value="user:file">本地图片…</option>
+            </select>
+            <output></output>
+          </div>
+          <div class="row">
+            <span>铺法</span>
+            <select id="fit">
+              <option value="cover">cover</option>
+              <option value="contain">contain</option>
+              <option value="fill">fill</option>
+            </select>
+            <output></output>
+          </div>
+          <input id="file" type="file" accept="image/*" hidden />
+        </fieldset>
 
-    <div class="controls" id="controls">
-      <label>
-        scene
-        <select id="scene">
-          <optgroup label="内置">
-            <option value="calibration">calibration</option>
-            <option value="gradient">gradient</option>
-            <option value="radial">radial（验色散）</option>
-            <option value="flat">flat（验高光）</option>
-          </optgroup>
-          <optgroup label="setScene">
-            <option value="user:photo">photo（图片）</option>
-            <option value="user:canvas">canvas（动画）</option>
-            <option value="user:video">video（视频）</option>
-            <option value="user:file">本地图片…</option>
-          </optgroup>
-        </select>
-        <output></output>
-      </label>
-      <label>
-        fit
-        <select id="fit">
-          <option value="cover">cover</option>
-          <option value="contain">contain</option>
-          <option value="fill">fill</option>
-        </select>
-        <output></output>
-      </label>
-      <input id="file" type="file" accept="image/*" hidden />
-      <label>
-        debug
-        <select id="debug">
-          <option value="off">off</option>
-          <option value="sdf">sdf</option>
-          <option value="mask">mask</option>
-          <option value="grad">grad</option>
-          <option value="displacement">displacement</option>
-        </select>
-        <output></output>
-      </label>
-      <label>
-        dispersion
-        <input id="disp" type="range" min="0" max="1" step="0.05" value="0.3" />
-        <output id="dispOut">0.30</output>
-      </label>
-      <label>
-        highlight
-        <input id="hl" type="range" min="0" max="1" step="0.05" value="0.7" />
-        <output id="hlOut">0.70</output>
-      </label>
-      <label>
-        blur
-        <input id="blur" type="range" min="0" max="32" step="0.25" value="0" />
-        <output id="blurOut">0</output>
-      </label>
-      <label>
-        saturation
-        <input id="sat" type="range" min="0" max="2" step="0.05" value="1" />
-        <output id="satOut">1.00</output>
-      </label>
-      <label>
-        tint α
-        <input id="tint" type="range" min="0" max="1" step="0.02" value="0" />
-        <output id="tintOut">0.00</output>
-      </label>
-      <label>
-        smoothing
-        <input id="smooth" type="range" min="0" max="48" step="1" value="24" />
-        <output id="smoothOut">24</output>
-      </label>
-      <label>
-        R1 反例
-        <input id="r1" type="checkbox" />
-        <output>挡住</output>
-      </label>
-      <label>
-        按钮禁用
-        <input id="disable" type="checkbox" />
-        <output></output>
-      </label>
-      <label>
-        减少透明度
-        <input id="rt" type="checkbox" />
-        <output>磨砂</output>
-      </label>
-      <label>
-        线性光
-        <input id="linear" type="checkbox" />
-        <output>模糊、调色</output>
-      </label>
+        <fieldset>
+          <legend>元素</legend>
+          <div class="row">
+            <span>组件</span>
+            <select id="element">
+              <option value="glass-card">&lt;glass-card&gt;</option>
+              <option value="glass-button">&lt;glass-button&gt;</option>
+            </select>
+            <output></output>
+          </div>
+          <label class="row"><span>宽</span><input id="width" type="range" min="80" max="600" step="1" /><output id="widthOut"></output></label>
+          <label class="row"><span>高</span><input id="height" type="range" min="40" max="480" step="1" /><output id="heightOut"></output></label>
+        </fieldset>
+
+        <fieldset id="material">
+          <legend>材质</legend>
+          <div class="row">
+            <span>预设</span>
+            <select id="preset">
+              <option value="">（不用）</option>
+              <option value="ultraThin">ultraThin</option>
+              <option value="thin">thin</option>
+              <option value="regular">regular</option>
+              <option value="thick">thick</option>
+              <option value="clear">clear</option>
+            </select>
+            <button type="button" id="reset" title="回到预设（与组件默认）的值">重置</button>
+          </div>
+          <!-- 数值项的滑杆由 playground.ts 按 FIELDS 生成，插在这里 -->
+          <div id="fields" style="display: grid; gap: 6px"></div>
+          <label class="row" id="tintRow"><span>tint 颜色</span><input id="tintColor" type="color" /><output></output></label>
+          <label class="row" id="tintAlphaRow"><span>tint 强度</span><input id="tintAlpha" type="range" min="0" max="1" step="0.01" /><output id="tintAlphaOut"></output></label>
+          <label class="row" id="radiusRow"><span>圆角</span><input id="radius" type="range" min="0" max="120" step="1" /><output id="radiusOut"></output></label>
+          <label class="check"><input id="pill" type="checkbox" />胶囊（圆角 = 短边的一半，<code>1frac</code>）</label>
+        </fieldset>
+
+        <fieldset>
+          <legend>看得更清楚</legend>
+          <div class="row">
+            <span>调试视图</span>
+            <select id="debug">
+              <option value="off">关</option>
+              <option value="sdf">sdf（距离场）</option>
+              <option value="mask">mask（覆盖）</option>
+              <option value="grad">grad（法线）</option>
+              <option value="displacement">displacement（位移）</option>
+            </select>
+            <output></output>
+          </div>
+          <label class="check"><input id="linear" type="checkbox" />线性光里模糊与调色（<code>blendSpace: 'linear'</code>）</label>
+          <label class="check"><input id="rt" type="checkbox" />模拟「减少透明度」（玻璃换成磨砂）</label>
+        </fieldset>
+
+        <p class="hint">
+          黄色的是与预设不同的项 —— 右边的代码只写它们。别的页面：<a href="./demo.html">demo</a>、
+          <a href="./bench.html">性能</a>、<a href="./debug.html">调试台</a>、<a href="./verify.html">逐项验证</a>。
+        </p>
+      </aside>
+
+      <main class="preview" id="preview"></main>
+
+      <aside class="code" aria-label="代码">
+        <div class="code-head">HTML <button type="button" data-copy="html">复制</button></div>
+        <pre id="html"></pre>
+        <div class="code-head">JavaScript <button type="button" data-copy="js">复制</button></div>
+        <pre id="js"></pre>
+        <p class="hint">
+          HTML 的写法要先 <code>defineGlassElements()</code> 并建一个 stage；JS 的写法把任意元素注册成玻璃。
+          折射深度、位移幅度是短边的比例 —— 换了尺寸，看起来也会变。完整的属性见
+          <a href="https://github.com/Kerxs/glassium/blob/main/docs/api.md">docs/api.md</a>。
+        </p>
+      </aside>
     </div>
 
-    <div id="glassium-overlay"></div>
-    <div class="stats" id="stats">初始化中…</div>
-
-    <script type="module" src="./main.ts"></script>
+    <script type="module" src="./playground.ts"></script>
   </body>
 </html>

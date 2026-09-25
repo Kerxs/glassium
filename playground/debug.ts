@@ -1,5 +1,5 @@
 /**
- * Playground 入口。
+ * 调试台（debug.html）入口：给开发 Glassium 本身用的一页 —— 统计、调试视图、校准场景、各种模拟开关。
  *
  * 注册组件、建 stage、把 stats 显示出来，再接上左下角的控件与那几个 URL 开关。
  * 页面上的三块玻璃都是 <glass-card> / <glass-button>，材质写在 HTML 属性上。

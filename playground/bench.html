@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Glassium Benchmark</title>
+    <style>
+      /* 结果面板在左边（深色、不是玻璃），场景里的玻璃都放在右边的 #area，两者不重叠（R1） */
+      html,
+      body {
+        margin: 0;
+        background: transparent;
+      }
+
+      body {
+        font: 13px/1.5 system-ui, -apple-system, 'Segoe UI', 'PingFang SC', sans-serif;
+        color: #fff;
+      }
+
+      .report {
+        position: fixed;
+        left: 0;
+        top: 0;
+        bottom: 0;
+        width: 440px;
+        box-sizing: border-box;
+        overflow-y: auto;
+        padding: 16px;
+        background: rgba(8, 12, 22, 0.9);
+        border-right: 1px solid rgba(255, 255, 255, 0.12);
+      }
+
+      h1 {
+        margin: 0 0 4px;
+        font-size: 17px;
+      }
+
+      .env {
+        margin: 0 0 12px;
+        font: 11px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace;
+        color: rgba(255, 255, 255, 0.65);
+        white-space: pre-wrap;
+      }
+
+      .bar {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        align-items: center;
+        margin-bottom: 12px;
+      }
+
+      select,
+      button,
+      input {
+        font: inherit;
+        color: #fff;
+        background: rgba(255, 255, 255, 0.1);
+        border: 1px solid rgba(255, 255, 255, 0.2);
+        border-radius: 6px;
+        padding: 3px 8px;
+      }
+
+      input[type='number'] {
+        width: 5em;
+      }
+
+      button {
+        cursor: pointer;
+      }
+
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        font: 12px ui-monospace, SFMono-Regular, Menlo, monospace;
+      }
+
+      th,
+      td {
+        padding: 4px 6px;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        text-align: right;
+        white-space: nowrap;
+      }
+
+      th:first-child,
+      td:first-child {
+        text-align: left;
+        white-space: normal;
+      }
+
+      th {
+        color: rgba(255, 255, 255, 0.7);
+        font-weight: 600;
+      }
+
+      .note {
+        margin: 12px 0 0;
+        color: rgba(255, 255, 255, 0.6);
+      }
+
+      .note a {
+        color: #aed5f3;
+      }
+
+      #area {
+        position: absolute;
+        left: 460px;
+        top: 20px;
+        right: 20px;
+        min-height: 760px;
+      }
+
+      #area glass-card {
+        box-sizing: border-box;
+      }
+    </style>
+  </head>
+  <body>
+    <aside class="report">
+      <h1>Glassium Benchmark</h1>
+      <p class="env" id="env">初始化中…</p>
+      <div class="bar">
+        <label>后端 <select id="backend"><option value="auto">auto</option><option value="webgpu">webgpu</option><option value="webgl2">webgl2</option></select></label>
+        <label>每组 <input id="frames" type="number" min="20" max="2000" step="20" value="300" /> 帧</label>
+        <button type="button" id="run">开始</button>
+        <button type="button" id="copy" disabled>复制 JSON</button>
+      </div>
+      <table>
+        <thead>
+          <tr><th>场景</th><th>面板</th><th>draw</th><th>主线程</th><th>测量</th><th>含 GPU</th></tr>
+        </thead>
+        <tbody id="rows"></tbody>
+      </table>
+      <p class="note">
+        每组先画 30 帧预热，再用 <code>renderNow()</code> 同步连画 N 帧：「主线程」是 <code>stats().cpuMs</code>
+        的平均（量面板 + 打包 + 编码提交，其中「测量」是量面板那一段）；「含 GPU」是连画 N 帧、再等 GPU 画完的总时间
+        除以 N —— GPU 比主线程慢时它就是 GPU 的吞吐。单位 ms / 帧。不走 requestAnimationFrame，所以与显示器刷新率、
+        标签页是否在前台无关。方法与历次结果见 <a href="https://github.com/Kerxs/glassium/blob/main/docs/benchmark.md">docs/benchmark.md</a>。
+      </p>
+    </aside>
+    <main id="area"></main>
+    <script type="module" src="./bench.ts"></script>
+  </body>
+</html>

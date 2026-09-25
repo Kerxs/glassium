@@ -145,7 +145,8 @@ npm run dev   # http://localhost:5174
 
 - `/`：playground —— 调材质、换背景、看调试视图，右边给出对应的 HTML 与 JS
 - `/demo.html`：只用公开 API 搭的一个页面（卡片、控件、标签栏、导航栏、变形、遮罩）
-- `/bench.html`：性能测试（面板数与帧开销）
+- `/bench.html`：性能测试（面板数与帧开销，结果见 [docs/benchmark.md](docs/benchmark.md)）
+- `/debug.html`：调试台（给开发 Glassium 本身用：统计、校准场景、各种模拟开关）
 - `/verify.html`：逐项验证，结果写进标题栏（`PASS n/n`）；`?glassium.backend=webgl2` 换后端
 
 ## 开发

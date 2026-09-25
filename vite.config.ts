@@ -21,11 +21,14 @@ export default defineConfig({
     outDir: '../playground/dist',
     emptyOutDir: true,
     rollupOptions: {
-      // 三页：playground 本身、把验证固化下来的 verify.html、只用公开 API 的 demo.html
+      // 五页：playground（调材质、拿代码）、只用公开 API 的 demo.html、性能测试 bench.html、
+      // 开发用的调试台 debug.html、把验证固化下来的 verify.html
       input: {
         main: fileURLToPath(new URL('./playground/index.html', import.meta.url)),
-        verify: fileURLToPath(new URL('./playground/verify.html', import.meta.url)),
-        demo: fileURLToPath(new URL('./playground/demo.html', import.meta.url))
+        demo: fileURLToPath(new URL('./playground/demo.html', import.meta.url)),
+        bench: fileURLToPath(new URL('./playground/bench.html', import.meta.url)),
+        debug: fileURLToPath(new URL('./playground/debug.html', import.meta.url)),
+        verify: fileURLToPath(new URL('./playground/verify.html', import.meta.url))
       }
     }
   }
