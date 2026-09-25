@@ -24,10 +24,12 @@ export default defineConfig({
     outDir: '../playground/dist',
     emptyOutDir: true,
     rollupOptions: {
-      // 五页：playground（调材质、拿代码）、只用公开 API 的 demo.html、性能测试 bench.html、
-      // 开发用的调试台 debug.html、把验证固化下来的 verify.html
+      // 首页是展示页（iPhone 与 Mac 上的液态玻璃，只用公开 API）；调材质、拿代码的 playground.html；
+      // 性能测试 bench.html；开发用的调试台 debug.html；把验证固化下来的 verify.html。
+      // demo.html 只是跳转页：旧的示例页并进了首页，旧链接跳过去
       input: {
         main: fileURLToPath(new URL('./playground/index.html', import.meta.url)),
+        playground: fileURLToPath(new URL('./playground/playground.html', import.meta.url)),
         demo: fileURLToPath(new URL('./playground/demo.html', import.meta.url)),
         bench: fileURLToPath(new URL('./playground/bench.html', import.meta.url)),
         debug: fileURLToPath(new URL('./playground/debug.html', import.meta.url)),

@@ -1,5 +1,5 @@
 /**
- * Playground（index.html）：调材质、换背景，右边给出对应的 HTML 与 JS。
+ * Playground（playground.html）：调材质、换背景，右边给出对应的 HTML 与 JS。
  *
  * 预览的玻璃是一个 `<glass-card>` 或 `<glass-button>`，材质写在它的 HTML 属性上 —— 与作者在标记里写属性是同一条路径；
  * 写的就是右边那段 HTML 里的属性（material-code.ts 算出来的最短写法），所以「看到的」与「拿到的代码」是同一份。

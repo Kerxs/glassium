@@ -1,0 +1,1525 @@
+/*
+  展示页（index.html）的样式。
+
+  R1：页面上从玻璃到 <body> 的祖先都不画背景 —— 页面背景是 showcase.ts 交给 stage 的场景，
+  设备的壁纸和 App 里的照片是 <glass-fill>（画进场景，玻璃看得见）。设备的外框是 DOM 的边框与外阴影，
+  不挡玻璃：它们画在元素的盒子外圈，不在玻璃与画布之间。
+
+  两台设备里的界面按设备原来的尺寸（手机屏幕 402×874、Mac 屏幕 1280×800）写死像素，showcase.ts 按可用宽度
+  算出缩放系数 --k，整台设备 transform: scale 下去 —— 玻璃的模糊、折射、圆角跟着一起缩。
+*/
+
+:root {
+  color-scheme: dark;
+}
+
+html,
+body {
+  margin: 0;
+  background: transparent;
+}
+
+body {
+  font: 16px/1.6 system-ui, -apple-system, 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', 'Segoe UI', sans-serif;
+  color: #f2f3f7;
+  -webkit-font-smoothing: antialiased;
+  overflow-x: hidden;
+}
+
+a {
+  color: #9ecbff;
+}
+
+code {
+  font: 0.88em ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+button {
+  font: inherit;
+}
+
+/* 图形：SVG 跟着字号走，具体大小在各处定 */
+[data-icon] {
+  display: inline-flex;
+}
+
+[data-icon] svg,
+glass-button > svg {
+  display: block;
+  width: 1.2em;
+  height: 1.2em;
+}
+
+/* —— 页头、说明、页脚 —— */
+
+.showcase,
+.fine {
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 1180px;
+  margin: 0 auto;
+  padding-inline: 24px;
+}
+
+.brand {
+  margin: 0;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: #9ecbff;
+}
+
+.intro h1 {
+  margin: 4px 0 14px;
+  font-size: clamp(34px, 6vw, 58px);
+  line-height: 1.08;
+  letter-spacing: -0.02em;
+}
+
+.lede {
+  max-width: 640px;
+  margin: 0;
+  font-size: clamp(15px, 2vw, 18px);
+  color: rgba(242, 243, 247, 0.78);
+}
+
+.links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 20px;
+  margin-top: 18px;
+  font-size: 15px;
+}
+
+main {
+  display: grid;
+  gap: 88px;
+  padding: 44px 0 56px;
+}
+
+.copy h2 {
+  margin: 0 0 8px;
+  font-size: clamp(28px, 4vw, 42px);
+  letter-spacing: -0.01em;
+}
+
+.copy p {
+  margin: 0 0 14px;
+  color: rgba(242, 243, 247, 0.8);
+}
+
+.try {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding-left: 1.2em;
+  color: rgba(242, 243, 247, 0.72);
+}
+
+.fine {
+  padding-bottom: 48px;
+  font-size: 13px;
+  color: rgba(242, 243, 247, 0.58);
+}
+
+.fine p {
+  margin: 0 0 8px;
+}
+
+.fine a {
+  color: inherit;
+}
+
+/*
+  第一节：宽屏两栏 —— 左边上面是页头、下面是 iPhone 的说明，手机在右边占两行，第一屏就看得到整台；
+  窄屏一栏 —— 页头、手机、说明。
+*/
+.showcase-phone {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 470px;
+  grid-template-areas:
+    'intro phone'
+    'copy phone';
+  column-gap: 56px;
+  row-gap: 40px;
+}
+
+.showcase-phone .intro {
+  grid-area: intro;
+  align-self: end;
+}
+
+.showcase-phone .copy {
+  grid-area: copy;
+  align-self: start;
+}
+
+.showcase-phone .slot {
+  grid-area: phone;
+}
+
+.showcase-mac {
+  display: grid;
+  gap: 32px;
+  max-width: 1600px;
+}
+
+.showcase-mac .copy {
+  max-width: 1132px;
+  justify-self: center;
+  width: 100%;
+}
+
+@media (max-width: 900px) {
+  .showcase-phone {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas:
+      'intro'
+      'phone'
+      'copy';
+    row-gap: 28px;
+  }
+
+  main {
+    gap: 56px;
+    padding-top: 32px;
+  }
+}
+
+/* —— 设备的槽：高度由 showcase.ts 按缩放后的尺寸设 —— */
+
+/* 横向裁掉：视口变窄的那一次排版里设备还是旧的缩放，会比槽宽 —— 手机浏览器看到内容比视口宽，
+   会把整页缩小去装下它，之后缩放改回来了也不再放大。clip 只裁横向、不成滚动容器，竖直方向的投影照常 */
+.slot {
+  position: relative;
+  min-width: 0;
+  overflow-x: clip;
+}
+
+.slot > .iphone,
+.slot > .mac {
+  position: absolute;
+  left: 50%;
+  top: 0;
+  transform-origin: 50% 0;
+  transform: translateX(-50%) scale(var(--k, 1));
+}
+
+/* ===================== iPhone ===================== */
+
+.iphone {
+  width: 426px;
+  height: 898px;
+  box-sizing: border-box;
+  border: 12px solid #0c0d10;
+  border-radius: 64px;
+  box-shadow:
+    0 0 0 1.5px #62666f,
+    0 0 0 4px #25272d,
+    0 50px 90px -24px rgba(0, 0, 0, 0.75);
+  color: #fff;
+  font-size: 15px;
+  line-height: 1.3;
+}
+
+.side-btn {
+  position: absolute;
+  width: 4px;
+  border-radius: 3px;
+  background: linear-gradient(90deg, #22242a, #4d515b);
+}
+
+.side-btn.action {
+  left: -21px;
+  top: 140px;
+  height: 32px;
+}
+
+.side-btn.vol-up {
+  left: -21px;
+  top: 200px;
+  height: 58px;
+}
+
+.side-btn.vol-down {
+  left: -21px;
+  top: 272px;
+  height: 58px;
+}
+
+.side-btn.power {
+  right: -21px;
+  top: 230px;
+  height: 92px;
+  background: linear-gradient(270deg, #22242a, #4d515b);
+}
+
+/* 壁纸伸到边框底下（inset 与边框一样宽）；自己裁成机身的圆角，大圆不会伸到机身外面 */
+.iphone .wall {
+  position: absolute;
+  inset: -12px;
+  border-radius: 64px;
+  overflow: hidden;
+}
+
+.wall > glass-fill {
+  position: absolute;
+}
+
+.iphone .screen {
+  position: absolute;
+  inset: 0;
+  border-radius: 52px;
+  overflow: hidden;
+}
+
+.island {
+  position: absolute;
+  top: 11px;
+  left: 50%;
+  width: 124px;
+  height: 36px;
+  margin-left: -62px;
+  border-radius: 18px;
+  background: #000;
+  z-index: 5;
+}
+
+.statusbar {
+  position: absolute;
+  inset: 0 0 auto;
+  height: 54px;
+  z-index: 4;
+  font-weight: 600;
+  font-size: 17px;
+  pointer-events: none;
+}
+
+.statusbar .time {
+  position: absolute;
+  left: 0;
+  top: 16px;
+  width: 139px;
+  text-align: center;
+  line-height: 22px;
+}
+
+.status-right {
+  position: absolute;
+  top: 12px;
+  right: 22px;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  height: 30px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: 10px;
+  background: none;
+  color: inherit;
+  cursor: pointer;
+  pointer-events: auto;
+}
+
+.status-right svg {
+  width: 19px;
+  height: 19px;
+}
+
+.status-right:focus-visible,
+.home-bar:focus-visible {
+  outline: 2px solid #fff;
+  outline-offset: 2px;
+}
+
+/* —— 主屏幕 —— */
+
+.home {
+  position: absolute;
+  inset: 0;
+  transition:
+    opacity 0.3s ease,
+    transform 0.45s cubic-bezier(0.2, 0.9, 0.25, 1),
+    visibility 0s;
+}
+
+.iphone:not([data-screen='home']) .home,
+.iphone[data-cc] .home {
+  opacity: 0;
+  visibility: hidden;
+  transition:
+    opacity 0.22s ease,
+    transform 0.45s cubic-bezier(0.2, 0.9, 0.25, 1),
+    visibility 0s linear 0.45s;
+}
+
+.iphone[data-screen='photos'] .home {
+  transform: scale(0.94);
+}
+
+.widgets {
+  position: absolute;
+  top: 70px;
+  left: 24px;
+  right: 24px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 22px;
+}
+
+.widget {
+  box-sizing: border-box;
+  height: 166px;
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  border-radius: 26px;
+  text-shadow: 0 1px 6px rgba(0, 0, 0, 0.25);
+}
+
+.w-place,
+.c-week {
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.c-week {
+  color: #ff6b6b;
+}
+
+.w-temp {
+  font-size: 44px;
+  font-weight: 300;
+  line-height: 1.05;
+}
+
+.c-day {
+  font-size: 46px;
+  font-weight: 400;
+  line-height: 1.05;
+}
+
+.w-icon {
+  margin-top: auto;
+  font-size: 18px;
+}
+
+.w-note,
+.w-range,
+.c-event {
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+.w-range {
+  font-weight: 500;
+  opacity: 0.8;
+}
+
+.c-event {
+  margin-top: auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.c-event + .c-event {
+  margin-top: 2px;
+}
+
+.c-event i {
+  width: 3px;
+  height: 14px;
+  border-radius: 2px;
+  background: #ff9f0a;
+}
+
+.c-event.muted {
+  opacity: 0.72;
+}
+
+.c-event.muted i {
+  background: #64d2ff;
+}
+
+.apps {
+  position: absolute;
+  top: 262px;
+  left: 16px;
+  right: 16px;
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  row-gap: 18px;
+}
+
+.app-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+}
+
+.app-icon {
+  width: 62px;
+  height: 62px;
+  border-radius: 16px; /* 没有 GPU 时的兜底表面按 CSS 的圆角画（与 corner-radius 对齐） */
+  color: #fff;
+  font-size: 25px;
+}
+
+.app-label {
+  font-size: 12px;
+  line-height: 14px;
+  white-space: nowrap;
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.6);
+}
+
+.search-pill {
+  position: absolute;
+  top: 668px;
+  left: 50%;
+  translate: -50% 0;
+  height: 34px;
+  gap: 6px;
+  padding: 0 16px;
+  font-size: 14px;
+  font-weight: 600;
+  color: #fff;
+}
+
+.search-pill svg {
+  width: 15px;
+  height: 15px;
+}
+
+.dock {
+  position: absolute;
+  left: 14px;
+  right: 14px;
+  bottom: 22px;
+  height: 92px;
+  border-radius: 36px;
+}
+
+.dock-apps {
+  display: flex;
+  align-items: center;
+  justify-content: space-around;
+  height: 100%;
+  padding: 0 8px;
+}
+
+.home-bar {
+  position: absolute;
+  left: 50%;
+  bottom: 8px;
+  width: 138px;
+  height: 5px;
+  margin-left: -69px;
+  padding: 0;
+  border: 0;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.88);
+  cursor: pointer;
+  z-index: 6;
+}
+
+/* 点起来容易一点 */
+.home-bar::before {
+  content: '';
+  position: absolute;
+  inset: -14px -24px;
+}
+
+/* —— 照片 App：从图标那里放大出来（--ox / --oy 是图标中心，showcase.ts 设） —— */
+
+.app {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  visibility: hidden;
+  transform: scale(0.16);
+  transform-origin: var(--ox, 50%) var(--oy, 50%);
+  transition:
+    transform 0.42s cubic-bezier(0.3, 0.8, 0.3, 1),
+    opacity 0.24s ease 0.1s,
+    visibility 0s linear 0.42s;
+}
+
+.iphone[data-screen='photos'] .app.photos {
+  opacity: 1;
+  visibility: visible;
+  transform: none;
+  transition:
+    transform 0.5s cubic-bezier(0.2, 0.9, 0.25, 1.04),
+    opacity 0.2s ease,
+    visibility 0s;
+}
+
+.iphone[data-screen='photos'][data-cc] .app.photos {
+  opacity: 0;
+}
+
+.app-bg {
+  position: absolute;
+  inset: 0;
+  --glass-fill: #000;
+}
+
+/* 顶上淡出：状态栏与标题下面的照片淡到黑（遮罩作用在填充上，玻璃按钮底下还看得到一点） */
+.grid-scroll {
+  position: absolute;
+  inset: 0;
+  overflow-y: auto;
+  scrollbar-width: none;
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0, rgba(0, 0, 0, 0.35) 52px, #000 116px);
+  mask-image: linear-gradient(to bottom, transparent 0, rgba(0, 0, 0, 0.35) 52px, #000 116px);
+  outline: none;
+}
+
+.grid-scroll::-webkit-scrollbar {
+  display: none;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 2px;
+  padding: 108px 0 132px;
+}
+
+.grid[data-layout='featured'] {
+  grid-template-columns: repeat(2, 1fr);
+  gap: 3px;
+}
+
+.grid[data-layout='albums'] {
+  grid-template-columns: 1fr;
+  gap: 12px;
+  padding-inline: 14px;
+}
+
+.grid .tile {
+  aspect-ratio: 1;
+}
+
+.grid[data-layout='albums'] .tile {
+  aspect-ratio: 16 / 10;
+  border-radius: 18px;
+}
+
+.app-title {
+  position: absolute;
+  left: 20px;
+  top: 54px;
+  margin: 0;
+  font-size: 32px;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+  text-shadow: 0 2px 10px rgba(0, 0, 0, 0.5);
+  pointer-events: none;
+}
+
+.top-actions {
+  position: absolute;
+  top: 58px;
+  right: 16px;
+  display: flex;
+  flex-direction: row-reverse;
+  gap: 8px;
+}
+
+.round {
+  width: 40px;
+  height: 40px;
+  color: #fff;
+  font-size: 17px;
+}
+
+.pill {
+  height: 40px;
+  padding: 0 16px;
+  font-weight: 600;
+  font-size: 15px;
+  color: #fff;
+}
+
+.bottom-bar {
+  position: absolute;
+  left: 16px;
+  right: 16px;
+  bottom: 26px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+#photo-tabs {
+  flex: 1;
+  display: flex;
+  justify-content: space-around;
+  height: 62px;
+  color: rgba(255, 255, 255, 0.92);
+  --glass-tab-bar-selected: #5eb0ff;
+}
+
+#photo-tabs button {
+  flex: 1;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.tab-ico {
+  font-size: 19px;
+}
+
+.round.big {
+  width: 62px;
+  height: 62px;
+  font-size: 21px;
+}
+
+/* —— 控制中心 —— */
+
+.cc {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  opacity: 0;
+  visibility: hidden;
+  transition:
+    opacity 0.26s ease,
+    visibility 0s linear 0.26s;
+}
+
+.iphone[data-cc] .cc {
+  opacity: 1;
+  visibility: visible;
+  transition:
+    opacity 0.26s ease,
+    visibility 0s;
+}
+
+.cc-backdrop {
+  position: absolute;
+  inset: 0;
+  border-radius: 0;
+}
+
+.cc-grid {
+  position: absolute;
+  top: 96px;
+  left: 22px;
+  right: 22px;
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 14px;
+  transform: translateY(-22px) scale(0.97);
+  transition: transform 0.4s cubic-bezier(0.2, 0.9, 0.25, 1.05);
+}
+
+.iphone[data-cc] .cc-grid {
+  transform: none;
+}
+
+.cc-mod {
+  box-sizing: border-box;
+}
+
+.cc-mod.net,
+.cc-mod.now {
+  grid-column: span 2;
+  grid-row: span 2;
+  aspect-ratio: 1;
+  border-radius: 30px;
+}
+
+.cc-mod.net {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  place-items: center;
+  padding: 12px;
+}
+
+.toggle {
+  color: #fff;
+}
+
+.cc-mod.net .toggle {
+  width: 60px;
+  height: 60px;
+  font-size: 22px;
+}
+
+.toggle[aria-pressed='true'][data-on='#ffffff'] {
+  color: #1c1c1e;
+}
+
+.cc-mod.now {
+  display: flex;
+  flex-direction: column;
+  padding: 16px;
+}
+
+.cc-mod.now .art {
+  width: 54px;
+  height: 54px;
+  border-radius: 12px;
+  --glass-fill: linear-gradient(135deg, #ffb35c, #ff4f7b 55%, #7a5cff);
+}
+
+.now-title {
+  margin-top: 10px;
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.now-artist {
+  font-size: 12px;
+  opacity: 0.75;
+}
+
+.cc-mod.now .transport {
+  display: flex;
+  justify-content: space-between;
+  margin-top: auto;
+}
+
+.transport glass-button {
+  width: 40px;
+  height: 40px;
+  color: #fff;
+  font-size: 15px;
+}
+
+.cc-wide {
+  grid-column: span 2;
+  height: 72px;
+  justify-content: flex-start;
+  gap: 10px;
+  padding: 0 18px;
+  border-radius: 26px;
+  font-size: 15px;
+  font-weight: 600;
+  color: #fff;
+}
+
+.cc-wide svg {
+  width: 22px;
+  height: 22px;
+}
+
+.cc-mod.bar {
+  grid-column: span 4;
+  height: 64px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 0 18px;
+  border-radius: 26px;
+  font-size: 20px;
+}
+
+.cc-mod.bar glass-slider {
+  flex: 1;
+  width: auto;
+  --glass-slider-fill: #ffffff;
+}
+
+.cc-small {
+  justify-self: center;
+  width: 66px;
+  height: 66px;
+  color: #fff;
+  font-size: 22px;
+}
+
+/* ===================== Mac ===================== */
+
+.mac {
+  width: 1500px;
+  color: #fff;
+  font-size: 13px;
+  line-height: 1.35;
+}
+
+.lid {
+  position: relative;
+  width: 1308px;
+  height: 828px;
+  margin: 0 auto;
+  box-sizing: border-box;
+  border: 14px solid #0b0c0f;
+  border-radius: 26px 26px 6px 6px;
+  box-shadow:
+    0 0 0 1.5px #5b5f68,
+    0 30px 70px -24px rgba(0, 0, 0, 0.7);
+}
+
+.mac .wall {
+  position: absolute;
+  inset: -14px;
+  border-radius: 26px 26px 6px 6px;
+  overflow: hidden;
+}
+
+.mac .screen {
+  position: absolute;
+  inset: 0;
+  border-radius: 12px 12px 0 0;
+  overflow: hidden;
+}
+
+.base {
+  position: relative;
+  width: 1500px;
+  height: 26px;
+  margin-top: -1px;
+  border-radius: 3px 3px 22px 22px / 3px 3px 14px 14px;
+  background: linear-gradient(180deg, #dde0e6 0%, #b2b7c0 46%, #7c818b 100%);
+  box-shadow: 0 20px 34px -12px rgba(0, 0, 0, 0.65);
+}
+
+.lip {
+  position: absolute;
+  left: 50%;
+  top: 0;
+  width: 220px;
+  height: 9px;
+  margin-left: -110px;
+  border-radius: 0 0 10px 10px;
+  background: linear-gradient(180deg, #878c95, #b9bec6);
+}
+
+.notch {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  width: 196px;
+  height: 32px;
+  margin-left: -98px;
+  border-radius: 0 0 12px 12px;
+  background: #000;
+  z-index: 4;
+}
+
+.menubar {
+  position: absolute;
+  inset: 0 0 auto;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  padding: 0 16px;
+  font-size: 13.5px;
+  text-shadow: 0 1px 6px rgba(0, 0, 0, 0.35);
+  z-index: 3;
+}
+
+.menubar-right {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.menubar-right > [data-icon] svg {
+  width: 17px;
+  height: 17px;
+}
+
+.cc-button {
+  width: 36px;
+  height: 24px;
+  color: #fff;
+  font-size: 14px;
+  transition: opacity 0.2s ease;
+}
+
+.desk-widgets {
+  position: absolute;
+  left: 24px;
+  top: 52px;
+  width: 200px;
+  display: grid;
+  gap: 18px;
+}
+
+.mac-widget {
+  box-sizing: border-box;
+  padding: 14px 16px;
+  border-radius: 24px;
+  text-shadow: 0 1px 6px rgba(0, 0, 0, 0.25);
+}
+
+.month {
+  height: 208px;
+}
+
+.m-title {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 13px;
+  font-weight: 700;
+  color: #ff6b6b;
+}
+
+.m-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  row-gap: 3px;
+  font-size: 11px;
+  line-height: 20px;
+  text-align: center;
+}
+
+.m-grid .dow {
+  font-weight: 700;
+  opacity: 0.6;
+}
+
+.m-grid .today {
+  justify-self: center;
+  width: 20px;
+  border-radius: 50%;
+  background: #ff453a;
+  font-weight: 700;
+}
+
+.forecast {
+  height: 148px;
+  display: flex;
+  flex-direction: column;
+}
+
+.f-place {
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.f-temp {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 42px;
+  font-weight: 300;
+  line-height: 1.15;
+}
+
+.f-temp svg {
+  width: 26px;
+  height: 26px;
+}
+
+.f-note {
+  margin-top: auto;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.f-range {
+  font-size: 12px;
+  opacity: 0.75;
+}
+
+/* —— 照片窗口 —— */
+
+.window {
+  position: absolute;
+  left: 250px;
+  top: 64px;
+  width: 620px;
+  height: 496px;
+  border-radius: 22px;
+  box-shadow:
+    0 22px 46px rgba(0, 0, 0, 0.5),
+    0 0 0 0.5px rgba(255, 255, 255, 0.14);
+  transform-origin: 50% 50%;
+  transition:
+    transform 0.4s cubic-bezier(0.2, 0.9, 0.25, 1),
+    opacity 0.25s ease,
+    visibility 0s;
+}
+
+.window[data-state='closed'] {
+  opacity: 0;
+  visibility: hidden;
+  transform: scale(0.94);
+  transition:
+    transform 0.25s ease,
+    opacity 0.2s ease,
+    visibility 0s linear 0.25s;
+}
+
+.window[data-state='minimized'] {
+  opacity: 0;
+  visibility: hidden;
+  transform: translate(var(--mx, 0px), var(--my, 300px)) scale(0.06);
+  transition:
+    transform 0.45s cubic-bezier(0.4, 0, 0.2, 1),
+    opacity 0.3s ease 0.15s,
+    visibility 0s linear 0.45s;
+}
+
+.win-bg {
+  position: absolute;
+  inset: 0;
+  border-radius: 22px;
+  --glass-fill: rgba(24, 24, 28, 0.97);
+}
+
+.win-scroll {
+  position: absolute;
+  inset: 0;
+  border-radius: 22px;
+  overflow-y: auto;
+  scrollbar-width: none;
+  outline: none;
+}
+
+.win-scroll::-webkit-scrollbar {
+  display: none;
+}
+
+.hero {
+  height: 212px;
+}
+
+.win-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 4px;
+  padding: 12px 12px 16px 212px;
+}
+
+.win-grid[data-cols='year'] {
+  grid-template-columns: repeat(7, 1fr);
+  gap: 2px;
+}
+
+.win-grid[data-cols='month'] {
+  grid-template-columns: repeat(5, 1fr);
+  gap: 3px;
+}
+
+.win-grid[data-cols='day'] {
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+}
+
+.win-grid .tile {
+  aspect-ratio: 1;
+  border-radius: 5px;
+}
+
+.win-title {
+  position: absolute;
+  left: 218px;
+  top: 14px;
+  display: flex;
+  flex-direction: column;
+  text-shadow: 0 1px 8px rgba(0, 0, 0, 0.45);
+  pointer-events: none;
+}
+
+.win-title strong {
+  font-size: 20px;
+  line-height: 1.25;
+}
+
+.win-title span {
+  font-size: 12px;
+  opacity: 0.85;
+}
+
+.sidebar {
+  position: absolute;
+  left: 8px;
+  top: 8px;
+  bottom: 8px;
+  width: 196px;
+  box-sizing: border-box;
+  padding: 14px 10px;
+  border-radius: 16px;
+}
+
+.lights {
+  display: flex;
+  gap: 8px;
+  padding: 0 6px 16px;
+}
+
+.light {
+  width: 12px;
+  height: 12px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+}
+
+.light.close {
+  background: #ff5f57;
+  cursor: pointer;
+}
+
+.light.min {
+  background: #febc2e;
+  cursor: pointer;
+}
+
+.light.zoom {
+  background: #28c840;
+}
+
+.sel {
+  position: absolute;
+  top: 0;
+  left: 10px;
+  right: 10px;
+  height: 30px;
+  border-radius: 8px;
+  --glass-fill: rgba(255, 255, 255, 0.16);
+  transition: translate 0.28s cubic-bezier(0.2, 0.9, 0.25, 1);
+}
+
+.side-items {
+  display: grid;
+  gap: 2px;
+}
+
+.side-items button {
+  all: unset;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 30px;
+  padding: 0 8px;
+  border-radius: 8px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.side-items button:focus-visible {
+  outline: 1.5px solid rgba(255, 255, 255, 0.7);
+  outline-offset: -1.5px;
+}
+
+.side-items [data-icon] {
+  color: #6fb3ff;
+}
+
+.side-items svg {
+  width: 16px;
+  height: 16px;
+}
+
+.side-head {
+  padding: 10px 8px 2px;
+  font-size: 11px;
+  font-weight: 700;
+  opacity: 0.55;
+}
+
+.toolbar {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.seg-platter {
+  padding: 3px;
+  border-radius: 999px;
+}
+
+#mac-seg,
+.mod.look glass-segmented {
+  color: #fff;
+  font-size: 12.5px;
+}
+
+#mac-seg [aria-checked='true'],
+.mod.look [aria-checked='true'] {
+  color: #1c1c1e;
+}
+
+.tool-btns {
+  display: flex;
+  gap: 6px;
+}
+
+.tool-btns .round {
+  width: 36px;
+  height: 36px;
+  font-size: 15px;
+}
+
+/* —— Mac 的控制中心：morphGlass 的两头，收起时 visibility: hidden（仍然排版，变形开始时要量它） —— */
+
+.mac-cc {
+  position: absolute;
+  left: 930px;
+  top: 40px;
+  width: 326px;
+  box-sizing: border-box;
+  display: grid;
+  gap: 10px;
+  padding: 10px;
+  border-radius: 26px;
+}
+
+.mac-cc.collapsed {
+  visibility: hidden;
+}
+
+.mod {
+  box-sizing: border-box;
+  padding: 10px 12px;
+  border-radius: 18px;
+}
+
+.net-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 44px;
+  cursor: pointer;
+}
+
+.net-ico {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.net-ico.on {
+  background: #0a84ff;
+}
+
+.net-ico svg {
+  width: 15px;
+  height: 15px;
+}
+
+.net-name {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.2;
+}
+
+.net-name small {
+  font-size: 11px;
+  font-weight: 400;
+  opacity: 0.7;
+}
+
+.net-row glass-switch {
+  width: 50px;
+  height: 26px;
+}
+
+.mod-title {
+  display: block;
+  margin-bottom: 4px;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.slide-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 14px;
+}
+
+.slide-row glass-slider {
+  flex: 1;
+  width: auto;
+  --glass-slider-fill: #ffffff;
+}
+
+.mod.look {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.mod.look .mod-title {
+  margin: 0;
+}
+
+.mod.now {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.mod.now .art {
+  flex: none;
+  width: 42px;
+  height: 42px;
+  border-radius: 9px;
+  --glass-fill: linear-gradient(135deg, #ffb35c, #ff4f7b 55%, #7a5cff);
+}
+
+.now-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  font-size: 12px;
+  line-height: 1.3;
+}
+
+.now-text span {
+  opacity: 0.7;
+}
+
+.mod.now .transport {
+  display: flex;
+  gap: 2px;
+}
+
+.mod.now .transport glass-button {
+  width: 32px;
+  height: 32px;
+  font-size: 13px;
+}
+
+/* —— Dock：一整条玻璃，图标是普通的 DOM（画在玻璃上面），悬停放大只动图标 —— */
+
+.mac-dock {
+  position: absolute;
+  left: 50%;
+  bottom: 8px;
+  translate: -50% 0;
+  height: 72px;
+  padding: 0 9px;
+  display: flex;
+  align-items: center;
+  border-radius: 24px;
+}
+
+.mac-dock-apps {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+
+.dock-icon {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 54px;
+  height: 54px;
+  padding: 0;
+  border: 0;
+  border-radius: 13px;
+  background: var(--bg);
+  color: #fff;
+  font-size: 27px;
+  cursor: pointer;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.35),
+    0 3px 8px rgba(0, 0, 0, 0.28);
+  transform-origin: 50% 100%;
+  transition: transform 0.16s ease;
+}
+
+.dock-icon:hover,
+.dock-icon:focus-visible {
+  transform: scale(1.3) translateY(-5px);
+  outline: none;
+}
+
+.dock-icon:hover + .dock-icon,
+.dock-icon:has(+ .dock-icon:hover) {
+  transform: scale(1.1) translateY(-2px);
+}
+
+.dock-icon.dark-glyph {
+  color: #e8433a;
+}
+
+/* 名字：悬停时在图标上面冒出来 */
+.dock-icon::before {
+  content: attr(data-name);
+  position: absolute;
+  bottom: calc(100% + 12px);
+  left: 50%;
+  translate: -50% 0;
+  padding: 2px 9px;
+  border-radius: 7px;
+  background: rgba(30, 30, 34, 0.92);
+  font-size: 10px;
+  color: #fff;
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.12s ease;
+}
+
+.dock-icon:hover::before,
+.dock-icon:focus-visible::before {
+  opacity: 1;
+}
+
+/* 运行中的 App 下面一个小点 */
+.dock-icon[data-running]::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  bottom: -7px;
+  width: 4px;
+  height: 4px;
+  margin-left: -2px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.85);
+}
+
+.dock-icon.bounce {
+  animation: dock-bounce 0.55s cubic-bezier(0.3, 0.6, 0.4, 1) 2;
+}
+
+@keyframes dock-bounce {
+  0%,
+  100% {
+    translate: 0 0;
+  }
+
+  40% {
+    translate: 0 -18px;
+  }
+}
+
+.dock-sep {
+  width: 1px;
+  height: 46px;
+  margin: 0 2px;
+  background: rgba(255, 255, 255, 0.3);
+}
+
+/* 减少动效：界面直接切换（组件与 morphGlass 自己也会） */
+@media (prefers-reduced-motion: reduce) {
+  .home,
+  .app,
+  .cc,
+  .cc-grid,
+  .window,
+  .sel,
+  .cc-button,
+  .dock-icon {
+    transition: none !important;
+  }
+
+  .dock-icon.bounce {
+    animation: none;
+  }
+}
