@@ -102,6 +102,14 @@ async function main(): Promise<void> {
   document.getElementById('about-open')!.addEventListener('click', () => about.showModal())
   document.getElementById('about-close')!.addEventListener('click', () => about.close())
 
+  // 导航栏：左边跳到设置，右边搜索（这里只给个提示）与关于
+  const smooth = (): ScrollBehavior => (matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth')
+  document.getElementById('nav-settings')!.addEventListener('click', () =>
+    document.getElementById('settings')!.scrollIntoView({ behavior: smooth(), block: 'center' })
+  )
+  document.getElementById('nav-search')!.addEventListener('click', () => say('搜索：这里只是个样子'))
+  document.getElementById('nav-about')!.addEventListener('click', () => about.showModal())
+
   // 标签栏：换选中时派发 change（按住拖到别的格上再松手也算）
   const tabbar = document.getElementById('tabbar') as HTMLElement & { value: string }
   tabbar.addEventListener('change', () => {

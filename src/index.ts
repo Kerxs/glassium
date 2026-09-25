@@ -175,6 +175,13 @@ export { GlassFill } from './components/glass-fill.ts'
 export { GlassSwitch } from './components/glass-switch.ts'
 export { GlassSegmented } from './components/glass-segmented.ts'
 export { GlassTabBar, bubbleMaterial } from './components/glass-tab-bar.ts'
+export {
+  GlassNavBar,
+  NAV_EDGE_RAMP,
+  edgeProgress,
+  inlineTitleOpacity,
+  largeTitleProgress
+} from './components/glass-nav-bar.ts'
 export { OVERLAY_HOST_CSS, overlayHostRule, overlayVars } from './core/overlay.ts'
 export { Segments, segmentValue, type SegmentsOptions } from './components/segments.ts'
 export {

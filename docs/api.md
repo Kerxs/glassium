@@ -188,6 +188,36 @@ button.classList.add('collapsed')           // 接着把 from 藏起来（或拿
   看的是整个文档的滚动（window）。宽度的过渡靠 CSS 的 `interpolate-size`，不支持它的浏览器直接切换。
   写了 minimize 的栏，格上会带 `width: max-content; overflow: hidden`。
 
+### `<glass-nav-bar large-title>`
+
+导航栏：两侧各一个玻璃胶囊装按钮，中间是标题。
+
+```html
+<glass-nav-bar large-title>
+  <button slot="leading" aria-label="返回">‹</button>
+  <h1>设置</h1>
+  <button slot="trailing" aria-label="搜索">⌕</button>
+  <button slot="trailing" aria-label="更多">⋯</button>
+</glass-nav-bar>
+```
+
+- `slot="leading"` / `slot="trailing"` 的按钮排进左 / 右的胶囊（同一侧共用一个，iOS 26 的分组；按钮的默认外观去掉）。
+  没有按钮的一侧不画胶囊。其余子元素是标题。
+- 材质属性写在栏上，两个胶囊一起用（与 `<glass-card>` 相同；`corner-radius` 默认 `1frac`，胶囊形）。
+- 宿主是 `display: contents`：栏那一行（`::part(bar)`，`position: sticky; top: 0`）与大标题（`::part(large-title)`）都排在
+  宿主的父元素里 —— 滚动时栏贴在视口顶上，大标题跟着正文滚走。要对齐正文那一栏就给这两个 part 写 `padding-inline`。
+- `large-title`：标题大字写在栏下面；滚进栏底下时，栏中间淡入一行小标题（标题文字的副本，`aria-hidden`）。
+- 正文滚到栏底下时，按「底下压了多少正文」（栏贴住之后再滚了多远，16px 走完，`NAV_EDGE_RAMP`）淡入栏后面的一条模糊
+  渐隐（`::part(edge)`）与胶囊上的磨砂 —— GPU 玻璃盖不住滚上来的 DOM 文字，这两层用 CSS 的 `backdrop-filter`。
+- 宿主上的 `data-scrolled`（底下压着正文）、`data-collapsed`（大标题整个滚进了栏底下）；同名的只读属性
+  `scrolled`、`collapsed`。`update()` 按当前滚动位置重算（你自己挪了布局之后用）。
+- CSS：`--glass-nav-bar-height`（默认 52px）、`--glass-nav-bar-edge`（渐隐往下多出来的一截，默认 24px）。
+  `::part(bar)`、`::part(edge)`、`::part(leading)`、`::part(trailing)`、`::part(title)`、`::part(inline-title)`、
+  `::part(large-title)`。
+- 纯函数 `edgeProgress(barTop, naturalTop)`、`largeTitleProgress(barBottom, titleTop, titleHeight)`、
+  `inlineTitleOpacity(progress)` 是上面这几个量的算法。
+- 看的是整个文档的滚动（window）。
+
 ### 盖在 DOM 上的玻璃（`overlay`）
 
 模态 `<dialog>`、打开的 popover、全屏元素里的玻璃，以及写了 `overlay` 属性的玻璃，stage 自动改用 CSS 画（带上

@@ -21,6 +21,16 @@
   border-radius: 999px;
 }
 
+/* 导航栏：upgrade 之后宿主是 display: contents（栏那一行 sticky，大标题跟着正文走，都在影子树里）；
+   upgrade 之前先把几个子元素排成一行，别散成一串行内元素 */
+:where(glass-nav-bar:not(:defined)) {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 52px;
+  padding: 0 16px;
+}
+
 /* 标签栏是一条玻璃胶囊，各格排成一行 */
 :where(glass-tab-bar) {
   display: inline-flex;

@@ -1652,6 +1652,112 @@ async function run(): Promise<void> {
     return ok ? pass(detail) : fail(detail)
   })
 
+  await check('nav-bar', async () => {
+    // <glass-nav-bar large-title>：宿主 display: contents，栏那一行 sticky，两侧各一个玻璃胶囊。
+    // 1) 胶囊是 GPU 玻璃：栏上的材质属性（红色 tint）转给了它们，中心 R − G 大；层级检查没有问题
+    // 2) 没贴住时（滚了 300，栏还在本来的位置往上走）模糊渐隐、磨砂、小标题都是 0
+    // 3) 真的滚页面（scrollTo + 直接派发 scroll：面板隐藏时滚动事件不一定来）：栏贴在视口顶上；贴住后再滚 8px
+    //    淡到一半、16px 满；大标题滚过栏的下沿时小标题淡入、data-collapsed；贴住时胶囊仍是 GPU 玻璃
+    // 4) 一侧没有按钮：那个胶囊不画；改标题的字：小标题跟着；去掉 large-title：标题回到栏中间
+    // 栏放在左半边：右边那块固定的报告面板有深色背景，会挡住它（层级检查会报）。
+    // 撑高文档会冒出竖滚动条、视口变窄 15px（这一轮就作废了）：检查期间把根元素的滚动条藏起来
+    stage.debug.setBackdrop({ scene: 'flat' })
+    const rootStyle = document.documentElement.style
+    const scrollbar = rootStyle.scrollbarWidth
+    rootStyle.scrollbarWidth = 'none'
+    const scrollTo = async (y: number): Promise<void> => {
+      window.scrollTo(0, y)
+      window.dispatchEvent(new Event('scroll'))
+      await sleep(0)
+    }
+    await scrollTo(0)
+    const wrap = document.createElement('div')
+    Object.assign(wrap.style, { position: 'absolute', left: '20px', top: '600px', width: '400px', height: '3000px' })
+    wrap.innerHTML =
+      '<glass-nav-bar large-title tint="rgba(255, 60, 60, 0.45)">' +
+      '<button slot="leading" aria-label="返回">‹</button><h1>设置</h1>' +
+      '<button slot="trailing" aria-label="搜索">⌕</button><button slot="trailing" aria-label="更多">⋯</button>' +
+      '</glass-nav-bar>'
+    document.body.append(wrap)
+    await sleep(0)
+    const nav = wrap.querySelector('glass-nav-bar')! as HTMLElement & { scrolled: boolean; collapsed: boolean }
+    const sr = nav.shadowRoot!
+    const part = (name: string): HTMLElement => sr.querySelector<HTMLElement>(`[part='${name}']`)!
+    const frost = sr.querySelector<HTMLElement>('.frost')!
+    const v = stage.debug.stats().viewport!
+    const s = v.compositeWidth / v.cssWidth
+    const canvasBox = stage.canvas.getBoundingClientRect()
+    const centerPixel = async (el: HTMLElement): Promise<number[]> => {
+      const r = el.getBoundingClientRect()
+      // 不在视口里（比如栏没贴住、被滚出去了）：回读不了，记成「不是玻璃」
+      if (r.top + r.height / 2 < 0 || r.top + r.height / 2 >= v.cssHeight) return [-1, -1, -1]
+      const d = await readback({
+        x: Math.floor((r.left + r.width / 2 - canvasBox.left) * s),
+        y: Math.floor((r.top + r.height / 2 - canvasBox.top) * s),
+        width: 1,
+        height: 1
+      })
+      return [d[0]!, d[1]!, d[2]!]
+    }
+    const state = (): { edge: string; frost: string; inline: string; hidden: string; top: number } => ({
+      edge: getComputedStyle(part('edge')).opacity,
+      frost: getComputedStyle(frost).opacity,
+      inline: getComputedStyle(part('inline-title')).opacity,
+      hidden: getComputedStyle(part('edge')).visibility,
+      top: Math.round(part('bar').getBoundingClientRect().top)
+    })
+
+    const atRest = state()
+    const restPixel = await centerPixel(part('leading'))
+    const panels0 = stage.debug.stats().panels
+    const problems = stage.debug.checkLayers().filter((p) => wrap.contains(p.panel) || p.panel === part('leading') || p.panel === part('trailing'))
+    await scrollTo(300)
+    const moving = state()
+    await scrollTo(600)
+    const stuck = state()
+    await scrollTo(608)
+    const half = state()
+    await scrollTo(700)
+    const full = { ...state(), scrolled: nav.scrolled, collapsed: nav.collapsed }
+    const stuckPixel = await centerPixel(part('leading'))
+    await scrollTo(0)
+    const back = { ...state(), scrolled: nav.scrolled, collapsed: nav.collapsed }
+    for (const b of nav.querySelectorAll('[slot=trailing]')) b.remove()
+    await sleep(0)
+    stage.debug.renderNow()
+    const trailingHidden = part('trailing').hidden && stage.debug.stats().panels === panels0 - 1
+    nav.querySelector('h1')!.textContent = '通用'
+    await sleep(0)
+    const renamed = part('inline-title').textContent === '通用'
+    nav.removeAttribute('large-title')
+    await sleep(0)
+    const inline = sr.querySelector('slot:not([name])')!.parentElement === part('title') && getComputedStyle(part('large-title')).display === 'none'
+    wrap.remove()
+    await scrollTo(0)
+    rootStyle.scrollbarWidth = scrollbar
+    calibrationScene()
+    stage.debug.renderNow()
+
+    const f = (c: readonly number[]): string => c.join('/')
+    const glass = (c: readonly number[]): boolean => c[0]! - c[1]! > 20
+    const o = (x: { edge: string; frost: string; inline: string }): string => `渐隐 ${x.edge}、磨砂 ${x.frost}、小标题 ${x.inline}`
+    const detail =
+      `静止：胶囊 ${f(restPixel)}、${o(atRest)}（${atRest.hidden}）、层级问题 ${problems.length} · ` +
+      `滚 300（没贴住，栏在 ${moving.top}）：${o(moving)} · 滚 600：栏在 ${stuck.top}、${o(stuck)} · 滚 608：${o(half)} · ` +
+      `滚 700：栏在 ${full.top}、${o(full)}、${full.collapsed ? 'collapsed' : '没 collapsed'}、胶囊 ${f(stuckPixel)} · ` +
+      `滚回 0：${o(back)}、${back.scrolled || back.collapsed ? '标记没撤' : '标记撤了'} · ` +
+      `没有按钮的一侧${trailingHidden ? '不画' : '还在画'} · 改标题${renamed ? '跟上了' : '没跟上'} · 去掉 large-title：${inline ? '回到栏中间' : '没回去'}`
+    const ok =
+      glass(restPixel) && atRest.edge === '0' && atRest.frost === '0' && atRest.hidden === 'hidden' && problems.length === 0 &&
+      moving.top === 300 && moving.edge === '0' && moving.inline === '0' &&
+      stuck.top === 0 && stuck.edge === '0' &&
+      half.edge === '0.5' && half.frost === '0.5' &&
+      full.top === 0 && full.edge === '1' && full.frost === '1' && full.inline === '1' && full.scrolled && full.collapsed && glass(stuckPixel) &&
+      back.edge === '0' && back.inline === '0' && !back.scrolled && !back.collapsed &&
+      trailingHidden && renamed && inline
+    return ok ? pass(detail) : fail(detail)
+  })
+
   await check('overlay', async () => {
     // 盖在 DOM 上的玻璃用 CSS 画（core/overlay.ts）：模态对话框里的卡片与开关、打开的 popover、写了 overlay 的卡片 ——
     // 都带上 data-glassium-overlay、不上 GPU（面板数不变），卡片的 backdrop-filter 是材质的 σ 与饱和度、背景是 tint，

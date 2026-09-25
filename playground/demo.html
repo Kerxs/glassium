@@ -39,10 +39,14 @@
         flex-wrap: wrap;
       }
 
-      .brand {
-        font-size: 20px;
-        font-weight: 700;
-        letter-spacing: -0.01em;
+      /* 导航栏：栏那一行贴在顶上，大标题跟着正文滚走。两者都对齐正文那一栏（720px 居中）。
+         往下滚、正文压到栏底下时，栏后面淡入一条模糊、两个胶囊上淡入磨砂（GPU 玻璃盖不住滚上来的文字） */
+      .nav::part(bar),
+      .nav::part(large-title) {
+        padding-inline: max(16px, calc((100% - 720px) / 2 + 16px));
+      }
+
+      .nav h1 {
         text-shadow: 0 1px 12px rgba(0, 0, 0, 0.35);
       }
 
@@ -445,9 +449,15 @@
     </style>
   </head>
   <body>
+    <glass-nav-bar class="nav" large-title>
+      <button slot="leading" id="nav-settings" aria-label="跳到设置">⚙</button>
+      <h1>Glassium</h1>
+      <button slot="trailing" id="nav-search" aria-label="搜索">⌕</button>
+      <button slot="trailing" id="nav-about" aria-label="关于">ⓘ</button>
+    </glass-nav-bar>
+
     <main class="page">
       <header>
-        <span class="brand">Glassium</span>
         <glass-container class="tabs" smoothing="16">
           <glass-button preset="thin">今天</glass-button>
           <glass-button preset="thin">探索</glass-button>
