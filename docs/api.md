@@ -156,6 +156,11 @@
   属性访问器：`value`、`selectedIndex`、`tabs`。不是表单控件。
 - CSS：`--glass-tab-bar-selected`（选中那一格的文字颜色，默认 `#0a84ff`）。`::part(bubble)`。
 - 透镜放大的是底下的玻璃，不是格子里的图标文字 —— 那些是 DOM，画在最上面。
+- `minimize="scroll"`：页面往下滚时缩起来 —— 没选中的格收成 0 宽、淡出，栏只剩选中那一格，气泡淡出；往上滚、
+  回到顶部时展开（iOS 26 的 `tabBarMinimizeBehavior(.onScrollDown)`）。往一个方向累计滚 32px 才切换，手指的小幅
+  抖动不会让它来回闪。缩着的时候点一下只展开（不换选中）；键盘焦点移进来也展开。`minimized` 属性可读可写。
+  看的是整个文档的滚动（window）。宽度的过渡靠 CSS 的 `interpolate-size`，不支持它的浏览器直接切换。
+  写了 minimize 的栏，格上会带 `width: max-content; overflow: hidden`。
 
 ### 盖在 DOM 上的玻璃（`overlay`）
 

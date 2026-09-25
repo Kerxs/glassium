@@ -1488,6 +1488,122 @@ async function run(): Promise<void> {
       : fail(detail)
   })
 
+  await check('tab-bar-minimize', async () => {
+    // <glass-tab-bar minimize="scroll">：
+    // 1) 缩起来：没选中的格收成 0 宽，栏只剩选中那一格加两侧的内边距；有过渡（不是瞬间跳）；气泡不画了；
+    // 2) 玻璃跟着栏变短：原来栏上、现在栏外的一点，缩起时是场景，展开时是玻璃；
+    // 3) 真的滚页面（往下 200px）缩起，滚回顶部展开；
+    // 4) 缩着的时候按一下：只展开，不换选中、不派发 input；键盘焦点移进来也展开；
+    // 5) 没写 minimize 的栏：格上没有这些过渡。
+    stage.debug.setBackdrop({ scene: 'flat' })
+    const bar = document.createElement('glass-tab-bar') as HTMLElement & { minimized: boolean; value: string }
+    bar.setAttribute('minimize', 'scroll')
+    bar.setAttribute('value', 'b')
+    bar.setAttribute('shadow', '0')
+    bar.innerHTML = '<button value="a">一</button><button value="b">二</button><button value="c">三</button><button value="d">四</button>'
+    // 放在常驻的合并组（y 400–456）下面够远的地方：它的投影会落到栏的上半截
+    Object.assign(bar.style, { position: 'absolute', left: '40px', top: '560px' })
+    document.body.append(bar)
+    await sleep(0)
+    const finish = (): number => {
+      let n = 0
+      for (const t of bar.children) for (const a of t.getAnimations()) {
+        a.finish()
+        n++
+      }
+      for (const a of bar.shadowRoot!.getAnimations()) {
+        a.finish()
+        n++
+      }
+      return n
+    }
+    finish()
+    stage.debug.renderNow()
+    const v = stage.debug.stats().viewport!
+    const s = v.compositeWidth / v.cssWidth
+    const canvasBox = stage.canvas.getBoundingClientRect()
+    const pixel = async (x: number, y: number): Promise<number> => {
+      const d = await readback({ x: Math.floor((x - canvasBox.left) * s), y: Math.floor((y - canvasBox.top) * s), width: 1, height: 1 })
+      return d[0]!
+    }
+    const open = bar.getBoundingClientRect()
+    const probeX = open.left + open.width - 40 // 最后一格上：缩起之后在栏外
+    const probeY = open.top + open.height / 2
+    const scene = await pixel(open.right + 40, probeY)
+    const glassOpen = await pixel(probeX, probeY)
+    const panelsOpen = stage.debug.stats().panels
+
+    // 1) 2) 缩起来
+    bar.minimized = true
+    await sleep(0)
+    const transitions = finish()
+    stage.debug.renderNow()
+    const small = bar.getBoundingClientRect()
+    const selected = bar.children[1]!.getBoundingClientRect()
+    const panelsSmall = stage.debug.stats().panels
+    const glassSmall = await pixel(probeX, probeY)
+    bar.minimized = false
+    await sleep(0)
+    finish()
+    stage.debug.renderNow()
+    const reopened = bar.getBoundingClientRect().width
+
+    // 3) 真的滚页面：先把文档撑高
+    const spacer = document.createElement('div')
+    spacer.style.height = '4000px'
+    document.body.append(spacer)
+    const scroll = (y: number): void => {
+      window.scrollTo(0, y)
+      window.dispatchEvent(new Event('scroll')) // 滚动事件排在下一次渲染里；面板隐藏时不一定来，这里直接派发
+    }
+    scroll(200)
+    const scrolledDown = bar.minimized
+    scroll(0)
+    const scrolledTop = bar.minimized
+    spacer.remove()
+
+    // 4) 缩着的时候按一下 / 焦点移进来
+    bar.minimized = true
+    let inputs = 0
+    bar.addEventListener('input', () => inputs++)
+    bar.children[1]!.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, composed: true, button: 0, pointerId: 7 }))
+    const tapExpanded = !bar.minimized
+    bar.children[1]!.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, composed: true, button: 0, pointerId: 7 }))
+    const valueAfterTap = bar.value
+    bar.minimized = true
+    // 直接派发 focusin：窗口没有焦点时（浏览器面板常常如此）focus() 只改 activeElement、不派发焦点事件
+    bar.children[1]!.dispatchEvent(new FocusEvent('focusin', { bubbles: true, composed: true }))
+    const focusExpanded = !bar.minimized
+    bar.remove()
+
+    // 5) 没写 minimize 的栏
+    const plain = document.createElement('glass-tab-bar')
+    plain.innerHTML = '<button value="a">一</button><button value="b">二</button>'
+    Object.assign(plain.style, { position: 'absolute', left: '40px', top: '560px' })
+    document.body.append(plain)
+    await sleep(0)
+    const plainTransition = getComputedStyle(plain.children[0]!).transitionDuration
+    plain.remove()
+    calibrationScene()
+    stage.debug.renderNow()
+
+    const inset = 4
+    const detail =
+      `宽 ${open.width.toFixed(0)} → ${small.width.toFixed(0)}（选中那一格 ${selected.width.toFixed(0)} + 两侧 ${inset}）→ ${reopened.toFixed(0)} · ` +
+      `过渡 ${transitions} 个 · 面板 ${panelsOpen} → ${panelsSmall}（气泡不画） · ` +
+      `最后一格那里：展开 ${glassOpen}、缩起 ${glassSmall}、场景 ${scene} · ` +
+      `滚到 200：${scrolledDown ? '缩起' : '没缩'}，回到顶部：${scrolledTop ? '还缩着' : '展开'} · ` +
+      `缩着按一下：${tapExpanded ? '展开' : '没展开'}、选中 ${valueAfterTap}、input ${inputs} 次 · 焦点移进来：${focusExpanded ? '展开' : '没展开'} · ` +
+      `没写 minimize 的栏过渡 ${plainTransition}`
+    const ok =
+      Math.abs(small.width - (selected.width + 2 * inset)) < 1 && small.width < open.width / 2 &&
+      Math.abs(reopened - open.width) < 1 && transitions > 0 && panelsSmall === panelsOpen - 1 &&
+      Math.abs(glassSmall - scene) <= 1 && Math.abs(glassOpen - scene) > 3 &&
+      scrolledDown && !scrolledTop && tapExpanded && valueAfterTap === 'b' && inputs === 0 && focusExpanded &&
+      /^0s(, 0s)*$/.test(plainTransition)
+    return ok ? pass(detail) : fail(detail)
+  })
+
   await check('overlay', async () => {
     // 盖在 DOM 上的玻璃用 CSS 画（core/overlay.ts）：模态对话框里的卡片与开关、打开的 popover、写了 overlay 的卡片 ——
     // 都带上 data-glassium-overlay、不上 GPU（面板数不变），卡片的 backdrop-filter 是材质的 σ 与饱和度、背景是 tint，

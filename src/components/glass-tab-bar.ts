@@ -19,6 +19,11 @@
  * 属性，没有就是文字），`value` 属性是初始值。不是表单控件。
  *
  * CSS：`--glass-tab-bar-selected`（选中那一格的文字颜色，默认 #0a84ff）。各格的 `aria-controls` 之类由你写。
+ *
+ * `minimize="scroll"`：页面往下滚时缩起来 —— 没选中的格收成 0 宽、淡出，只留选中的那一格，栏跟着变短，气泡淡出；
+ * 往上滚或回到顶部时展开（iOS 26 的 `tabBarMinimizeBehavior(.onScrollDown)`，判断在 minimize.ts）。缩着的时候
+ * 点一下、或者键盘焦点移进来，先展开。`minimized` 属性可读可写。宽度的过渡靠 CSS 的 `interpolate-size`，
+ * 不支持它的浏览器直接切换。看的是整个文档的滚动（window），不是某个滚动容器。
  */
 
 import type { GlassMaterial } from '../core/material.ts'
@@ -26,6 +31,7 @@ import { OVERLAY_HOST_CSS } from '../core/overlay.ts'
 import type { GlassPanel } from '../renderer/panels.ts'
 import { MATERIAL_ATTRIBUTES } from './attributes.ts'
 import { GlassElement, sharedSheet } from './base.ts'
+import { initialMinimize, nextMinimize, type MinimizeState } from './minimize.ts'
 import { Segments, segmentValue } from './segments.ts'
 import { StageLink } from './stage-link.ts'
 import { PressTween } from './thumb.ts'
@@ -76,7 +82,8 @@ const CSS = `
   border-radius: 999px;
   translate: var(--_x, 0px) 0;
   scale: 1;
-  transition: translate 0.35s cubic-bezier(0.3, 1.2, 0.5, 1), width 0.35s cubic-bezier(0.3, 1.2, 0.5, 1), scale 0.2s ease;
+  transition: translate 0.35s cubic-bezier(0.3, 1.2, 0.5, 1), width 0.35s cubic-bezier(0.3, 1.2, 0.5, 1), scale 0.2s ease,
+    opacity 0.2s ease;
 }
 :host([data-pressed]) [part='bubble'] {
   scale: 1.12;
@@ -115,6 +122,26 @@ const CSS = `
   outline: 2px solid currentColor;
   outline-offset: -2px;
 }
+/* 滚动时缩起来（minimize="scroll"）：没选中的格收成 0 宽、淡出，栏跟着变短；气泡淡出（只剩一格，不用指了）。
+   宽度在 max-content 与 0 之间过渡要 interpolate-size；没有它的浏览器直接切换。只作用在写了 minimize 的栏上 */
+:host([minimize]) {
+  interpolate-size: allow-keywords;
+}
+:host([minimize]) ::slotted(*) {
+  width: max-content;
+  overflow: hidden;
+  transition: width 0.35s cubic-bezier(0.25, 0.8, 0.3, 1), min-width 0.35s cubic-bezier(0.25, 0.8, 0.3, 1),
+    padding 0.35s cubic-bezier(0.25, 0.8, 0.3, 1), opacity 0.2s ease;
+}
+:host([data-minimized]) ::slotted(:not([aria-selected='true'])) {
+  width: 0;
+  min-width: 0;
+  padding-inline: 0;
+  opacity: 0;
+}
+:host([data-minimized]) [part='bubble'] {
+  opacity: 0;
+}
 /* 没有玻璃时（或在对话框 / popover 里用 CSS 画时）：栏的表面来自 glassium.css，气泡画成一块浅色 */
 :host(:not([data-glassium-active])) [part='bubble'],
 [part='bubble'][data-glassium-overlay] {
@@ -122,7 +149,8 @@ const CSS = `
 }
 @media (prefers-reduced-motion: reduce) {
   [part='bubble'],
-  :host([data-dragging]) [part='bubble'] {
+  :host([data-dragging]) [part='bubble'],
+  :host([minimize]) ::slotted(*) {
     transition: none;
   }
 }
@@ -137,7 +165,7 @@ const sheet = { sheet: null as CSSStyleSheet | null }
 
 export class GlassTabBar extends GlassElement {
   static override get observedAttributes(): string[] {
-    return [...MATERIAL_ATTRIBUTES, 'value']
+    return [...MATERIAL_ATTRIBUTES, 'value', 'minimize']
   }
 
   readonly #bubble: HTMLElement
@@ -156,6 +184,16 @@ export class GlassTabBar extends GlassElement {
   readonly #resize: ResizeObserver | null
   /** 用户或程序改过选中之后，value 属性（初始值）就不再带着它走。 */
   #dirty = false
+  /** minimize="scroll" 且在文档里时的滚动状态；否则是 null（没有挂滚动监听）。 */
+  #minimize: MinimizeState | null = null
+  readonly #onScroll = (): void => {
+    const s = this.#minimize
+    if (!s) return
+    const next = nextMinimize(s, scrollTop())
+    if (next === s) return
+    this.#minimize = next
+    this.#setMinimized(next.minimized)
+  }
 
   constructor() {
     super()
@@ -185,8 +223,23 @@ export class GlassTabBar extends GlassElement {
       },
       onSelectionChange: () => {}
     })
-    // 各格的宽度变了（字体加载、栏定宽变化）气泡要跟上
+    // 各格的宽度变了（字体加载、栏定宽变化、缩起与展开的过渡）气泡要跟上
     this.#resize = typeof ResizeObserver === 'function' ? new ResizeObserver(() => this.#segments.place()) : null
+
+    // 缩着的时候点一下：先展开，这一下不算按压（捕获阶段截住，Segments 收不到，不会选到别的格）。
+    // 键盘焦点移进来也展开 —— 焦点不该停在一格看不见的上面
+    this.addEventListener(
+      'pointerdown',
+      (e) => {
+        if (!this.minimized) return
+        e.stopImmediatePropagation()
+        this.minimized = false
+      },
+      { capture: true }
+    )
+    this.addEventListener('focusin', () => {
+      if (this.minimized) this.minimized = false
+    })
   }
 
   /** 栏默认是胶囊。其余材质与 `<glass-card>` 相同，写在属性上。 */
@@ -212,6 +265,19 @@ export class GlassTabBar extends GlassElement {
     this.#segments.select(this.#segments.indexOf(String(v)))
   }
 
+  /**
+   * 缩起来了吗。minimize="scroll" 时跟着滚动变；也可以直接设，之后的滚动照常接管（从现在的位置重新累计）。
+   * 没写 minimize 时也能设 —— 只是不会自己变。
+   */
+  get minimized(): boolean {
+    return this.hasAttribute('data-minimized')
+  }
+
+  set minimized(on: boolean) {
+    if (this.#minimize) this.#minimize = { minimized: Boolean(on), anchor: scrollTop() }
+    this.#setMinimized(Boolean(on))
+  }
+
   get selectedIndex(): number {
     return this.#segments.selected
   }
@@ -229,11 +295,13 @@ export class GlassTabBar extends GlassElement {
     this.#resize?.observe(this)
     this.#syncTabs()
     this.#link.connect()
+    this.#syncMinimize()
   }
 
   override disconnectedCallback(): void {
     super.disconnectedCallback()
     this.#link.disconnect()
+    this.#syncMinimize()
     this.#resize?.disconnect()
     this.#tween.reset()
     this.toggleAttribute('data-pressed', false)
@@ -245,7 +313,28 @@ export class GlassTabBar extends GlassElement {
       if (oldValue !== newValue && this.isConnected && !this.#dirty) this.#segments.select(this.#indexOfDefault())
       return
     }
+    if (name === 'minimize') {
+      this.#syncMinimize()
+      return
+    }
     super.attributeChangedCallback(name, oldValue, newValue)
+  }
+
+  /** 按 minimize 属性与是否在文档里挂上 / 摘掉滚动监听。摘掉时展开。 */
+  #syncMinimize(): void {
+    const on = this.isConnected && this.getAttribute('minimize') === 'scroll'
+    if (on && !this.#minimize) {
+      this.#minimize = initialMinimize(scrollTop())
+      window.addEventListener('scroll', this.#onScroll, { passive: true })
+    } else if (!on && this.#minimize) {
+      window.removeEventListener('scroll', this.#onScroll)
+      this.#minimize = null
+      this.#setMinimized(false)
+    }
+  }
+
+  #setMinimized(on: boolean): void {
+    if (this.hasAttribute('data-minimized') !== on) this.toggleAttribute('data-minimized', on)
   }
 
   /** value 属性对应的那一格；没写或对不上时选第一格。 */
@@ -261,4 +350,9 @@ export class GlassTabBar extends GlassElement {
     const byValue = keep !== null ? this.#segments.indexOf(keep) : -1
     this.#segments.select(this.#dirty && byValue >= 0 ? byValue : this.#indexOfDefault())
   }
+}
+
+/** 文档滚了多远（CSS 像素）。 */
+function scrollTop(): number {
+  return typeof window === 'undefined' ? 0 : window.scrollY
 }

@@ -173,6 +173,9 @@ GPU 输出由 `playground/verify.html` 在浏览器里逐项验证（光学探�
       出现，一边长大一边移到自己的位置 —— 离得近时 smin 把它和邻居连着，颈部拉长、断开；`container.dismiss(member)`
       反过来缩回去再拿掉。实测一滴的中心正落在邻居的边上（496.0, 528.0），那里画着玻璃。动的是 `translate` / `scale`，
       玻璃跟得上；减少动效时直接出现、直接拿掉
+- [x] **标签栏滚动时缩起**（`<glass-tab-bar minimize="scroll">`，`src/components/minimize.ts`）：往下滚时缩成只剩
+      选中的那一格，往上滚展开（iOS 26 的 `tabBarMinimizeBehavior(.onScrollDown)`）。玻璃跟着栏变短 —— 实测栏
+      264 → 72（选中那一格 64 + 两侧 4），原来栏上那一点从玻璃 149 变回场景 127；缩着按一下只展开、不换选中
 - [x] **渐变填充**（`src/core/gradient.ts`）：`--glass-fill` 直接写 `linear-gradient()` / `radial-gradient()`（含
       `repeating-`），画进场景、玻璃照样折射它。几何按 CSS 的规则解算（角度与 `to` 角、四种大小关键字、`at`、色标补位），
       在预乘的 sRGB 里插值 —— 实测与按 CSS 几何算出来的值最多差 0.5；一头透明时半途是半透明的纯红，不发黑
@@ -197,9 +200,9 @@ GPU 设备丢失时会在新设备上整套重建（实测约 30 ms，恢复后�
 WebGL2（WebGL2 的上下文丢失同理，第二次降到 CSS 兜底）。T5 到 T8 期间这一点是坏的：
 日志说会重新初始化，实际上画布会冻住 —— 现已修复，见 [docs/limitations.md](docs/limitations.md)。
 
-**231 条测试全绿**，playground 可跑（`npm run dev`），只用公开 API 搭的示例页在 `/demo.html`，
+**235 条测试全绿**，playground 可跑（`npm run dev`），只用公开 API 搭的示例页在 `/demo.html`，
 逐项自动验证在 `/verify.html`
-（现在 WebGPU 上 **PASS 37/37**、WebGL2 上 **PASS 36/36**）。
+（现在 WebGPU 上 **PASS 38/38**、WebGL2 上 **PASS 37/37**）。
 
 T5 顺带把两个计划阶段悬着的硬件问题测掉了，结果记在
 [docs/calibration.md](docs/calibration.md)：`minUniformBufferOffsetAlignment` 实测 256
