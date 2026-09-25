@@ -124,7 +124,7 @@ await morphGlass(button, menu).finished            // 按钮变成菜单
 
 实测的环境是 Windows 上的 Chromium（Edge / Chrome，NVIDIA 独显，WebGPU 与 WebGL2 都跑）；别的浏览器与设备还没有逐项
 验证过。GPU 的输出没有进 CI（GitHub 的机器没有 GPU），由 `playground/verify.html` 在浏览器里逐项验证，
-现在是 WebGPU **PASS 45/45**、WebGL2 **PASS 44/44**。
+现在是 WebGPU **PASS 46/46**、WebGL2 **PASS 45/45**（横屏 1280×720、竖屏 820×1200 都是）。
 
 ## 文档
 
@@ -154,7 +154,8 @@ npm run dev   # http://localhost:5174
 - [`/demo.html`](https://kerxs.github.io/glassium/demo.html)：只用公开 API 搭的一个页面（卡片、控件、标签栏、导航栏、变形、遮罩）
 - [`/bench.html`](https://kerxs.github.io/glassium/bench.html)：性能测试（面板数与帧开销，结果见 [docs/benchmark.md](docs/benchmark.md)）
 - [`/debug.html`](https://kerxs.github.io/glassium/debug.html)：调试台（给开发 Glassium 本身用：统计、校准场景、各种模拟开关）
-- [`/verify.html`](https://kerxs.github.io/glassium/verify.html)：逐项验证，结果写进标题栏（`PASS n/n`）；`?glassium.backend=webgl2` 换后端
+- [`/verify.html`](https://kerxs.github.io/glassium/verify.html)：逐项验证，结果写进标题栏（`PASS n/n`）；`?glassium.backend=webgl2` 换后端；
+  视口至少要 820×720
 
 ## 开发
 

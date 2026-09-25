@@ -85,6 +85,8 @@ let currentCheck: string | null = null
 const RETRY_KEY = 'glassium.verify.viewportRetries'
 const RETRY_REASON_KEY = 'glassium.verify.viewportRetryReason'
 const MAX_RETRIES = 2
+/** 各项的面板都按固定像素摆在左上这么大的范围里（CSS px）。视口比它小，探针就落到画布外面，不跑。 */
+const MIN_VIEWPORT = { width: 820, height: 720 }
 /** 上一轮为什么作废（重跑时显示在报告开头）。 */
 const retryReason = ((): string => {
   try {
@@ -330,8 +332,10 @@ async function pixelAt(x: number, y: number): Promise<Rgb> {
 const near = (a: Rgb, b: Rgb): boolean => a.every((v, i) => Math.abs(v - b[i]!) <= 2)
 
 /** 两帧逐像素比较：多少个像素不同、最大差多少、差异落在哪个矩形里。 */
-function diffFrames(a: Uint8Array, b: Uint8Array, width: number): { changed: number; max: number; where: string } {
+/** 两帧逐像素比：不同的像素数、其中差超过 1 级的像素数、最大差、差异的包围盒。 */
+function diffFrames(a: Uint8Array, b: Uint8Array, width: number): { changed: number; beyond1: number; max: number; where: string } {
   let changed = 0
+  let beyond1 = 0
   let max = 0
   let bx0 = Infinity
   let by0 = Infinity
@@ -341,6 +345,7 @@ function diffFrames(a: Uint8Array, b: Uint8Array, width: number): { changed: num
     const d = Math.max(Math.abs(a[i]! - b[i]!), Math.abs(a[i + 1]! - b[i + 1]!), Math.abs(a[i + 2]! - b[i + 2]!))
     if (d > 0) {
       changed++
+      if (d > 1) beyond1++
       const px = (i / 4) % width
       const py = Math.floor(i / 4 / width)
       bx0 = Math.min(bx0, px)
@@ -350,7 +355,7 @@ function diffFrames(a: Uint8Array, b: Uint8Array, width: number): { changed: num
     }
     if (d > max) max = d
   }
-  return { changed, max, where: changed > 0 ? `，差异集中在 (${bx0}, ${by0})–(${bx1}, ${by1})` : '' }
+  return { changed, beyond1, max, where: changed > 0 ? `，差异集中在 (${bx0}, ${by0})–(${bx1}, ${by1})` : '' }
 }
 
 /** 背景恢复成 calibration（棋盘格 + 硬对角线 + 黑白阶跃）。 */
@@ -417,6 +422,20 @@ async function run(): Promise<void> {
   })
   if (stage.backend === 'none') {
     render(true)
+    return
+  }
+
+  await check('viewport-size', async () => {
+    const box = stage.canvas.getBoundingClientRect()
+    const { width, height } = MIN_VIEWPORT
+    const detail = `画布 ${box.width}×${box.height} CSS px`
+    return box.width >= width && box.height >= height
+      ? pass(detail)
+      : fail(`${detail}，小于需要的 ${width}×${height}：面板摆不下，下面的检查都没有跑。放大窗口（或者缩小页面）再刷新`)
+  })
+  if (results.at(-1)!.outcome.status === 'fail') {
+    render(true)
+    clearRetries()
     return
   }
 
@@ -2126,10 +2145,15 @@ async function run(): Promise<void> {
     const stepLinear = await row()
     const pipelinesLinear = stage.debug.stats().pipelineCreations
     const flatLinear = await flatReadings()
-    // 3) 自适应：白字的玻璃在灰上；深色字、没有 tint 的玻璃在 calibration 左下的暗处
+    // 3) 自适应：白字的玻璃在灰上；深色字、没有 tint 的玻璃在 calibration 的暗处
     const whiteEl = place(460, 420, 200, 100)
     whiteEl.style.color = '#fff'
-    const darkEl = place(60, H - 150, Math.max(80, Math.min(200, W / 2 - 210)), 80)
+    // 暗处是竖直阶跃（x = W/2）左边、对角线（x + y = (W + H)/2）右下方的那一块。自适应在模糊链的粗级别上取
+    // 面板范围里的平均亮度，面板得离亮处够远：中心放在离阶跃、对角线、底边一样远的那一点（W/2 − d, H − d）。
+    // 竖屏时它在左下角；横屏时暗处只是阶跃左边的一个直角三角形，左下角落在棋盘格上（这里原先固定放在左下角，
+    // 在 1280×720 上正好压着一格白的）
+    const d = Math.min(H / (4 + 2 * Math.SQRT2), W / 4)
+    const darkEl = place(Math.round(W / 2 - d) - 50, Math.round(H - d) - 35, 100, 70)
     darkEl.style.color = '#111'
     panels.push(
       stage.register(whiteEl, { ...plain, adaptive: 1, tint: 'rgba(255, 255, 255, 0.18)', cornerRadius: 12 }),
@@ -2666,18 +2690,20 @@ async function run(): Promise<void> {
       made.push(el)
       return el
     }
+    // 都摆在 820×720 以内（见 MIN_VIEWPORT）：固定的那几块面板右边一列，下面两排。红卡片比容器四周各大 20px，
+    // 卡片的矩形互不重叠
+    const ellipse = box(480, 40, 300, 100, { clipPath: 'ellipse()' })
+    const oval = box(480, 180, 300, 100, { overflow: 'hidden', borderRadius: '50%' })
     const circle = box(60, 480, 200, 100, { clipPath: 'circle()' })
-    const ellipse = box(300, 480, 300, 100, { clipPath: 'ellipse()' })
-    const oval = box(300, 620, 300, 100, { overflow: 'hidden', borderRadius: '50%' })
-    const own = redCard(160, 60, { left: '60px', top: '620px', width: '200px', height: '100px', clipPath: 'inset(10px round 30px / 10px)' })
+    const own = redCard(160, 60, { left: '320px', top: '480px', width: '200px', height: '100px', clipPath: 'inset(10px round 30px / 10px)' })
     document.body.append(own)
     made.push(own)
     const cutInner = document.createElement('div')
     Object.assign(cutInner.style, { position: 'absolute', left: '0', top: '0', width: '200px', height: '100px', clipPath: 'circle()' })
     cutInner.append(redCard(200, 100))
-    const cut = box(60, 720, 130, 100, { overflow: 'hidden' }, cutInner)
-    const none = box(300, 720, 200, 100, { clipPath: 'circle(0%)' })
-    const missing = box(540, 720, 200, 100, { clipPath: 'url(#glassium-verify-missing)' })
+    const cut = box(560, 480, 130, 100, { overflow: 'hidden' }, cutInner)
+    const none = box(60, 620, 200, 60, { clipPath: 'circle(0%)' })
+    const missing = box(320, 620, 200, 60, { clipPath: 'url(#glassium-verify-missing)' })
     await sleep(0)
 
     const v = stage.debug.stats().viewport!
@@ -2727,8 +2753,8 @@ async function run(): Promise<void> {
         [cut, 120, 15, 'glass'],
         [cut, 70, 50, 'glass']
       ],
-      none: [[none, 100, 50, 'scene']],
-      missing: [[missing, 100, 50, 'glass']]
+      none: [[none, 100, 30, 'scene']],
+      missing: [[missing, 100, 30, 'glass']]
     }
     const f = (c: readonly number[]): string => c.join('/')
     const parts: string[] = []
@@ -2790,11 +2816,12 @@ async function run(): Promise<void> {
       fill.setAttribute('style', 'position: absolute; inset: 0; --glass-fill: rgb(255, 0, 0)')
       return fill
     }
+    // 都摆在 820×720 以内（见 MIN_VIEWPORT）：固定的那几块面板右边一列，下面两排；卡片的矩形互不重叠
+    const radial = box(480, 40, 200, 200, { maskImage: 'radial-gradient(circle closest-side, black 60%, transparent)' }, redCard(200, 200))
+    const fill = box(480, 290, 300, 60, { maskImage: 'linear-gradient(to right, black, transparent)' }, redFill())
     const linear = box(40, 480, 400, 100, { maskImage: 'linear-gradient(to right, transparent, black 25%, black 75%, transparent)' }, redCard(400, 100))
-    const radial = box(40, 620, 200, 200, { maskImage: 'radial-gradient(circle closest-side, black 60%, transparent)' }, redCard(200, 200))
-    const lum = box(280, 620, 400, 60, { maskImage: 'linear-gradient(to right, white, black)', maskMode: 'luminance' }, redCard(400, 60))
-    const fill = box(280, 720, 400, 60, { maskImage: 'linear-gradient(to right, black, transparent)' }, redFill())
-    const missing = box(280, 820, 200, 60, { maskImage: 'url(#glassium-verify-missing)' }, redCard(200, 60))
+    const lum = box(40, 620, 400, 60, { maskImage: 'linear-gradient(to right, white, black)', maskMode: 'luminance' }, redCard(400, 60))
+    const missing = box(500, 620, 200, 60, { maskImage: 'url(#glassium-verify-missing)' }, redCard(200, 60))
     await sleep(0)
 
     const v = stage.debug.stats().viewport!
@@ -2896,13 +2923,17 @@ async function run(): Promise<void> {
     const detail =
       `calibration：${total} 像素里 ${cal.changed} 个不同，最大差 ${cal.max}/255${cal.where}` +
       `；图片场景：${img.changed} 个不同，最大差 ${img.max}/255${img.where}（都含一对嵌套的玻璃）` +
-      `；线性光：calibration ${calLinear.changed} 个、最大差 ${calLinear.max}/255${calLinear.where}，` +
-      `图片 ${imgLinear.changed} 个、最大差 ${imgLinear.max}/255${imgLinear.where}`
+      `；线性光：calibration ${calLinear.changed} 个（差 2 级以上 ${calLinear.beyond1} 个）、最大差 ${calLinear.max}/255${calLinear.where}，` +
+      `图片 ${imgLinear.changed} 个（差 2 级以上 ${imgLinear.beyond1} 个）、最大差 ${imgLinear.max}/255${imgLinear.where}`
     const ok = (d: typeof cal): boolean => d.max <= 2 && d.changed / total <= 1e-3
     // 线性光放宽：两个后端的 pow 末位不同，渐变上落在舍入边界的值差 1（图片场景要先解码，所以多）；硬边暗的一侧
     // 编码曲线最陡，亚纹素级的采样差被放大约 4 倍（同一个像素 sRGB 下差 2、线性光下差 4）。忘了解码、编码这类错
-    // 都是成片的几十级差，照样抓得到
-    const okLinear = (d: typeof cal): boolean => d.max <= 8 && d.changed / total <= 5e-3
+    // 都是成片的几十级差，照样抓得到。
+    // 只差 1 级的像素不计数：它们有多少取决于图片被放大了多少 —— 条纹图按 cover 铺满，横屏的视口放大得少，
+    // 条纹的边更密。实测图片场景：1280×720 上 11140 个不同（1.2%），全都只差 1 级；820×1200 上 1441 个
+    // （0.15%），差 2 级以上的 8 个、最大差 4。差 2 级以上的才可疑（编码曲线换成近似之类是成片的几级差），
+    // 它们仍然不能超过 0.5%
+    const okLinear = (d: typeof cal): boolean => d.max <= 8 && d.beyond1 / total <= 5e-3
     return ok(cal) && ok(img) && okLinear(calLinear) && okLinear(imgLinear) ? pass(detail) : fail(detail)
   })
 
@@ -2926,12 +2957,7 @@ function finish(): void {
         : null
   if (reason === null || (attempt >= MAX_RETRIES && viewportChanges.length === 0)) {
     render(true)
-    try {
-      sessionStorage.removeItem(RETRY_KEY)
-      sessionStorage.removeItem(RETRY_REASON_KEY)
-    } catch {
-      // sessionStorage 不可用：没有什么可清的
-    }
+    clearRetries()
     return
   }
   if (attempt < MAX_RETRIES) {
@@ -2948,6 +2974,16 @@ function finish(): void {
   }
   results.push({ name: 'viewport-stable', outcome: fail(`重跑 ${MAX_RETRIES} 次之后视口仍然在运行中变化`) })
   render(true)
+}
+
+/** 这一轮算数了：清掉重跑次数与作废原因。 */
+function clearRetries(): void {
+  try {
+    sessionStorage.removeItem(RETRY_KEY)
+    sessionStorage.removeItem(RETRY_REASON_KEY)
+  } catch {
+    // sessionStorage 不可用：没有什么可清的
+  }
 }
 
 run().catch((err) => {
