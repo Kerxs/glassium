@@ -10,6 +10,7 @@
  * 结果一致（见 docs/calibration.md）。
  */
 
+import { srgbToLinear } from '../core/color.ts'
 import type { MemberGeometry } from '../core/merge.ts'
 import type { ResolvedViewport } from '../core/units.ts'
 import { BACKDROP_WGSL, BLUR_WGSL } from '../shaders/blur.wgsl.ts'
@@ -46,7 +47,7 @@ import {
   type SceneUploadState,
   sourceReady
 } from './backend.ts'
-import { BACKDROP_FORMAT, BlurChain, levelForSigma } from './blur.ts'
+import { BACKDROP_FORMAT, backdropFormat, BlurChain, levelForSigma } from './blur.ts'
 import { CANVAS_DEST, packFill, sceneDest, sceneScissor, type MeasuredFill } from './fills.ts'
 import { layerRegion, splitLayers, type LayerItems } from './layers.ts'
 import {
@@ -56,6 +57,15 @@ import {
   type MeasuredGroup,
   type MeasuredPanel
 } from './panels.ts'
+
+/** 画进模糊链（场景目标）的管线。目标格式随混合空间变，所以按格式各一套（见 GpuRenderer.#pipelinesFor）。 */
+interface ChainPipelines {
+  readonly scene: GPURenderPipeline
+  readonly image: GPURenderPipeline
+  readonly blur: GPURenderPipeline
+  readonly resample: GPURenderPipeline
+  readonly fillScene: GPURenderPipeline
+}
 
 export class GpuRenderer implements Renderer {
   readonly kind = 'webgpu' as const
@@ -67,8 +77,24 @@ export class GpuRenderer implements Renderer {
   readonly #blurChain: BlurChain
   readonly #sampler: GPUSampler
 
-  readonly #scenePipeline: GPURenderPipeline
-  readonly #imagePipeline: GPURenderPipeline
+  // 画进模糊链的那几条管线按纹理格式各一套：默认的 'rgba8unorm' 一开始就建，线性光模式的
+  // 'rgba8unorm-srgb' 第一次用到时再建。bind group 布局是显式的、两套共用 —— 'auto' 布局的
+  // bind group 不能拿给别的管线用，那样换一次格式就得把 bind group 全部重建。
+  readonly #chainPipelines = new Map<GPUTextureFormat, ChainPipelines>()
+  /** 模糊链现在的格式（backdropFormat(blendSpace)）。变了就在 render 里重新分配。 */
+  #chainFormat: GPUTextureFormat = BACKDROP_FORMAT
+  readonly #modules: {
+    readonly scene: GPUShaderModule
+    readonly image: GPUShaderModule
+    readonly blur: GPUShaderModule
+    readonly backdrop: GPUShaderModule
+    readonly fill: GPUShaderModule
+  }
+  readonly #sceneLayout: GPUBindGroupLayout
+  readonly #imageLayout: GPUBindGroupLayout
+  /** 背景上屏与层的重采样共用（同一个着色器）。 */
+  readonly #backdropLayout: GPUBindGroupLayout
+  readonly #blurLayout: GPUBindGroupLayout
   readonly #imageUniforms: GPUBuffer
   readonly #imageUniformData = new Float32Array(8)
   #imageTexture: GPUTexture | null = null
@@ -83,15 +109,14 @@ export class GpuRenderer implements Renderer {
   readonly #groupPipeline: GPURenderPipeline
   readonly #groupProbePipeline: GPURenderPipeline
   readonly #groupLayout: GPUBindGroupLayout
-  // 填充：同一个着色器、两个目标格式（场景目标 rgba8unorm，画布是 getPreferredCanvasFormat 的格式）
+  // 填充：同一个着色器、两类目标（场景目标见 ChainPipelines.fillScene，画布是 getPreferredCanvasFormat 的格式）
   readonly #fillLayout: GPUBindGroupLayout
-  readonly #fillScenePipeline: GPURenderPipeline
+  readonly #fillPipelineLayout: GPUPipelineLayout
   readonly #fillCanvasPipeline: GPURenderPipeline
   readonly #fillSceneDest: GPUBuffer
   readonly #fillCanvasDest: GPUBuffer
   // 玻璃的层（layers.ts）：画布上已经画好的那一块拷进 layerSource，再重采样回场景目标。
-  // 重采样用背景视图的着色器（原样参数），只是目标格式换成场景目标的
-  readonly #resamplePipeline: GPURenderPipeline
+  // 重采样用背景视图的着色器（原样参数），只是目标格式换成场景目标的（见 ChainPipelines.resample）
   readonly #resampleUniforms: GPUBuffer
   #layerSource: GPUTexture | null = null
   #resampleBindGroup: GPUBindGroup | null = null
@@ -148,58 +173,47 @@ export class GpuRenderer implements Renderer {
       usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC
     })
 
-    const sceneModule = device.createShaderModule({ label: 'glassium:scene', code: SCENE_WGSL })
-    const blurModule = device.createShaderModule({ label: 'glassium:blur', code: BLUR_WGSL })
-    const backdropModule = device.createShaderModule({
-      label: 'glassium:backdrop',
-      code: BACKDROP_WGSL
-    })
-
-    this.#scenePipeline = device.createRenderPipeline({
+    const module = (label: string, code: string): GPUShaderModule => device.createShaderModule({ label, code })
+    this.#modules = {
+      scene: module('glassium:scene', SCENE_WGSL),
+      // 用户场景：一张图按 object-fit 铺进场景目标（与内置场景画进同一个地方：模糊链的第 0 级）
+      image: module('glassium:scene-image', SCENE_IMAGE_WGSL),
+      blur: module('glassium:blur', BLUR_WGSL),
+      backdrop: module('glassium:backdrop', BACKDROP_WGSL),
+      fill: module('glassium:fill', FILL_WGSL)
+    }
+    this.#sceneLayout = device.createBindGroupLayout({
       label: 'glassium:scene',
-      layout: 'auto',
-      vertex: { module: sceneModule, entryPoint: 'vs' },
-      fragment: { module: sceneModule, entryPoint: 'fs', targets: [{ format: BACKDROP_FORMAT }] },
-      primitive: { topology: 'triangle-list' }
+      entries: [{ binding: 0, visibility: GPUShaderStage.FRAGMENT, buffer: { type: 'uniform' } }]
     })
-    const blurPipeline = device.createRenderPipeline({
-      label: 'glassium:blur',
-      layout: 'auto',
-      vertex: { module: blurModule, entryPoint: 'vs' },
-      fragment: { module: blurModule, entryPoint: 'fs', targets: [{ format: BACKDROP_FORMAT }] },
-      primitive: { topology: 'triangle-list' }
-    })
+    // uniform + 采样器 + 一张纹理：图片场景、背景上屏（与层的重采样）、模糊趟都是这个形状
+    const sampledLayout = (label: string): GPUBindGroupLayout =>
+      device.createBindGroupLayout({
+        label,
+        entries: [
+          { binding: 0, visibility: GPUShaderStage.FRAGMENT, buffer: { type: 'uniform' } },
+          { binding: 1, visibility: GPUShaderStage.FRAGMENT, sampler: { type: 'filtering' } },
+          { binding: 2, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: 'float' } }
+        ]
+      })
+    this.#imageLayout = sampledLayout('glassium:scene-image')
+    this.#backdropLayout = sampledLayout('glassium:backdrop')
+    this.#blurLayout = sampledLayout('glassium:blur')
+
     this.#backdropPipeline = device.createRenderPipeline({
       label: 'glassium:backdrop',
-      layout: 'auto',
-      vertex: { module: backdropModule, entryPoint: 'vs' },
-      fragment: { module: backdropModule, entryPoint: 'fs', targets: [{ format }] },
+      layout: device.createPipelineLayout({ label: 'glassium:backdrop', bindGroupLayouts: [this.#backdropLayout] }),
+      vertex: { module: this.#modules.backdrop, entryPoint: 'vs' },
+      fragment: { module: this.#modules.backdrop, entryPoint: 'fs', targets: [{ format }] },
       primitive: { topology: 'triangle-list' }
     })
-    this.#resamplePipeline = device.createRenderPipeline({
-      label: 'glassium:layer-resample',
-      layout: 'auto',
-      vertex: { module: backdropModule, entryPoint: 'vs' },
-      fragment: { module: backdropModule, entryPoint: 'fs', targets: [{ format: BACKDROP_FORMAT }] },
-      primitive: { topology: 'triangle-list' }
-    })
-    // 原样：tint 的 alpha 0、saturation 1、第 0 级
+    // 原样：tint 的 alpha 0、saturation 1、第 0 级；线性光模式下先解码（写在 resize 里，随格式变）
     this.#resampleUniforms = device.createBuffer({
       label: 'glassium:layer-resample-uniforms',
       size: 32,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
     })
-    device.queue.writeBuffer(this.#resampleUniforms, 0, new Float32Array([1, 1, 1, 0, 1, 0, 0, 0]))
 
-    // 用户场景：一张图按 object-fit 铺进场景目标（与内置场景画进同一个地方：模糊链的第 0 级）
-    const imageModule = device.createShaderModule({ label: 'glassium:scene-image', code: SCENE_IMAGE_WGSL })
-    this.#imagePipeline = device.createRenderPipeline({
-      label: 'glassium:scene-image',
-      layout: 'auto',
-      vertex: { module: imageModule, entryPoint: 'vs' },
-      fragment: { module: imageModule, entryPoint: 'fs', targets: [{ format: BACKDROP_FORMAT }] },
-      primitive: { topology: 'triangle-list' }
-    })
     // ImageScene: uvScale + uvOffset + background(vec4) = 32B
     this.#imageUniforms = device.createBuffer({
       label: 'glassium:scene-image-uniforms',
@@ -214,7 +228,7 @@ export class GpuRenderer implements Renderer {
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
     })
     this.#sceneBindGroup = device.createBindGroup({
-      layout: this.#scenePipeline.getBindGroupLayout(0),
+      layout: this.#sceneLayout,
       entries: [{ binding: 0, resource: { buffer: this.#sceneUniforms } }]
     })
 
@@ -233,7 +247,7 @@ export class GpuRenderer implements Renderer {
       mipmapFilter: 'linear'
     })
 
-    this.#blurChain = new BlurChain(device, blurPipeline, this.#sampler)
+    this.#blurChain = new BlurChain(device, this.#blurLayout, this.#sampler)
 
     // 显式的 bind group layout：'auto' 布局不支持 hasDynamicOffset，
     // 而所有面板共用一条 uniform buffer、逐块只换动态偏移，正是整个设计的要点。
@@ -345,33 +359,11 @@ export class GpuRenderer implements Renderer {
         { binding: 1, visibility: GPUShaderStage.FRAGMENT, buffer: { type: 'uniform' } }
       ]
     })
-    const fillPipelineLayout = device.createPipelineLayout({
+    this.#fillPipelineLayout = device.createPipelineLayout({
       label: 'glassium:fill',
       bindGroupLayouts: [this.#fillLayout]
     })
-    const fillModule = device.createShaderModule({ label: 'glassium:fill', code: FILL_WGSL })
-    const fillPipeline = (label: string, target: GPUTextureFormat): GPURenderPipeline =>
-      device.createRenderPipeline({
-        label,
-        layout: fillPipelineLayout,
-        vertex: { module: fillModule, entryPoint: 'vs' },
-        fragment: {
-          module: fillModule,
-          entryPoint: 'fs',
-          targets: [
-            {
-              format: target,
-              blend: {
-                color: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha', operation: 'add' },
-                alpha: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha', operation: 'add' }
-              }
-            }
-          ]
-        },
-        primitive: { topology: 'triangle-list' }
-      })
-    this.#fillScenePipeline = fillPipeline('glassium:fill-scene', BACKDROP_FORMAT)
-    this.#fillCanvasPipeline = fillPipeline('glassium:fill-canvas', format)
+    this.#fillCanvasPipeline = this.#fillPipeline('glassium:fill-canvas', format)
     this.#fillSceneDest = device.createBuffer({
       label: 'glassium:fill-scene-dest',
       size: FILL_DEST_BYTES,
@@ -384,20 +376,70 @@ export class GpuRenderer implements Renderer {
     })
     device.queue.writeBuffer(this.#fillCanvasDest, 0, new Float32Array(CANVAS_DEST))
 
+    // Stage：canvasSize、probeOrigin、linear 与补齐 = 32B
     this.#stageUniforms = device.createBuffer({
       label: 'glassium:stage-uniforms',
-      size: 16,
+      size: 32,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
     })
     this.#probeStageUniforms = device.createBuffer({
       label: 'glassium:probe-stage-uniforms',
-      size: 16,
+      size: 32,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
     })
 
     this.#ensurePanelCapacity(16)
     this.#ensureGroupCapacity(4)
     this.#ensureFillCapacity(4)
+    this.#pipelinesFor(BACKDROP_FORMAT) // 默认格式的那一套一开始就建：第一帧不等编译
+  }
+
+  /** 画进模糊链的那几条管线（场景、图片、模糊、层的重采样、场景里的填充），按目标格式各一套，建一次。 */
+  #pipelinesFor(format: GPUTextureFormat): ChainPipelines {
+    const existing = this.#chainPipelines.get(format)
+    if (existing) return existing
+    const device = this.device
+    const suffix = format === BACKDROP_FORMAT ? '' : `-${format}`
+    const pipeline = (label: string, module: GPUShaderModule, layout: GPUBindGroupLayout): GPURenderPipeline =>
+      device.createRenderPipeline({
+        label: `${label}${suffix}`,
+        layout: device.createPipelineLayout({ label, bindGroupLayouts: [layout] }),
+        vertex: { module, entryPoint: 'vs' },
+        fragment: { module, entryPoint: 'fs', targets: [{ format }] },
+        primitive: { topology: 'triangle-list' }
+      })
+    const set: ChainPipelines = {
+      scene: pipeline('glassium:scene', this.#modules.scene, this.#sceneLayout),
+      image: pipeline('glassium:scene-image', this.#modules.image, this.#imageLayout),
+      blur: pipeline('glassium:blur', this.#modules.blur, this.#blurLayout),
+      resample: pipeline('glassium:layer-resample', this.#modules.backdrop, this.#backdropLayout),
+      fillScene: this.#fillPipeline(`glassium:fill-scene${suffix}`, format)
+    }
+    this.#chainPipelines.set(format, set)
+    return set
+  }
+
+  /** 填充的管线：预乘色、one / one-minus-src-alpha 混合。场景目标与画布各一条，只有目标格式不同。 */
+  #fillPipeline(label: string, target: GPUTextureFormat): GPURenderPipeline {
+    return this.device.createRenderPipeline({
+      label,
+      layout: this.#fillPipelineLayout,
+      vertex: { module: this.#modules.fill, entryPoint: 'vs' },
+      fragment: {
+        module: this.#modules.fill,
+        entryPoint: 'fs',
+        targets: [
+          {
+            format: target,
+            blend: {
+              color: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha', operation: 'add' },
+              alpha: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha', operation: 'add' }
+            }
+          }
+        ]
+      },
+      primitive: { topology: 'triangle-list' }
+    })
   }
 
   static async create(
@@ -422,11 +464,15 @@ export class GpuRenderer implements Renderer {
     return this.#blurChain.allocations
   }
 
-  /** 视口尺寸变了（或者刚在新设备上重建）时调用：重建纹理与依赖纹理的 bind group。 */
+  /**
+   * 视口尺寸变了（或者刚在新设备上重建、混合空间换了）时调用：按现在的格式重建纹理、依赖纹理的
+   * bind group，以及随格式变的几个 uniform。
+   */
   resize(viewport: ResolvedViewport): number {
-    const textures = this.#blurChain.ensure(viewport)
+    const linear = this.#chainFormat !== BACKDROP_FORMAT
+    const textures = this.#blurChain.ensure(viewport, this.#chainFormat)
     this.#backdropBindGroup = this.device.createBindGroup({
-      layout: this.#backdropPipeline.getBindGroupLayout(0),
+      layout: this.#backdropLayout,
       entries: [
         { binding: 0, resource: { buffer: this.#backdropUniforms } },
         { binding: 1, resource: this.#sampler },
@@ -435,7 +481,7 @@ export class GpuRenderer implements Renderer {
     })
     this.#cleanBackdropBindGroup = this.device.createBindGroup({
       label: 'glassium:backdrop-clean',
-      layout: this.#backdropPipeline.getBindGroupLayout(0),
+      layout: this.#backdropLayout,
       entries: [
         { binding: 0, resource: { buffer: this.#backdropUniforms } },
         { binding: 1, resource: this.#sampler },
@@ -445,13 +491,14 @@ export class GpuRenderer implements Renderer {
     this.device.queue.writeBuffer(
       this.#stageUniforms,
       0,
-      new Float32Array([viewport.compositeWidth, viewport.compositeHeight, 0, 0])
+      new Float32Array([viewport.compositeWidth, viewport.compositeHeight, 0, 0, linear ? 1 : 0, 0, 0, 0])
     )
-    this.device.queue.writeBuffer(
-      this.#fillSceneDest,
-      0,
-      new Float32Array(sceneDest(textures.width, textures.height, viewport.compositeWidth, viewport.compositeHeight))
-    )
+    // 画进场景目标的填充：线性光模式下输出线性值（Dest.linear）
+    const dest = sceneDest(textures.width, textures.height, viewport.compositeWidth, viewport.compositeHeight)
+    dest[3] = linear ? 1 : 0
+    this.device.queue.writeBuffer(this.#fillSceneDest, 0, new Float32Array(dest))
+    // 层的重采样：原样参数；来源是从画布拷来的 sRGB 编码值，线性光模式下先解码
+    this.device.queue.writeBuffer(this.#resampleUniforms, 0, new Float32Array([1, 1, 1, 0, 1, 0, linear ? 1 : 0, 0]))
     this.#rebuildGlassBindGroups()
     return textures.levels
   }
@@ -564,7 +611,15 @@ export class GpuRenderer implements Renderer {
     if (this.#destroyed) return null
     const { viewport, backdrop, panels } = input
     const device = this.device
-    const textures = this.#blurChain.ensure(viewport)
+    // 混合空间换了：模糊链换一种格式重新分配（与视口变化一样走 resize）
+    const format = backdropFormat(input.blendSpace)
+    if (format !== this.#chainFormat) {
+      this.#chainFormat = format
+      this.resize(viewport)
+    }
+    const linear = format !== BACKDROP_FORMAT
+    const pipelines = this.#pipelinesFor(format)
+    const textures = this.#blurChain.ensure(viewport, format)
     const backdropBindGroup = this.#backdropBindGroup
     if (!backdropBindGroup) return null
 
@@ -576,17 +631,20 @@ export class GpuRenderer implements Renderer {
     scene[4] = backdrop.radialCenterCss[0] / viewport.cssWidth
     scene[5] = backdrop.radialCenterCss[1] / viewport.cssHeight
     scene[6] = backdrop.radialRadius
-    scene[7] = 0
+    scene[7] = linear ? 1 : 0
     device.queue.writeBuffer(this.#sceneUniforms, 0, scene)
 
     // blur 的 dp 要换算到场景像素：场景目标通常不是 CSS 分辨率。
+    // 线性光模式下 tint 与采到的颜色（线性值）混，先换成线性值；输出前编码回 sRGB
     const bd = this.#backdropUniformData
-    bd[0] = backdrop.tint[0]
-    bd[1] = backdrop.tint[1]
-    bd[2] = backdrop.tint[2]
+    bd[0] = linear ? srgbToLinear(backdrop.tint[0]) : backdrop.tint[0]
+    bd[1] = linear ? srgbToLinear(backdrop.tint[1]) : backdrop.tint[1]
+    bd[2] = linear ? srgbToLinear(backdrop.tint[2]) : backdrop.tint[2]
     bd[3] = backdrop.tint[3]
     bd[4] = backdrop.saturation
     bd[5] = levelForSigma(backdrop.blurDp * viewport.sceneScale, textures.levels)
+    bd[6] = 0
+    bd[7] = linear ? 1 : 0
     device.queue.writeBuffer(this.#backdropUniforms, 0, bd)
 
     this.#ensurePanelCapacity(panels.length)
@@ -624,7 +682,7 @@ export class GpuRenderer implements Renderer {
 
     // 1) 场景 -> 模糊链的 mip 0（锐利背景就是这一级，不需要额外拷贝）
     //    用户场景的上传与 uniform 写在开 pass 之前：它们走队列，排在这一帧的命令之前执行。
-    const image = input.sceneImage ? this.#prepareImage(input.sceneImage) : 'none'
+    const image = input.sceneImage ? this.#prepareImage(input.sceneImage, linear) : 'none'
     const scenePass = encoder.beginRenderPass({
       label: 'glassium:scene',
       colorAttachments: [
@@ -637,10 +695,10 @@ export class GpuRenderer implements Renderer {
       ]
     })
     if (image !== 'none' && this.#imageBindGroup) {
-      scenePass.setPipeline(this.#imagePipeline)
+      scenePass.setPipeline(pipelines.image)
       scenePass.setBindGroup(0, this.#imageBindGroup)
     } else {
-      scenePass.setPipeline(this.#scenePipeline)
+      scenePass.setPipeline(pipelines.scene)
       scenePass.setBindGroup(0, this.#sceneBindGroup)
     }
     scenePass.draw(3)
@@ -673,7 +731,7 @@ export class GpuRenderer implements Renderer {
     }
 
     // 2) 建模糊链。趟数只和级数有关，与面板数量无关。
-    let blurPasses = this.#blurChain.build(encoder)
+    let blurPasses = this.#blurChain.build(encoder, pipelines.blur)
 
     // 3) 背景 -> 画布
     const canvasTexture = this.#context.getCurrentTexture()
@@ -720,14 +778,14 @@ export class GpuRenderer implements Renderer {
         colorAttachments: [{ view: textures.sceneView, loadOp: 'load', storeOp: 'store' }]
       })
       resample.setScissorRect(sx, sy, sw, sh)
-      resample.setPipeline(this.#resamplePipeline)
+      resample.setPipeline(pipelines.resample)
       resample.setBindGroup(0, this.#resampleBindGroup!)
       resample.draw(3)
       draws++
       if (layer.fills.length > 0) draws += this.#drawSceneFills(resample, layer.fills, fills, viewport)
       resample.end()
 
-      blurPasses += this.#blurChain.build(encoder, region.scene)
+      blurPasses += this.#blurChain.build(encoder, pipelines.blur, region.scene)
 
       const layerPass = encoder.beginRenderPass({
         label: `glassium:layer-${layer.layer}`,
@@ -768,7 +826,7 @@ export class GpuRenderer implements Renderer {
   ): number {
     const textures = this.#blurChain.textures
     if (!textures || !this.#fillSceneBindGroup) return 0
-    pass.setPipeline(this.#fillScenePipeline)
+    pass.setPipeline(this.#pipelinesFor(textures.format).fillScene)
     let n = 0
     for (const i of indices) {
       const s = sceneScissor(fills[i]!.scissor, textures.width, textures.height, viewport.compositeWidth, viewport.compositeHeight)
@@ -846,7 +904,7 @@ export class GpuRenderer implements Renderer {
     this.#layerSource = source
     this.#resampleBindGroup = this.device.createBindGroup({
       label: 'glassium:layer-resample',
-      layout: this.#resamplePipeline.getBindGroupLayout(0),
+      layout: this.#backdropLayout,
       entries: [
         { binding: 0, resource: { buffer: this.#resampleUniforms } },
         { binding: 1, resource: this.#sampler },
@@ -863,7 +921,7 @@ export class GpuRenderer implements Renderer {
    * 而抛进帧循环会让下一帧的 rAF 排不上、整个 stage 冻住。警告一次，有旧内容就接着用旧的，
    * 没有就画内置场景。
    */
-  #prepareImage(img: SceneImage): SceneUploadState {
+  #prepareImage(img: SceneImage, linear: boolean): SceneUploadState {
     const device = this.device
     const w = Math.max(1, Math.floor(img.width))
     const h = Math.max(1, Math.floor(img.height))
@@ -878,7 +936,7 @@ export class GpuRenderer implements Renderer {
       })
       this.#imageBindGroup = device.createBindGroup({
         label: 'glassium:scene-image',
-        layout: this.#imagePipeline.getBindGroupLayout(0),
+        layout: this.#imageLayout,
         entries: [
           { binding: 0, resource: { buffer: this.#imageUniforms } },
           { binding: 1, resource: this.#sampler },
@@ -921,7 +979,7 @@ export class GpuRenderer implements Renderer {
     u[4] = img.background[0]
     u[5] = img.background[1]
     u[6] = img.background[2]
-    u[7] = 1
+    u[7] = linear ? 1 : 0 // 1 = 输出线性值（线性光模式）
     device.queue.writeBuffer(this.#imageUniforms, 0, u)
     return uploaded ? 'uploaded' : 'kept'
   }

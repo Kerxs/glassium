@@ -17,18 +17,21 @@
 
 import { POSE_WGSL } from './glass.wgsl.ts'
 import { OPTICS_WGSL } from './optics.wgsl.ts'
+import { SRGB_WGSL } from './srgb.wgsl.ts'
 
 /** Fill 结构体的字节数（6 个 vec4f）。与面板一样按 256B 步长排进一条 buffer，用动态偏移切换。 */
 export const FILL_STRUCT_BYTES = 96
 export const FILL_STRIDE = 256
 export const FILL_STRIDE_FLOATS = FILL_STRIDE / 4
-/** Dest 结构体：scale.xy、aa、空。 */
+/** Dest 结构体：scale.xy、aa、linear。 */
 export const FILL_DEST_BYTES = 16
 
 export const FILL_WGSL = /* wgsl */ `
 ${OPTICS_WGSL}
 
 ${POSE_WGSL}
+
+${SRGB_WGSL}
 
 struct Fill {
   rect: vec4f,          // x, y, w, h —— 画布设备像素（有旋转时是转之前的矩形，中心与包围盒的中心相同）
@@ -43,7 +46,7 @@ struct Fill {
 struct Dest {
   scale: vec2f,         // 一个目标像素是几个画布设备像素：场景目标是 画布 ÷ 场景，画布本身是 1
   aa: f32,              // 抗锯齿过渡的宽度 = 一个目标像素，画布设备像素
-  _pad: f32,
+  linear: f32,          // 1 = 输出线性值（线性光模式下画进场景目标：那时它是 sRGB 格式，混合也在线性光里）
 }
 
 @group(0) @binding(0) var<uniform> fill: Fill;
@@ -88,6 +91,10 @@ fn clipSd(px: vec2f, box: vec4f, radii: vec4f) -> f32 {
   if (a <= 0.0) {
     discard;
   }
-  return vec4f(fill.color.rgb * a, a); // 预乘，混合是 one / one-minus-src-alpha
+  var rgb = fill.color.rgb;
+  if (dest.linear > 0.5) {
+    rgb = srgbToLinear(rgb);
+  }
+  return vec4f(rgb * a, a); // 预乘，混合是 one / one-minus-src-alpha
 }
 `

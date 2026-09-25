@@ -126,6 +126,8 @@ export {
   relativeLuminance,
   type Frost
 } from './core/transparency.ts'
+// 混合空间（createGlassStage 的 blendSpace）与 sRGB ↔ 线性光的转换（与着色器同一条公式）。
+export { linearToSrgb, srgbToLinear, type BlendSpace } from './core/color.ts'
 // 用户场景怎么铺进视口（object-fit 语义）。纯函数，别的渲染器也能用同一套算法。
 export { sceneBitmapSize, sceneCssBackground, sceneUvTransform, type SceneFit, type UvTransform } from './core/scene.ts'
 export { gl2CreationCounts } from './webgl2/renderer.ts'

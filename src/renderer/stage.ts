@@ -34,6 +34,7 @@
  * 第二次丢失，也按这个顺序往下降。
  */
 
+import { assertBlendSpace, type BlendSpace } from '../core/color.ts'
 import { parseTint, type GlassMaterial } from '../core/material.ts'
 import { frostForColor, reduceTransparency, type Frost } from '../core/transparency.ts'
 import { describeViewport, resolveViewport, type ResolvedViewport } from '../core/units.ts'
@@ -167,6 +168,11 @@ export interface GlassStageOptions {
    */
   readonly scene?: GlassSceneSource
   readonly sceneOptions?: SceneOptions
+  /**
+   * 模糊与调色在哪个空间里做：'srgb'（默认）或 'linear'（线性光，亮暗交界模糊之后不发灰）。
+   * 见 core/color.ts 的 BlendSpace。之后可以用 setBlendSpace 换。
+   */
+  readonly blendSpace?: BlendSpace
 }
 
 export interface DegradeReason {
@@ -251,6 +257,13 @@ export interface GlassStage {
   setScene(source: GlassSceneSource | null, options?: SceneOptions): Promise<void>
   /** 非 dynamic 的画布、ImageData 内容变了（或者想让暂停的视频换一帧）：下一帧重新上传。 */
   refreshScene(): void
+  /** 模糊与调色在哪个空间里做（见 core/color.ts 的 BlendSpace）。 */
+  readonly blendSpace: BlendSpace
+  /**
+   * 换混合空间。下一帧生效：模糊链换一种纹理格式重新分配（与视口变化时一样，一次）。
+   * 写错的值在这里就抛。
+   */
+  setBlendSpace(space: BlendSpace): void
   readonly debug: {
     stats(): GlassStats
     /**
@@ -503,6 +516,8 @@ async function startWebGpu(canvas: HTMLCanvasElement, alphaMode: GPUCanvasAlphaM
 }
 
 async function buildStage(options: GlassStageOptions): Promise<GlassStage> {
+  // 写错的选项让 createGlassStage 的 Promise 直接 reject，不先建画布、拿设备
+  if (options.blendSpace !== undefined) assertBlendSpace(options.blendSpace)
   const host = options.host ?? document.body
   const alphaMode = options.alphaMode ?? 'opaque'
   const preferred = options.backend ?? 'auto'
@@ -595,6 +610,7 @@ async function buildStage(options: GlassStageOptions): Promise<GlassStage> {
   let panelDebugMode: PanelDebugMode = 'off'
   /** 调试用的像素预算（debug.setPixelBudget），null 用创建时的 options.maxPixels。 */
   let pixelBudget: number | null = null
+  let blendSpace: BlendSpace = options.blendSpace ?? 'srgb'
 
   const panels = new PanelRegistry(() => requestRender())
   const scene = new SceneSlot(
@@ -720,6 +736,7 @@ async function buildStage(options: GlassStageOptions): Promise<GlassStage> {
       // 否则 resize 触发的重绘会跳到另一个相位，看起来像闪烁。
       time: reducedMotion ? 0 : (now - startTime) / 1000,
       viewport,
+      blendSpace,
       backdrop,
       sceneImage: scene.frame(viewport),
       panels: measured.panels,
@@ -1090,6 +1107,15 @@ async function buildStage(options: GlassStageOptions): Promise<GlassStage> {
     get canvas(): HTMLCanvasElement {
       return canvas
     },
+    get blendSpace(): BlendSpace {
+      return blendSpace
+    },
+    setBlendSpace(space: BlendSpace): void {
+      assertBlendSpace(space)
+      if (space === blendSpace) return
+      blendSpace = space
+      requestRender()
+    },
     debug: {
       get probe(): BackendReport | null {
         return renderer?.report ?? null
@@ -1315,10 +1341,18 @@ function makeInertStage(canvas: HTMLCanvasElement, options: GlassStageOptions): 
       console.warn(`[Glassium] 初始场景写不成 CSS 背景：${err instanceof Error ? err.message : String(err)}`)
     })
   }
+  let blendSpace: BlendSpace = options.blendSpace ?? 'srgb'
   return {
     backend: 'none',
     active: false,
     canvas,
+    get blendSpace(): BlendSpace {
+      return blendSpace
+    },
+    setBlendSpace(space: BlendSpace): void {
+      assertBlendSpace(space)
+      blendSpace = space
+    },
     debug: {
       probe: null,
       setBackdrop(): void {},

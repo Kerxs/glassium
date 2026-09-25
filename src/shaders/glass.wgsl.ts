@@ -18,6 +18,7 @@
  */
 
 import { OPTICS_WGSL } from './optics.wgsl.ts'
+import { SRGB_WGSL } from './srgb.wgsl.ts'
 
 /** Panel 结构体的字节数。按 256B 步长排进一条 buffer，用动态偏移切换。 */
 export const PANEL_STRUCT_BYTES = 176
@@ -54,11 +55,19 @@ export type PanelDebugMode = (typeof DEBUG_MODES)[number]
 export const GLASS_COMMON_WGSL = /* wgsl */ `
 ${OPTICS_WGSL}
 
+${SRGB_WGSL}
+
 struct Stage {
   canvasSize: vec2f,
   // 探针 pass 专用：探针目标只覆盖面板那一块，片元位置要加上这块在画布里的原点。
   // 正常 pass 里恒为 (0, 0)。
   probeOrigin: vec2f,
+  // 1 = 线性光模式：模糊链采到的是线性值（sRGB 格式的纹理，硬件先解码），tint 换成线性值再混，
+  // 输出前编码回 sRGB。0 = 一切照 sRGB 编码值算（默认）。
+  linear: f32,
+  _pad0: f32,
+  _pad1: f32,
+  _pad2: f32,
 }
 
 struct Panel {
@@ -157,6 +166,15 @@ fn applyColorFilter(rgb: vec3f, saturation: f32, tint: vec4f) -> vec3f {
   return mix(saturated, tint.rgb, tint.a);
 }
 
+// 材质的 tint 是 CSS 颜色（sRGB 编码）。线性光模式下与采到的颜色（线性值）混之前先换成线性值；
+// alpha 是叠加的强度，不是颜色，不换。
+fn workingTint(t: vec4f) -> vec4f {
+  if (stage.linear > 0.5) {
+    return vec4f(srgbToLinear(t.rgb), t.a);
+  }
+  return t;
+}
+
 // 着色需要的全部输入：几何（已经算好的方向、位移、法线、sd）加材质。
 struct Shading {
   sd: f32,
@@ -197,7 +215,7 @@ fn shade(px: vec2f, s: Shading) -> vec4f {
     // 所以关掉色散时的输出与 T7 逐位一致（有整帧哈希比对为证）。
     sampled = textureSampleLevel(chain, samp, base / stage.canvasSize, s.blurLevel).rgb;
   }
-  let filtered = applyColorFilter(sampled, s.saturation, s.tint);
+  let filtered = applyColorFilter(sampled, s.saturation, workingTint(s.tint));
   let rgb = filtered * s.veil.x + (vec3f(1.0) - filtered * s.veil.x) * s.veil.y;
 
   // —— 高光 ——
@@ -214,7 +232,14 @@ fn shade(px: vec2f, s: Shading) -> vec4f {
   // 但整个画布的 alpha 恒为 1（背景写 1，预乘混合保持 1 —— 实测全画布 alpha 皆为 255），
   // 所以画布边界上那条约束天然成立；而 pass 内部 rgb > a 就是加性光，混合方程处理得
   // 完全正确。钳制只会在低 opacity 时把高光压平，别无作用。
-  return vec4f((rgb * (1.0 - dark) + vec3f(lit, lit, lit)) * a, a);
+  //
+  // 线性光模式下这里之前的一切（采样、调色、纱、亮边与暗边）都在线性光里，最后编码回 sRGB：
+  // 画布上的合成（抗锯齿的边、投影）仍在编码空间，与 DOM 一样。
+  var color = rgb * (1.0 - dark) + vec3f(lit, lit, lit);
+  if (stage.linear > 0.5) {
+    color = linearToSrgb(color);
+  }
+  return vec4f(color * a, a);
 }
 
 // 自适应（文字可读性）。玻璃看起来有多亮，由它背后在面板范围里的平均颜色、经过这块玻璃自己的调色算出；
@@ -226,24 +251,34 @@ const ADAPT_MIN_LUM: f32 = 0.1;   // 黑字 3:1：0.05 × 3 − 0.05
 const ADAPT_LEVEL: f32 = 4.0;     // 在模糊链的第 4 级取样：一个纹素是 16 个场景像素的模糊平均
 
 fn relLuminance(c: vec3f) -> f32 {
-  let s = clamp(c, vec3f(0.0), vec3f(1.0));
-  let lin = select(pow((s + 0.055) / 1.055, vec3f(2.4)), s / 12.92, s <= vec3f(0.04045));
+  let lin = srgbToLinear(clamp(c, vec3f(0.0), vec3f(1.0)));
   return dot(lin, vec3f(0.2126, 0.7152, 0.0722));
 }
 
-// 返回 (乘数, 往白混的比例)。亮度的比较在「编码后的明度」上做（线性亮度的 1/2.2 次方），
-// 这样乘数与混合比例可以直接作用在 sRGB 编码的颜色上。
+// 返回 (乘数, 往白混的比例)。默认模式下颜色是 sRGB 编码值：亮度的比较在「编码后的明度」上做
+// （线性亮度的 1/2.2 次方），这样乘数与混合比例可以直接作用在编码值上。线性光模式下颜色本来就是
+// 线性值：乘数就是亮度之比，往白混的比例按线性亮度解 lum + (1 − lum)·t = 目标。
 fn adaptVeil(avg: vec3f, adapt: f32, saturation: f32, tint: vec4f) -> vec2f {
   if (adapt == 0.0) {
     return vec2f(1.0, 0.0);
   }
-  let lum = relLuminance(applyColorFilter(avg, saturation, tint));
+  let filtered = applyColorFilter(avg, saturation, workingTint(tint));
+  let linear = stage.linear > 0.5;
+  let lum = select(
+    relLuminance(filtered),
+    dot(clamp(filtered, vec3f(0.0), vec3f(1.0)), vec3f(0.2126, 0.7152, 0.0722)),
+    linear
+  );
   let strength = abs(adapt);
   if (adapt > 0.0 && lum > ADAPT_MAX_LUM) {
-    let scale = pow(ADAPT_MAX_LUM / lum, 1.0 / 2.2);
+    let ratio = ADAPT_MAX_LUM / lum;
+    let scale = select(pow(ratio, 1.0 / 2.2), ratio, linear);
     return vec2f(1.0 - (1.0 - scale) * strength, 0.0);
   }
   if (adapt < 0.0 && lum < ADAPT_MIN_LUM) {
+    if (linear) {
+      return vec2f(1.0, (ADAPT_MIN_LUM - lum) / max(1.0 - lum, 1e-6) * strength);
+    }
     let e = pow(max(lum, 0.0), 1.0 / 2.2);
     let goal = pow(ADAPT_MIN_LUM, 1.0 / 2.2);
     return vec2f(1.0, (goal - e) / max(1.0 - e, 1e-6) * strength);

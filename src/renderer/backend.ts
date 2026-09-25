@@ -7,6 +7,7 @@
  * 在这些结构体上逐字节相同），吐同样格式的回读与探针，于是验证代码不用知道底下是谁。
  */
 
+import type { BlendSpace } from '../core/color.ts'
 import type { ResolvedViewport } from '../core/units.ts'
 import type { PanelDebugMode } from '../shaders/glass.wgsl.ts'
 import type { ProbeReport } from '../webgpu/probe.ts'
@@ -112,6 +113,8 @@ export interface FrameInput {
   /** 秒。reduced-motion 下由 stage 传 0。 */
   readonly time: number
   readonly viewport: ResolvedViewport
+  /** 模糊与调色在哪个空间里做（见 core/color.ts）。变了要换模糊链的纹理格式。 */
+  readonly blendSpace: BlendSpace
   readonly backdrop: BackdropState
   /** 用户场景。null 时按 backdrop.sceneMode 画内置场景。 */
   readonly sceneImage: SceneImage | null

@@ -18,9 +18,11 @@ import {
   defineGlassElements,
   GlassPresets,
   joinProbeAndColors,
+  linearToSrgb,
   simulateMoreContrast,
   simulateReducedMotion,
   simulateReducedTransparency,
+  srgbToLinear,
   summarizeBySector,
   type GlassStage,
   type OpticsComparison,
@@ -1466,6 +1468,158 @@ async function run(): Promise<void> {
       : fail(detail)
   })
 
+  await check('linear-light', async () => {
+    // 线性光模式（blendSpace: 'linear'）。同一组元素、同一个视口，两种模式各量一遍：
+    // 1) 阶跃：calibration 场景模糊 16dp，最下面一行横跨黑白阶跃。两侧的平台两种模式相同；中段每一列都等于
+    //    「按 sRGB 模式那一列反推出的权重，在线性光里混」—— 两种模式的核一模一样，只有混的空间不同；
+    //    中点从 127 变成 180（0.04 与 0.96 在线性光里平均、再编码回去）
+    // 2) tint：灰场景上一块只有 tint 的玻璃（rgba(255, 64, 0, 0.4)，关掉自适应），三个通道都等于在各自的空间里
+    //    mix(灰, tint, 0.4) —— G 通道对「tint 有没有先换成线性值」最敏感
+    // 3) 自适应（只看线性光）：白字的玻璃压暗到线性亮度正好 0.3，深色字、没有 tint 的玻璃在暗处提亮到正好 0.1
+    //    （默认模式按 2.2 次方近似，只是大致到那里）
+    // 4) 层：tint 很红的玻璃里嵌一块什么都不做的玻璃，里面那块的中心与外面那块同一处的颜色相同 ——
+    //    层的来源是从画布拷来的 sRGB 编码值，线性光模式下要先解码
+    // 5) 切回 sRGB：整帧与切过去之前逐位相同；再切过去不再新建管线
+    const v = stage.debug.stats().viewport!
+    const s = v.compositeWidth / v.cssWidth
+    const canvasBox = stage.canvas.getBoundingClientRect()
+    const W = canvasBox.width
+    const H = canvasBox.height
+    const full: ReadbackRegion = { x: 0, y: 0, width: v.compositeWidth, height: v.compositeHeight }
+    const pixel = async (x: number, y: number): Promise<[number, number, number]> => {
+      const d = await readback({ x: Math.floor((x - canvasBox.left) * s), y: Math.floor((y - canvasBox.top) * s), width: 1, height: 1 })
+      return [d[0]!, d[1]!, d[2]!]
+    }
+    const lum = (c: readonly number[]): number =>
+      0.2126 * srgbToLinear(c[0]! / 255) + 0.7152 * srgbToLinear(c[1]! / 255) + 0.0722 * srgbToLinear(c[2]! / 255)
+    const place = (left: number, top: number, width: number, height: number, parent: HTMLElement = document.body): HTMLElement => {
+      const el = document.createElement('div')
+      Object.assign(el.style, { position: 'absolute', left: `${left}px`, top: `${top}px`, width: `${width}px`, height: `${height}px` })
+      parent.append(el)
+      return el
+    }
+    const plain = { blur: 0, refraction: 0, distortion: 0, highlight: 0, saturation: 1, dispersion: 0, shadow: 0, adaptive: 0 }
+
+    calibrationScene()
+    const hashBefore = await sha(await readback(full))
+
+    // 1) 阶跃的那一行：画布最下面往上 40px，横跨中线左右各 120px
+    const rowRegion: ReadbackRegion = {
+      x: Math.floor((W / 2 - 120) * s),
+      y: Math.floor((H - 40) * s),
+      width: Math.floor(240 * s),
+      height: 1
+    }
+    const row = async (): Promise<number[]> => {
+      stage.debug.setBackdrop({ scene: 'calibration', blurDp: 16, saturation: 1, tint: 'rgba(255, 255, 255, 0)' })
+      const d = await readback(rowRegion)
+      return Array.from({ length: rowRegion.width }, (_, i) => d[i * 4]!)
+    }
+
+    // 2) tint 与 4) 层：灰场景上
+    const tintEl = place(460, 40, 200, 120)
+    const outerEl = place(460, 200, 240, 180)
+    const innerEl = place(40, 40, 160, 100, outerEl)
+    const panels = [
+      stage.register(tintEl, { ...plain, tint: 'rgba(255, 64, 0, 0.4)', cornerRadius: 12 }),
+      stage.register(outerEl, { ...plain, tint: 'rgba(255, 0, 0, 0.5)', cornerRadius: 16 }),
+      stage.register(innerEl, { ...plain, tint: 'rgba(0, 0, 0, 0)', cornerRadius: 12 })
+    ]
+    const flatReadings = async (): Promise<{ gray: number; tint: [number, number, number]; inner: [number, number, number]; outer: [number, number, number] }> => {
+      stage.debug.setBackdrop({ scene: 'flat', blurDp: 0 })
+      const gray = (await pixel(740, 100))[0]
+      return {
+        gray,
+        tint: await pixel(560, 100),
+        inner: await pixel(580, 290), // 里面那块的中心
+        outer: await pixel(480, 290) // 外面那块、里面那块左边
+      }
+    }
+    const tintTarget = [1, 64 / 255, 0]
+    const expectTint = (gray: number, linear: boolean): number[] =>
+      tintTarget.map((t) =>
+        linear
+          ? linearToSrgb(srgbToLinear(gray / 255) * 0.6 + srgbToLinear(t) * 0.4) * 255
+          : ((gray / 255) * 0.6 + t * 0.4) * 255
+      )
+
+    const stepSrgb = await row()
+    const flatSrgb = await flatReadings()
+
+    stage.setBlendSpace('linear')
+    const stepLinear = await row()
+    const pipelinesLinear = stage.debug.stats().pipelineCreations
+    const flatLinear = await flatReadings()
+    // 3) 自适应：白字的玻璃在灰上；深色字、没有 tint 的玻璃在 calibration 左下的暗处
+    const whiteEl = place(460, 420, 200, 100)
+    whiteEl.style.color = '#fff'
+    const darkEl = place(60, H - 150, Math.max(80, Math.min(200, W / 2 - 210)), 80)
+    darkEl.style.color = '#111'
+    panels.push(
+      stage.register(whiteEl, { ...plain, adaptive: 1, tint: 'rgba(255, 255, 255, 0.18)', cornerRadius: 12 }),
+      stage.register(darkEl, { ...plain, adaptive: 1, tint: 'rgba(255, 255, 255, 0)', cornerRadius: 12 })
+    )
+    await sleep(0)
+    stage.debug.setBackdrop({ scene: 'flat', blurDp: 0 })
+    const white = await pixel(560, 470)
+    stage.debug.setBackdrop({ scene: 'calibration', blurDp: 0 })
+    const darkBox = darkEl.getBoundingClientRect()
+    const dark = await pixel(darkBox.left + darkBox.width / 2, darkBox.top + darkBox.height / 2)
+
+    stage.setBlendSpace('srgb')
+    for (const panel of panels) panel.unregister()
+    for (const el of [tintEl, outerEl, whiteEl, darkEl]) el.remove()
+    calibrationScene()
+    const hashAfter = await sha(await readback(full))
+    // 再切过去一次：管线是第一次切过去时建的，不该再建
+    stage.setBlendSpace('linear')
+    stage.debug.renderNow()
+    const pipelinesAgain = stage.debug.stats().pipelineCreations
+    stage.setBlendSpace('srgb')
+    stage.debug.renderNow()
+
+    // —— 判据 ——
+    const n = stepSrgb.length
+    const [e0, e1] = [stepSrgb[0]!, stepSrgb[n - 1]!]
+    const [l0, l1] = [stepLinear[0]!, stepLinear[n - 1]!]
+    const L0 = srgbToLinear(l0 / 255)
+    const L1 = srgbToLinear(l1 / 255)
+    let central = 0
+    let centralErr = 0
+    let mid = 0
+    for (let i = 0; i < n; i++) {
+      const w = (stepSrgb[i]! - e0) / (e1 - e0)
+      if (Math.abs(stepSrgb[i]! - (e0 + e1) / 2) < Math.abs(stepSrgb[mid]! - (e0 + e1) / 2)) mid = i
+      if (w < 0.25 || w > 0.75) continue
+      central++
+      centralErr = Math.max(centralErr, Math.abs(linearToSrgb(L0 + w * (L1 - L0)) * 255 - stepLinear[i]!))
+    }
+    const expectedMid = linearToSrgb((srgbToLinear(0.04) + srgbToLinear(0.96)) / 2) * 255
+    const tintSrgbExp = expectTint(flatSrgb.gray, false)
+    const tintLinearExp = expectTint(flatLinear.gray, true)
+    const within = (got: readonly number[], want: readonly number[], tol: number): boolean =>
+      got.every((g, i) => Math.abs(g - want[i]!) <= tol)
+    const f = (c: readonly number[]): string => c.map((x) => Math.round(x)).join('/')
+
+    const stepOk =
+      Math.abs(l0 - e0) <= 1 && Math.abs(l1 - e1) <= 1 &&
+      Math.abs(stepSrgb[mid]! - 127.5) <= 4 && Math.abs(stepLinear[mid]! - expectedMid) <= 4 &&
+      central >= 5 && centralErr <= 3
+    const tintOk = within(flatSrgb.tint, tintSrgbExp, 2) && within(flatLinear.tint, tintLinearExp, 2)
+    const adaptOk = Math.abs(lum(white) - 0.3) <= 0.006 && Math.abs(lum(dark) - 0.1) <= 0.006
+    const layerOk = within(flatSrgb.inner, flatSrgb.outer, 2) && within(flatLinear.inner, flatLinear.outer, 2)
+    const detail =
+      `阶跃：平台 ${e0}/${e1} → ${l0}/${l1} · 中点 ${stepSrgb[mid]} → ${stepLinear[mid]}（预期 ${expectedMid.toFixed(1)}）· ` +
+      `中段 ${central} 列与线性光里混的预测最多差 ${centralErr.toFixed(2)} · ` +
+      `tint：sRGB ${f(flatSrgb.tint)}（预期 ${f(tintSrgbExp)}）、线性 ${f(flatLinear.tint)}（预期 ${f(tintLinearExp)}）· ` +
+      `自适应：白字 ${lum(white).toFixed(3)}、深色字 ${lum(dark).toFixed(3)} · ` +
+      `层：sRGB 里 ${f(flatSrgb.inner)} 外 ${f(flatSrgb.outer)}、线性 里 ${f(flatLinear.inner)} 外 ${f(flatLinear.outer)} · ` +
+      `切回 sRGB ${hashAfter === hashBefore ? '逐位相同' : '不同'} · 再切过去新建管线 ${pipelinesAgain - pipelinesLinear} 条`
+    return stepOk && tintOk && adaptOk && layerOk && hashAfter === hashBefore && pipelinesAgain === pipelinesLinear
+      ? pass(detail)
+      : fail(detail)
+  })
+
   await check('component-equals-register', async () => {
     // 同一个位置先放组件、再放手动注册的 div，材质相同：区域哈希必须逐位相同
     const place = (el: HTMLElement): void => {
@@ -1805,7 +1959,8 @@ async function run(): Promise<void> {
   })
 
   await check('cross-backend', async () => {
-    // 同一个固定场景，两个后端各画一帧：calibration 一次，用户图片（cover，放大、带斜条纹硬边）一次
+    // 同一个固定场景，两个后端各画一帧：calibration 一次，用户图片（cover，放大、带斜条纹硬边）一次；
+    // 线性光模式下两个场景再各一次（内置场景与图片场景的线性化、层的解码都在里面）
     if (stage.backend !== 'webgpu') return skip(`当前是 ${stage.backend}，只在 WebGPU 起步时比两个后端`)
     // 加一对嵌套的透明玻璃（玻璃的第 1 层，layers.ts）：WebGL2 那边的重采样要把默认帧缓冲（左下原点）拷出来再
     // 翻一次，翻错了在对称的内容上看不出来 —— 这里的背景（calibration、斜条纹）上下不对称，翻错就是一大片不同
@@ -1824,6 +1979,10 @@ async function run(): Promise<void> {
     const a = await readback(full)
     await stage.setScene(photo)
     const a2 = await readback(full)
+    stage.setBlendSpace('linear')
+    const a4 = await readback(full)
+    await stage.setScene(null)
+    const a3 = await readback(full)
     stage.dispose()
     stage = await createGlassStage({ backend: 'webgl2' })
     Object.assign(window as unknown as Record<string, unknown>, { glassiumStage: stage })
@@ -1834,18 +1993,30 @@ async function run(): Promise<void> {
     const b = await readback(full)
     await stage.setScene(photo)
     const b2 = await readback(full)
+    stage.setBlendSpace('linear')
+    const b4 = await readback(full)
     await stage.setScene(null)
+    const b3 = await readback(full)
+    stage.setBlendSpace('srgb')
     outer.remove()
     if (a.length !== b.length) return fail(`两帧尺寸不同：${a.length / 4} vs ${b.length / 4}`)
     const total = a.length / 4
     const W = stage.canvas.width
     const cal = diffFrames(a, b, W)
     const img = diffFrames(a2, b2, W)
+    const calLinear = diffFrames(a3, b3, W)
+    const imgLinear = diffFrames(a4, b4, W)
     const detail =
       `calibration：${total} 像素里 ${cal.changed} 个不同，最大差 ${cal.max}/255${cal.where}` +
-      `；图片场景：${img.changed} 个不同，最大差 ${img.max}/255${img.where}（都含一对嵌套的玻璃）`
+      `；图片场景：${img.changed} 个不同，最大差 ${img.max}/255${img.where}（都含一对嵌套的玻璃）` +
+      `；线性光：calibration ${calLinear.changed} 个、最大差 ${calLinear.max}/255${calLinear.where}，` +
+      `图片 ${imgLinear.changed} 个、最大差 ${imgLinear.max}/255${imgLinear.where}`
     const ok = (d: typeof cal): boolean => d.max <= 2 && d.changed / total <= 1e-3
-    return ok(cal) && ok(img) ? pass(detail) : fail(detail)
+    // 线性光放宽：两个后端的 pow 末位不同，渐变上落在舍入边界的值差 1（图片场景要先解码，所以多）；硬边暗的一侧
+    // 编码曲线最陡，亚纹素级的采样差被放大约 4 倍（同一个像素 sRGB 下差 2、线性光下差 4）。忘了解码、编码这类错
+    // 都是成片的几十级差，照样抓得到
+    const okLinear = (d: typeof cal): boolean => d.max <= 8 && d.changed / total <= 5e-3
+    return ok(cal) && ok(img) && okLinear(calLinear) && okLinear(imgLinear) ? pass(detail) : fail(detail)
   })
 
   finish()

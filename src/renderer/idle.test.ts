@@ -87,6 +87,7 @@ const calibration = backdrop(1)
 const frame = (over: Partial<FrameSnapshot> = {}): FrameSnapshot => ({
   time: 1,
   viewport: viewport(),
+  blendSpace: 'srgb',
   backdrop: calibration,
   sceneImage: null,
   panels: [panel()],
@@ -168,8 +169,10 @@ test('合并组：成员、smoothing、裁剪矩形', () => {
   )
 })
 
-test('视口、背景参数、调试视图', () => {
+test('视口、混合空间、背景参数、调试视图', () => {
   assert.equal(unchangedFrame(frame(), frame({ viewport: viewport({ dpr: 2 }) })), false)
+  assert.equal(unchangedFrame(frame(), frame({ blendSpace: 'linear' })), false)
+  assert.equal(unchangedFrame(frame({ blendSpace: 'linear' }), frame({ blendSpace: 'linear' })), true)
   assert.equal(unchangedFrame(frame(), frame({ viewport: viewport({ sceneWidth: 899 }) })), false)
   // 背景参数比引用：setBackdrop 每次都换一个新对象，值相同也画一次 —— 保守，但只多画一帧
   assert.equal(unchangedFrame(frame(), frame({ backdrop: backdrop(1) })), false)

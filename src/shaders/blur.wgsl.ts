@@ -17,6 +17,8 @@
  * T5 验过动态层索引可用，这里用的是同一个能力（动态 level），所以前提仍然成立。
  */
 
+import { SRGB_WGSL } from './srgb.wgsl.ts'
+
 const FULLSCREEN_VS = /* wgsl */ `
 struct VsOut {
   @builtin(position) pos: vec4f,
@@ -101,16 +103,20 @@ ${FULLSCREEN_VS}
  * 对比度曲线、tone mapping）就不能这么放了 —— 那时要么退回逐面板模糊，
  * 要么接受近似，必须显式决定。
  *
- * 另：它成立的前提还包括「两边在同一个色彩空间」。第一期在 sRGB 编码空间混合，
- * 将来换线性空间时这里要一起换。
+ * 另：它成立的前提还包括「两边在同一个色彩空间」。默认两边都在 sRGB 编码空间；线性光模式下
+ * 两边都在线性光里 —— 模糊链存的是 sRGB 编码、采样时硬件先解码，tint 在 CPU 上换成线性值 ——
+ * 所以照样可交换。
+ *
+ * 同一个着色器还用来把画布上的一块重采样回场景目标（玻璃的层，见 layers.ts）：那时参数原样，
+ * 来源是从画布拷来的 sRGB 编码值，线性光模式下先解码（decodeIn）；上屏时编码回去（encodeOut）。
  */
 export const BACKDROP_WGSL = /* wgsl */ `
 struct BackdropUniforms {
   tint: vec4f,
   saturation: f32,
   level: f32,        // 模糊链的浮点 mip 级，硬件在相邻两级间三线性插值
-  _pad0: f32,
-  _pad1: f32,
+  decodeIn: f32,     // 1 = 采到的是 sRGB 编码值，先解码（线性光模式下层的重采样）
+  encodeOut: f32,    // 1 = 输出前编码回 sRGB（线性光模式下上屏）
 }
 
 @group(0) @binding(0) var<uniform> u: BackdropUniforms;
@@ -118,6 +124,8 @@ struct BackdropUniforms {
 @group(0) @binding(2) var chain: texture_2d<f32>;
 
 ${FULLSCREEN_VS}
+
+${SRGB_WGSL}
 
 // Rec.709 亮度权重。和 CSS 的 saturate() 滤镜同源，所以数值上对得上。
 fn luma(c: vec3f) -> f32 {
@@ -131,7 +139,14 @@ fn applyColorFilter(rgb: vec3f, saturation: f32, tint: vec4f) -> vec3f {
 }
 
 @fragment fn fs(in: VsOut) -> @location(0) vec4f {
-  let sampled = textureSampleLevel(chain, samp, in.uv, u.level);
-  return vec4f(applyColorFilter(sampled.rgb, u.saturation, u.tint), 1.0);
+  var rgb = textureSampleLevel(chain, samp, in.uv, u.level).rgb;
+  if (u.decodeIn > 0.5) {
+    rgb = srgbToLinear(rgb);
+  }
+  var out = applyColorFilter(rgb, u.saturation, u.tint);
+  if (u.encodeOut > 0.5) {
+    out = linearToSrgb(out);
+  }
+  return vec4f(out, 1.0);
 }
 `

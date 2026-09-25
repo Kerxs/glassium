@@ -14,6 +14,7 @@
  * 坐标约定见 shaders.ts：离屏不翻、上屏翻一次；scissor 与 readPixels 在这里各换算一次。
  */
 
+import { srgbToLinear } from '../core/color.ts'
 import type { MemberGeometry } from '../core/merge.ts'
 import type { ResolvedViewport } from '../core/units.ts'
 import {
@@ -111,6 +112,13 @@ export class Gl2Renderer implements Renderer {
   #width = 0
   #height = 0
   #allocations = 0
+  /**
+   * 线性光模式（blendSpace: 'linear'）：模糊链与草稿纹理是 SRGB8_ALPHA8 —— 写入时硬件编码、采样时先解码
+   * 再过滤（与 WebGPU 的 rgba8unorm-srgb 相同）。#linear 是这一帧要的，#allocatedLinear 是纹理现在的，
+   * 两者不同就重新分配。
+   */
+  #linear = false
+  #allocatedLinear = false
 
   #panelUbo: WebGLBuffer | null = null
   #panelCapacity = 0
@@ -220,8 +228,9 @@ export class Gl2Renderer implements Renderer {
     const gl = this.gl
     const width = viewport.sceneWidth
     const height = viewport.sceneHeight
-    if (this.#chain && width === this.#width && height === this.#height) return
+    if (this.#chain && width === this.#width && height === this.#height && this.#allocatedLinear === this.#linear) return
     this.#destroyTargets()
+    const internalFormat = this.#linear ? gl.SRGB8_ALPHA8 : gl.RGBA8
 
     const maxBySize = Math.floor(Math.log2(Math.max(1, Math.min(width, height)))) + 1
     const levels = Math.max(1, Math.min(MAX_LEVELS, maxBySize))
@@ -230,7 +239,7 @@ export class Gl2Renderer implements Renderer {
       const tex = gl.createTexture()
       if (!tex) throw new Error('[Glassium] createTexture 返回 null')
       gl.bindTexture(gl.TEXTURE_2D, tex)
-      gl.texStorage2D(gl.TEXTURE_2D, levels, gl.RGBA8, width, height)
+      gl.texStorage2D(gl.TEXTURE_2D, levels, internalFormat, width, height)
       // 与 WebGPU 的 sampler 一致：线性、线性 mip（模糊链的连续 σ 靠三线性插值）、钳边
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR)
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
@@ -266,6 +275,7 @@ export class Gl2Renderer implements Renderer {
     this.#levels = levels
     this.#width = width
     this.#height = height
+    this.#allocatedLinear = this.#linear
     this.#allocations++
   }
 
@@ -327,6 +337,8 @@ export class Gl2Renderer implements Renderer {
     gl.uniform1f(loc(gl, p, 'uFlipUv'), onScreen ? 1 : 0)
     gl.uniform4f(loc(gl, p, 'uDest'), dest[0], dest[1], dest[2], onScreen ? 1 : 0)
     gl.uniform1f(loc(gl, p, 'uDestHeight'), targetHeight)
+    // 画进场景目标（线性光模式下它是 sRGB 格式）时输出线性值；画布上照 CSS 的颜色画
+    gl.uniform1f(loc(gl, p, 'uLinear'), !onScreen && this.#linear ? 1 : 0)
     gl.enable(gl.BLEND)
     gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA)
     gl.enable(gl.SCISSOR_TEST)
@@ -383,6 +395,9 @@ export class Gl2Renderer implements Renderer {
     const gl = this.gl
     if (this.#destroyed || gl.isContextLost()) return null
     const { viewport, backdrop, panels, groups, fills } = input
+    // 混合空间换了：模糊链换一种内部格式重新分配（与视口变化一样）
+    const linear = input.blendSpace === 'linear'
+    this.#linear = linear
     this.#ensureTargets(viewport)
     const chain = this.#chain
     const scratch = this.#scratch
@@ -440,7 +455,7 @@ export class Gl2Renderer implements Renderer {
       gl.uniform1i(loc(gl, p, 'uImage'), 0)
       gl.uniform1f(loc(gl, p, 'uFlipUv'), 0)
       gl.uniform4f(loc(gl, p, 'uUv'), image.uvScale[0], image.uvScale[1], image.uvOffset[0], image.uvOffset[1])
-      gl.uniform4f(loc(gl, p, 'uBackground'), image.background[0], image.background[1], image.background[2], 1)
+      gl.uniform4f(loc(gl, p, 'uBackground'), image.background[0], image.background[1], image.background[2], linear ? 1 : 0)
     } else {
       useProgram(gl, this.#scene)
       gl.uniform1f(loc(gl, this.#scene, 'uFlipUv'), 0)
@@ -450,7 +465,7 @@ export class Gl2Renderer implements Renderer {
         backdrop.radialCenterCss[0] / viewport.cssWidth,
         backdrop.radialCenterCss[1] / viewport.cssHeight,
         backdrop.radialRadius,
-        0
+        linear ? 1 : 0
       )
     }
     gl.drawArrays(gl.TRIANGLES, 0, 3)
@@ -482,8 +497,11 @@ export class Gl2Renderer implements Renderer {
     useProgram(gl, this.#backdrop)
     gl.uniform1f(loc(gl, this.#backdrop, 'uFlipUv'), 1)
     gl.uniform1i(loc(gl, this.#backdrop, 'uChain'), 0)
-    gl.uniform4f(loc(gl, this.#backdrop, 'uTint'), ...backdrop.tint)
-    gl.uniform4f(loc(gl, this.#backdrop, 'uParams'), backdrop.saturation, backdropLevel, 0, 0)
+    // 线性光模式下 tint 与采到的颜色（线性值）混，先换成线性值；输出前编码回 sRGB
+    const [tr, tg, tb, ta] = backdrop.tint
+    if (linear) gl.uniform4f(loc(gl, this.#backdrop, 'uTint'), srgbToLinear(tr), srgbToLinear(tg), srgbToLinear(tb), ta)
+    else gl.uniform4f(loc(gl, this.#backdrop, 'uTint'), tr, tg, tb, ta)
+    gl.uniform4f(loc(gl, this.#backdrop, 'uParams'), backdrop.saturation, backdropLevel, 0, linear ? 1 : 0)
     gl.drawArrays(gl.TRIANGLES, 0, 3)
 
     // 3.5) 填充按画布分辨率画（背景调试视图调过色或模糊过时不画，理由见 gpu.ts）
@@ -517,7 +535,8 @@ export class Gl2Renderer implements Renderer {
       gl.uniform1f(loc(gl, this.#backdrop, 'uFlipUv'), 1)
       gl.uniform1i(loc(gl, this.#backdrop, 'uChain'), 0)
       gl.uniform4f(loc(gl, this.#backdrop, 'uTint'), 1, 1, 1, 0)
-      gl.uniform4f(loc(gl, this.#backdrop, 'uParams'), 1, 0, 0, 0)
+      // 原样参数；来源是从默认帧缓冲拷来的 sRGB 编码值，线性光模式下先解码
+      gl.uniform4f(loc(gl, this.#backdrop, 'uParams'), 1, 0, linear ? 1 : 0, 0)
       gl.drawArrays(gl.TRIANGLES, 0, 3)
       gl.disable(gl.SCISSOR_TEST)
       draws++
@@ -712,6 +731,7 @@ export class Gl2Renderer implements Renderer {
     gl.uniform2f(loc(gl, p, 'uStageInv'), 1 / cw, 1 / ch) // 乘倒数而不是除：理由见 shaders.ts 的 uStageInv
     gl.uniform1f(loc(gl, p, 'uOnScreen'), onScreen ? 1 : 0)
     gl.uniform1f(loc(gl, p, 'uProbe'), onScreen ? 0 : 1)
+    gl.uniform1f(loc(gl, p, 'uLinear'), this.#linear ? 1 : 0)
   }
 
   #readback(request: ReadbackRequest, cw: number, ch: number): void {

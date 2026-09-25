@@ -11,6 +11,7 @@
  * 十块玻璃和一块玻璃的模糊开销一样。
  */
 
+import type { BlendSpace } from '../core/color.ts'
 import type { ResolvedViewport } from '../core/units.ts'
 import { levelRegion } from './layers.ts'
 
@@ -72,12 +73,25 @@ export interface BlurChainTextures {
    */
   readonly clean: GPUTexture
   readonly cleanView: GPUTextureView
+  /** 两张纹理的格式：BACKDROP_FORMAT，线性光模式下是 BACKDROP_FORMAT_LINEAR。 */
+  readonly format: GPUTextureFormat
   readonly levels: number
   readonly width: number
   readonly height: number
 }
 
 export const BACKDROP_FORMAT: GPUTextureFormat = 'rgba8unorm'
+
+/**
+ * 线性光模式（blendSpace: 'linear'）下模糊链与草稿纹理的格式。存的仍是 8 位的 sRGB 编码值 —— 暗部的精度与
+ * 默认模式一样，8 位的线性值会在暗部出色阶 —— 但写入时硬件把线性值编码进去、采样时先解码再过滤，
+ * 所以模糊、降采样、级与级之间的三线性插值都在线性光里。
+ */
+export const BACKDROP_FORMAT_LINEAR: GPUTextureFormat = 'rgba8unorm-srgb'
+
+export function backdropFormat(space: BlendSpace): GPUTextureFormat {
+  return space === 'linear' ? BACKDROP_FORMAT_LINEAR : BACKDROP_FORMAT
+}
 
 interface LevelResources {
   readonly hBind: GPUBindGroup
@@ -90,7 +104,8 @@ interface LevelResources {
 
 export class BlurChain {
   readonly #device: GPUDevice
-  readonly #pipeline: GPURenderPipeline
+  /** 模糊趟的 bind group 布局（显式的）：两种纹理格式的模糊管线共用，换格式时 bind group 照样能用。 */
+  readonly #layout: GPUBindGroupLayout
   readonly #sampler: GPUSampler
 
   #textures: BlurChainTextures | null = null
@@ -99,9 +114,9 @@ export class BlurChain {
   #allocations = 0
   #passesLastFrame = 0
 
-  constructor(device: GPUDevice, pipeline: GPURenderPipeline, sampler: GPUSampler) {
+  constructor(device: GPUDevice, layout: GPUBindGroupLayout, sampler: GPUSampler) {
     this.#device = device
-    this.#pipeline = pipeline
+    this.#layout = layout
     this.#sampler = sampler
   }
 
@@ -118,12 +133,12 @@ export class BlurChain {
     return this.#passesLastFrame
   }
 
-  /** 按视口确保纹理与各级资源就绪。尺寸没变就复用。 */
-  ensure(viewport: ResolvedViewport): BlurChainTextures {
+  /** 按视口与格式确保纹理与各级资源就绪。尺寸与格式都没变就复用。 */
+  ensure(viewport: ResolvedViewport, format: GPUTextureFormat = BACKDROP_FORMAT): BlurChainTextures {
     const width = viewport.sceneWidth
     const height = viewport.sceneHeight
     const existing = this.#textures
-    if (existing && existing.width === width && existing.height === height) return existing
+    if (existing && existing.width === width && existing.height === height && existing.format === format) return existing
 
     this.#destroyTextures()
 
@@ -141,14 +156,14 @@ export class BlurChain {
     const chain = this.#device.createTexture({
       label: 'glassium:backdrop-chain',
       size: { width, height },
-      format: BACKDROP_FORMAT,
+      format,
       mipLevelCount: levels,
       usage
     })
     const scratch = this.#device.createTexture({
       label: 'glassium:blur-scratch',
       size: { width, height },
-      format: BACKDROP_FORMAT,
+      format,
       mipLevelCount: levels,
       usage
     })
@@ -190,7 +205,7 @@ export class BlurChain {
         // 水平趟：读 chain 的 k−1 级（两倍分辨率），写 scratch 的 k 级。
         // 双线性采样顺带把降采样做掉，省一趟 pass。
         hBind: this.#device.createBindGroup({
-          layout: this.#pipeline.getBindGroupLayout(0),
+          layout: this.#layout,
           entries: [
             { binding: 0, resource: { buffer: hUniform } },
             { binding: 1, resource: this.#sampler },
@@ -200,7 +215,7 @@ export class BlurChain {
         // 垂直趟：读 scratch 的 k 级，写 chain 的 k 级。
         // 两趟读写的都是不同纹理，所以同一个 pass 里不存在同资源读写冲突。
         vBind: this.#device.createBindGroup({
-          layout: this.#pipeline.getBindGroupLayout(0),
+          layout: this.#layout,
           entries: [
             { binding: 0, resource: { buffer: vUniform } },
             { binding: 1, resource: this.#sampler },
@@ -218,6 +233,7 @@ export class BlurChain {
       sceneView: chain.createView({ baseMipLevel: 0, mipLevelCount: 1 }),
       clean: scratch,
       cleanView: scratch.createView({ baseMipLevel: 0, mipLevelCount: 1 }),
+      format,
       levels,
       width,
       height
@@ -233,8 +249,14 @@ export class BlurChain {
    *
    * 给了 region（场景像素 [x, y, w, h]）时只重建这一块（玻璃的第 L 层，见 layers.ts）：各级按比例缩小、
    * 往外扩几个纹素，用 scissor 限住，不清屏 —— 这一块外面保持原样。返回这一次跑了多少趟。
+   *
+   * pipeline 的目标格式要与纹理的格式相同（见 ensure）。
    */
-  build(encoder: GPUCommandEncoder, region?: readonly [number, number, number, number]): number {
+  build(
+    encoder: GPUCommandEncoder,
+    pipeline: GPURenderPipeline,
+    region?: readonly [number, number, number, number]
+  ): number {
     const textures = this.#textures
     if (!textures) return 0
 
@@ -260,7 +282,7 @@ export class BlurChain {
             }
           ]
         })
-        pass.setPipeline(this.#pipeline)
+        pass.setPipeline(pipeline)
         pass.setBindGroup(0, bind)
         if (r) pass.setScissorRect(r[0], r[1], r[2], r[3])
         pass.draw(3)

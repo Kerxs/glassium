@@ -195,6 +195,7 @@
 | `maxPixels` | 场景的像素预算 | 1 300 000 |
 | `minSceneRatio` | 场景分辨率的下限（相对设备像素） | 0.5 |
 | `alphaMode` | 画布的 alphaMode | `'opaque'` |
+| `blendSpace` | 模糊与调色在哪个空间里做：`'srgb'` 或 `'linear'`（线性光，见下面「混合空间」）。写错时 Promise reject | `'srgb'` |
 | `onDegrade(reason)` | 降级时回调（`{ from, to, detail }`），在 console.warn 之后 | |
 
 ## `GlassStage`
@@ -209,6 +210,8 @@
 | `registerFill(element)` → `SceneFill` | 把任意元素注册成填充（`<glass-fill>` 背后就是它）：颜色取它的 `--glass-fill`。返回 `{ element, unregister() }` |
 | `setScene(source, options?)` → `Promise` | 换场景，见下 |
 | `refreshScene()` | 非 dynamic 的画布、ImageData 内容变了：下一帧重新上传 |
+| `blendSpace` | 现在的混合空间 |
+| `setBlendSpace(space)` | 换混合空间，下一帧生效（模糊链换一种纹理格式重新分配一次）。写错就抛 |
 | `requestRender()` | 请求重画一帧（通常不需要：变化会自己触发） |
 | `dispose()` | 销毁：画布移除、设备释放、监听器解绑。之后可以再建 |
 | `debug` | 调试与验证用，见下 |
@@ -277,6 +280,24 @@
 返回的 Promise 在新场景可以画时 resolve（之前一直画旧场景，不闪）；加载失败时 reject；被后一次调用取代时
 reject 一个 `name === 'AbortError'` 的 DOMException。跨源的图片与视频要有 CORS，否则当场 reject。
 没有 GPU 时，URL / `<img>` / Blob 场景写成画布的 CSS 背景。
+
+## 混合空间（`blendSpace`）
+
+模糊、调色（saturation、tint）、自适应在哪个空间里做。
+
+| | `'srgb'`（默认） | `'linear'` |
+|---|---|---|
+| 做法 | 直接在 sRGB 编码值上做 | 在线性光里做：模糊链用 sRGB 格式的纹理存（写入时硬件编码、采样时先解码再过滤），CSS 颜色先换成线性值 |
+| 黑白阶跃模糊之后的中点 | 128（发灰） | 180（亮的一侧不被压暗） |
+| 灰 128 上叠 0.4 的 `rgb(255, 64, 0)` | 178 / 102 / 76 | 192 / 108 / 101 |
+| 自适应 | 按 2.2 次方近似，大致到目标亮度 | 精确到目标亮度（白字 0.3、深色字 0.1） |
+| 已校准的数值 | 全部按它量 | 要另量一套 |
+
+两种模式都一样的：玻璃最后编码回 sRGB 再合到画布上 —— 抗锯齿的边、投影与 DOM 一样在编码空间里混合；
+画布上按画布分辨率画的填充、CSS 画的玻璃（对话框、popover 里，见「盖在 DOM 上的玻璃」）不受影响。
+切换一次多分配一次模糊链；第一次切到 `'linear'` 时多建 5 条管线，之后来回切不再建。
+
+`srgbToLinear(c)`、`linearToSrgb(c)` 是同一条公式的 CPU 版（0–1 的单个通道）。
 
 ## 材质（JS）
 

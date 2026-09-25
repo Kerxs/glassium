@@ -10,6 +10,8 @@
  * 翻两次和不翻的表现一模一样（都是正的），但中间任何一步取样都会错位。
  */
 
+import { SRGB_WGSL } from './srgb.wgsl.ts'
+
 /** 全屏三角形。比全屏四边形少一个顶点，也没有对角线接缝上的重复着色。 */
 const FULLSCREEN_VS = /* wgsl */ `
 struct VsOut {
@@ -52,12 +54,14 @@ struct SceneUniforms {
   mode: f32,        // 0 gradient · 1 calibration · 2 radial · 3 flat
   center: vec2f,    // radial 的中心，uv
   radius: f32,      // radial 的半径，以视口高为单位
-  _pad: f32,
+  linear: f32,      // 1 = 输出线性值（线性光模式：场景目标是 sRGB 格式，写入时硬件编码回去）
 }
 
 @group(0) @binding(0) var<uniform> scene: SceneUniforms;
 
 ${FULLSCREEN_VS}
+
+${SRGB_WGSL}
 
 fn palette(t: f32) -> vec3f {
   let c0 = vec3f(0.682, 0.835, 0.953); // #AED5F3
@@ -106,30 +110,40 @@ fn calibration(uv: vec2f, res: vec2f) -> vec3f {
  *       这个关系在四个角上都成立，才说明色散方向是一致的 —— 上游的鞍面调制会让
  *       相邻两个角给出相反的结论。
  */
-@fragment fn fs(in: VsOut) -> @location(0) vec4f {
+fn sceneColor(uv: vec2f) -> vec3f {
   if (scene.mode > 2.5) {
-    return vec4f(0.5, 0.5, 0.5, 1.0);
+    return vec3f(0.5, 0.5, 0.5);
   }
   if (scene.mode > 1.5) {
     let aspect = scene.resolution.x / max(scene.resolution.y, 1.0);
-    let p = vec2f(in.uv.x * aspect, in.uv.y);
+    let p = vec2f(uv.x * aspect, uv.y);
     let c = vec2f(scene.center.x * aspect, scene.center.y);
     let v = clamp(length(p - c) / max(scene.radius, 1e-6), 0.0, 1.0);
-    return vec4f(v, v, v, 1.0);
+    return vec3f(v, v, v);
   }
   if (scene.mode > 0.5) {
-    return vec4f(calibration(in.uv, scene.resolution), 1.0);
+    return calibration(uv, scene.resolution);
   }
 
   let aspect = scene.resolution.x / max(scene.resolution.y, 1.0);
-  let p = vec2f(in.uv.x * aspect, in.uv.y);
+  let p = vec2f(uv.x * aspect, uv.y);
 
   // 对角线渐变，叠一个很慢的漂移。漂移存在的意义不是好看，是让「rAF 到底在不在跑」
   // 用肉眼就能判断 —— prefers-reduced-motion 下它必须完全静止。
   let drift = sin(scene.time * 0.25) * 0.06;
   let t = clamp((p.x * 0.45 + p.y * 0.85) * 0.78 + drift, 0.0, 1.0);
 
-  return vec4f(palette(t), 1.0);
+  return palette(t);
+}
+
+// 图案里的颜色都是 sRGB 编码值（0.5 的灰就是屏幕上的 128）。线性光模式下换成线性值再写：
+// 场景目标那时是 sRGB 格式，硬件写入时编码回去，存下来的字节与默认模式相同。
+@fragment fn fs(in: VsOut) -> @location(0) vec4f {
+  let c = sceneColor(in.uv);
+  if (scene.linear > 0.5) {
+    return vec4f(srgbToLinear(c), 1.0);
+  }
+  return vec4f(c, 1.0);
 }
 `
 
@@ -146,7 +160,7 @@ export const SCENE_IMAGE_WGSL = /* wgsl */ `
 struct ImageScene {
   uvScale: vec2f,
   uvOffset: vec2f,
-  background: vec4f,
+  background: vec4f,    // rgb 是底色（sRGB 编码）；w = 1 时输出线性值（线性光模式，同上面的内置场景）
 }
 
 @group(0) @binding(0) var<uniform> u: ImageScene;
@@ -155,11 +169,17 @@ struct ImageScene {
 
 ${FULLSCREEN_VS}
 
+${SRGB_WGSL}
+
 @fragment fn fs(in: VsOut) -> @location(0) vec4f {
   let uv = in.uv * u.uvScale + u.uvOffset;
   let inside = uv.x >= 0.0 && uv.x <= 1.0 && uv.y >= 0.0 && uv.y <= 1.0;
   let c = textureSampleLevel(img, samp, clamp(uv, vec2f(0.0, 0.0), vec2f(1.0, 1.0)), 0.0);
   let rgb = mix(u.background.rgb, c.rgb, c.a);
-  return vec4f(select(u.background.rgb, rgb, inside), 1.0);
+  let out = select(u.background.rgb, rgb, inside);
+  if (u.background.w > 0.5) {
+    return vec4f(srgbToLinear(out), 1.0);
+  }
+  return vec4f(out, 1.0);
 }
 `

@@ -13,6 +13,7 @@
  * 形状、折射、高光都保留：玻璃还是玻璃，只是不再透。
  */
 
+import { srgbToLinear } from './color.ts'
 import { MATERIAL_DEFAULTS, parseTint, type GlassMaterial } from './material.ts'
 
 export const REDUCED_TRANSPARENCY = Object.freeze({
@@ -36,8 +37,7 @@ export type Frost = keyof typeof FROST
 
 /** WCAG 的相对亮度，输入 0–1 的 sRGB 编码值。 */
 export function relativeLuminance(r: number, g: number, b: number): number {
-  const lin = (c: number): number => (c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4)
-  return 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b)
+  return 0.2126 * srgbToLinear(r) + 0.7152 * srgbToLinear(g) + 0.0722 * srgbToLinear(b)
 }
 
 /**

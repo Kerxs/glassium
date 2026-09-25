@@ -83,7 +83,7 @@ function render(stage: GlassStage): void {
     `<b>panels</b>   ${s.panels}  <b>groups</b> ${s.groups}`,
     `<b>cpu</b>      ${s.cpuMs.total.toFixed(2)} ms（测量 ${s.cpuMs.measure.toFixed(2)}）`,
     `<b>pipelines</b> ${s.pipelineCreations}  <b>bindGroups</b> ${s.bindGroupCreations}`,
-    `<b>source</b>   ${s.scene}  <b>uploads</b> ${s.sceneUploads}`,
+    `<b>source</b>   ${s.scene}  <b>uploads</b> ${s.sceneUploads}  <b>blend</b> ${stage.blendSpace}`,
     `<b>clicks</b>   ${clicks}${s.forcedColors ? '  (forced-colors：stage 停用)' : ''}${
       s.reducedTransparency ? '  (reduced-transparency：磨砂)' : ''
     }${s.moreContrast ? '  (more-contrast：磨砂)' : ''}`
@@ -211,6 +211,8 @@ async function main(): Promise<void> {
 
   const stage = await createGlassStage({
     backend,
+    // ?glassium.blend=linear：一开始就在线性光里模糊与调色（侧栏的「线性光」随时可以切）
+    blendSpace: params.get('glassium.blend') === 'linear' ? 'linear' : 'srgb',
     onDegrade: (r) => {
       statsEl.textContent = `降级 ${r.from} → ${r.to}
 ${r.detail}`
@@ -258,6 +260,11 @@ ${r.detail}`
   const rt = document.getElementById('rt') as HTMLInputElement
   rt.checked = params.get('glassium.reducedTransparency') === '1'
   rt.addEventListener('change', () => simulateReducedTransparency(rt.checked ? true : null))
+
+  // 线性光：模糊与调色在线性光里做（blendSpace）。亮暗交界模糊之后不再发灰
+  const linear = document.getElementById('linear') as HTMLInputElement
+  linear.checked = stage.blendSpace === 'linear'
+  linear.addEventListener('change', () => stage.setBlendSpace(linear.checked ? 'linear' : 'srgb'))
 
   // 合并：smoothing 滑杆改的是 <glass-container> 的属性
   const duo = document.getElementById('duo')!

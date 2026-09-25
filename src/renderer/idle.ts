@@ -10,7 +10,7 @@
  *
  * 判断是**保守**的：拿不准就当作变了。只比较决定像素的输入，而且比较的是值或不可变对象的引用：
  *
- * - 视口：各级分辨率与 DPR
+ * - 视口：各级分辨率与 DPR；混合空间（blendSpace）
  * - 背景参数：stage 每次 setBackdrop 都换一个新对象，比引用
  * - 场景：内置 gradient 场景随时间漂移（reduced-motion 下时间冻结在 0，就不动了）；用户场景
  *   dynamic 的每帧都变，其余比源、版本号与铺法
@@ -19,6 +19,7 @@
  * - 填充：同一块、同样的矩形 / 裁剪 / 圆角 / 颜色（颜色的 CSS 过渡期间每帧都不同）
  */
 
+import type { BlendSpace } from '../core/color.ts'
 import type { ResolvedViewport } from '../core/units.ts'
 import type { PanelDebugMode } from '../shaders/glass.wgsl.ts'
 import type { BackdropState, SceneImage } from './backend.ts'
@@ -29,6 +30,7 @@ import type { MeasuredGroup, MeasuredPanel } from './panels.ts'
 export interface FrameSnapshot {
   readonly time: number
   readonly viewport: ResolvedViewport
+  readonly blendSpace: BlendSpace
   readonly backdrop: BackdropState
   readonly sceneImage: SceneImage | null
   readonly panels: readonly MeasuredPanel[]
@@ -153,6 +155,7 @@ export function unchangedFrame(prev: FrameSnapshot | null, next: FrameSnapshot):
   }
   return (
     prev.backdrop === next.backdrop &&
+    prev.blendSpace === next.blendSpace &&
     prev.panelDebugMode === next.panelDebugMode &&
     sameViewport(prev.viewport, next.viewport) &&
     sameScene(prev.sceneImage, next.sceneImage) &&

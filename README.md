@@ -173,6 +173,10 @@ GPU 输出由 `playground/verify.html` 在浏览器里逐项验证（光学探�
       出现，一边长大一边移到自己的位置 —— 离得近时 smin 把它和邻居连着，颈部拉长、断开；`container.dismiss(member)`
       反过来缩回去再拿掉。实测一滴的中心正落在邻居的边上（496.0, 528.0），那里画着玻璃。动的是 `translate` / `scale`，
       玻璃跟得上；减少动效时直接出现、直接拿掉
+- [x] **线性光下模糊与调色（可选）**（`blendSpace: 'linear'`，`src/core/color.ts`）：模糊链改用 sRGB 格式的纹理存
+      （写入时硬件编码、采样时先解码再过滤），tint 先换成线性值，玻璃最后编码回 sRGB。黑白阶跃模糊之后中点从 128
+      变成 180，亮的一侧不再被压暗；自适应精确落到目标亮度。默认仍是 sRGB（已校准的数值都按它量），改动前后默认模式
+      整帧逐位不变；`stage.setBlendSpace()` 随时切，playground 侧栏有开关
 - [x] **盖在 DOM 上的玻璃**（`src/core/overlay.ts`）：模态 `<dialog>`、打开的 popover、全屏元素里的玻璃在浏览器的顶层，
       画在整页之上 —— GPU 玻璃在那里被整页内容盖住，以前是一块透明的框。现在 stage 自动把它们（连同写了 `overlay`
       属性的、以及它们里面的玻璃与填充）标成 `data-glassium-overlay`、改用 CSS 画：`backdrop-filter` 模糊下面的一切
@@ -190,9 +194,9 @@ GPU 设备丢失时会在新设备上整套重建（实测约 30 ms，恢复后�
 WebGL2（WebGL2 的上下文丢失同理，第二次降到 CSS 兜底）。T5 到 T8 期间这一点是坏的：
 日志说会重新初始化，实际上画布会冻住 —— 现已修复，见 [docs/limitations.md](docs/limitations.md)。
 
-**216 条测试全绿**，playground 可跑（`npm run dev`），只用公开 API 搭的示例页在 `/demo.html`，
+**222 条测试全绿**，playground 可跑（`npm run dev`），只用公开 API 搭的示例页在 `/demo.html`，
 逐项自动验证在 `/verify.html`
-（现在 WebGPU 上 **PASS 35/35**、WebGL2 上 **PASS 34/34**）。
+（现在 WebGPU 上 **PASS 36/36**、WebGL2 上 **PASS 35/35**）。
 
 T5 顺带把两个计划阶段悬着的硬件问题测掉了，结果记在
 [docs/calibration.md](docs/calibration.md)：`minUniformBufferOffsetAlignment` 实测 256

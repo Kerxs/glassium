@@ -28,6 +28,22 @@ precision highp int;
 `
 
 /**
+ * 与 shaders/srgb.wgsl.ts 的 SRGB_WGSL 对应（公式见 core/color.ts）。写成浮点权重的 mix，与原来
+ * relLuminance 里的写法一样 —— relLuminance 改成调用它之后，默认模式的算术一个字都没变。
+ */
+const SRGB_GLSL = `
+vec3 srgbToLinear(vec3 c) {
+  vec3 s = max(c, vec3(0.0));
+  return mix(pow((s + 0.055) / 1.055, vec3(2.4)), s / 12.92, vec3(lessThanEqual(s, vec3(0.04045))));
+}
+
+vec3 linearToSrgb(vec3 c) {
+  vec3 l = max(c, vec3(0.0));
+  return mix(1.055 * pow(l, vec3(1.0 / 2.4)) - 0.055, l * 12.92, vec3(lessThanEqual(l, vec3(0.0031308))));
+}
+`
+
+/**
  * 全屏三角形。没有顶点属性，用 gl_VertexID 生成（与 WGSL 的 vertex_index 同一个三角形）。
  * uFlipUv = 1 时 uv 的 y 向下对应上屏（默认帧缓冲第 0 行在下），= 0 时对应离屏。
  */
@@ -45,10 +61,10 @@ void main() {
 /** 与 scene.wgsl.ts 的 SCENE_WGSL 逐段对应。 */
 export const SCENE_FS = `${HEADER}
 uniform vec4 uScene0;   // resolution.xy, time, mode
-uniform vec4 uScene1;   // center.xy（uv）, radius, _
+uniform vec4 uScene1;   // center.xy（uv）, radius, linear（1 = 输出线性值，见 scene.wgsl.ts）
 in vec2 vUv;
 out vec4 outColor;
-
+${SRGB_GLSL}
 vec3 palette(float t) {
   vec3 c0 = vec3(0.682, 0.835, 0.953);
   vec3 c1 = vec3(0.180, 0.345, 0.643);
@@ -69,31 +85,33 @@ vec3 calibration(vec2 uv, vec2 res) {
   return mix(vec3(checker, checker, checker), right, halfPlane);
 }
 
-void main() {
+vec3 sceneColor() {
   vec2 resolution = uScene0.xy;
   float time = uScene0.z;
   float mode = uScene0.w;
   if (mode > 2.5) {
-    outColor = vec4(0.5, 0.5, 0.5, 1.0);
-    return;
+    return vec3(0.5, 0.5, 0.5);
   }
   if (mode > 1.5) {
     float aspect = resolution.x / max(resolution.y, 1.0);
     vec2 p = vec2(vUv.x * aspect, vUv.y);
     vec2 c = vec2(uScene1.x * aspect, uScene1.y);
     float v = clamp(length(p - c) / max(uScene1.z, 1e-6), 0.0, 1.0);
-    outColor = vec4(v, v, v, 1.0);
-    return;
+    return vec3(v, v, v);
   }
   if (mode > 0.5) {
-    outColor = vec4(calibration(vUv, resolution), 1.0);
-    return;
+    return calibration(vUv, resolution);
   }
   float aspect = resolution.x / max(resolution.y, 1.0);
   vec2 p = vec2(vUv.x * aspect, vUv.y);
   float drift = sin(time * 0.25) * 0.06;
   float t = clamp((p.x * 0.45 + p.y * 0.85) * 0.78 + drift, 0.0, 1.0);
-  outColor = vec4(palette(t), 1.0);
+  return palette(t);
+}
+
+void main() {
+  vec3 c = sceneColor();
+  outColor = vec4(uScene1.w > 0.5 ? srgbToLinear(c) : c, 1.0);
 }
 `
 
@@ -101,15 +119,17 @@ void main() {
 export const SCENE_IMAGE_FS = `${HEADER}
 uniform sampler2D uImage;
 uniform vec4 uUv;          // uvScale.xy, uvOffset.xy
-uniform vec4 uBackground;  // rgb, _
+uniform vec4 uBackground;  // rgb（sRGB 编码）, linear（1 = 输出线性值）
 in vec2 vUv;
 out vec4 outColor;
+${SRGB_GLSL}
 void main() {
   vec2 uv = vUv * uUv.xy + uUv.zw;
   bool inside = uv.x >= 0.0 && uv.x <= 1.0 && uv.y >= 0.0 && uv.y <= 1.0;
   vec4 c = textureLod(uImage, clamp(uv, vec2(0.0), vec2(1.0)), 0.0);
   vec3 rgb = mix(uBackground.rgb, c.rgb, c.a);
-  outColor = vec4(inside ? rgb : uBackground.rgb, 1.0);
+  vec3 col = inside ? rgb : uBackground.rgb;
+  outColor = vec4(uBackground.w > 0.5 ? srgbToLinear(col) : col, 1.0);
 }
 `
 
@@ -155,13 +175,21 @@ vec3 applyColorFilter(vec3 rgb, float saturation, vec4 tint) {
 export const BACKDROP_FS = `${HEADER}
 uniform sampler2D uChain;
 uniform vec4 uTint;
-uniform vec4 uParams;   // saturation, level, _, _
+uniform vec4 uParams;   // saturation, level, decodeIn, encodeOut（见 blur.wgsl.ts）
 in vec2 vUv;
 out vec4 outColor;
 ${COLOR_FILTER}
+${SRGB_GLSL}
 void main() {
-  vec4 sampled = textureLod(uChain, vUv, uParams.y);
-  outColor = vec4(applyColorFilter(sampled.rgb, uParams.x, uTint), 1.0);
+  vec3 rgb = textureLod(uChain, vUv, uParams.y).rgb;
+  if (uParams.z > 0.5) {
+    rgb = srgbToLinear(rgb);
+  }
+  vec3 col = applyColorFilter(rgb, uParams.x, uTint);
+  if (uParams.w > 0.5) {
+    col = linearToSrgb(col);
+  }
+  outColor = vec4(col, 1.0);
 }
 `
 
@@ -214,8 +242,10 @@ uniform vec4 uStage;       // canvasSize.xy, probeOrigin.xy
 // WGSL 那边（Dawn / D3D12）除法是稳定的，仍然写除法。
 uniform vec2 uStageInv;
 uniform float uOnScreen;   // 1 = 默认帧缓冲（翻 y），0 = 探针目标（不翻，加原点）
+uniform float uLinear;     // 1 = 线性光模式（见 glass.wgsl.ts 的 Stage.linear）
 
 out vec4 outColor;
+${SRGB_GLSL}
 
 // 片元的画布设备像素坐标，左上原点、像素中心在 +0.5 —— 与 WGSL 的 @builtin(position) 一致。
 vec2 fragPx() {
@@ -224,6 +254,14 @@ vec2 fragPx() {
     : gl_FragCoord.xy + uStage.zw;
 }
 ${COLOR_FILTER}
+// 与 glass.wgsl.ts 的 workingTint 对应。
+vec4 workingTint(vec4 t) {
+  if (uLinear > 0.5) {
+    return vec4(srgbToLinear(t.rgb), t.a);
+  }
+  return t;
+}
+
 struct Shading {
   float sd;
   float coverage;
@@ -256,13 +294,17 @@ vec4 shade(vec2 px, Shading s) {
   } else {
     sampled = textureLod(chain, base * uStageInv, s.blurLevel).rgb;
   }
-  vec3 filtered = applyColorFilter(sampled, s.saturation, s.tint);
+  vec3 filtered = applyColorFilter(sampled, s.saturation, workingTint(s.tint));
   vec3 rgb = filtered * s.veil.x + (vec3(1.0) - filtered * s.veil.x) * s.veil.y;
   vec2 terms = highlightTerms(s.normal, LIGHT_DIR, GLOSS) * rimMask(s.sd, s.rimPx) * s.highlight;
   float lit = terms.x + s.glow;
   float dark = terms.y * DARK_RIM;
   float a = s.coverage * s.opacity;
-  return vec4((rgb * (1.0 - dark) + vec3(lit, lit, lit)) * a, a);
+  vec3 color = rgb * (1.0 - dark) + vec3(lit, lit, lit);
+  if (uLinear > 0.5) {
+    color = linearToSrgb(color);
+  }
+  return vec4(color * a, a);
 }
 
 // 与 glass.wgsl.ts 的自适应对应。
@@ -271,22 +313,30 @@ const float ADAPT_MIN_LUM = 0.1;
 const float ADAPT_LEVEL = 4.0;
 
 float relLuminance(vec3 c) {
-  vec3 s = clamp(c, vec3(0.0), vec3(1.0));
-  vec3 lin = mix(pow((s + 0.055) / 1.055, vec3(2.4)), s / 12.92, vec3(lessThanEqual(s, vec3(0.04045))));
+  vec3 lin = srgbToLinear(clamp(c, vec3(0.0), vec3(1.0)));
   return dot(lin, vec3(0.2126, 0.7152, 0.0722));
 }
 
+// 与 glass.wgsl.ts 的 adaptVeil 对应（线性光模式下的两条分支见那边的注释）。
 vec2 adaptVeil(vec3 avg, float adapt, float saturation, vec4 tint) {
   if (adapt == 0.0) {
     return vec2(1.0, 0.0);
   }
-  float lum = relLuminance(applyColorFilter(avg, saturation, tint));
+  vec3 filtered = applyColorFilter(avg, saturation, workingTint(tint));
+  bool linear = uLinear > 0.5;
+  float lum = linear
+    ? dot(clamp(filtered, vec3(0.0), vec3(1.0)), vec3(0.2126, 0.7152, 0.0722))
+    : relLuminance(filtered);
   float strength = abs(adapt);
   if (adapt > 0.0 && lum > ADAPT_MAX_LUM) {
-    float scale = pow(ADAPT_MAX_LUM / lum, 1.0 / 2.2);
+    float ratio = ADAPT_MAX_LUM / lum;
+    float scale = linear ? ratio : pow(ratio, 1.0 / 2.2);
     return vec2(1.0 - (1.0 - scale) * strength, 0.0);
   }
   if (adapt < 0.0 && lum < ADAPT_MIN_LUM) {
+    if (linear) {
+      return vec2(1.0, (ADAPT_MIN_LUM - lum) / max(1.0 - lum, 1e-6) * strength);
+    }
     float e = pow(max(lum, 0.0), 1.0 / 2.2);
     float goal = pow(ADAPT_MIN_LUM, 1.0 / 2.2);
     return vec2(1.0, (goal - e) / max(1.0 - e, 1e-6) * strength);
@@ -455,7 +505,9 @@ layout(std140) uniform FillBlock {
 };
 uniform vec4 uDest;         // scale.xy（一个目标像素是几个画布设备像素）, aa, 翻不翻（1 = 画布）
 uniform float uDestHeight;  // 目标的高：翻 y 用
+uniform float uLinear;      // 1 = 输出线性值（线性光模式下画进场景目标，见 fill.wgsl.ts 的 Dest.linear）
 out vec4 outColor;
+${SRGB_GLSL}
 
 // 与 fill.wgsl.ts 的 clipSd 对应。
 float clipSd(vec2 px, vec4 box, vec4 radii) {
@@ -479,7 +531,8 @@ void main() {
   if (a <= 0.0) {
     discard;
   }
-  outColor = vec4(fill.color.rgb * a, a);
+  vec3 rgb = uLinear > 0.5 ? srgbToLinear(fill.color.rgb) : fill.color.rgb;
+  outColor = vec4(rgb * a, a);
 }
 `
 
