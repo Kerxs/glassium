@@ -107,23 +107,28 @@ export function parseFillColor(text: string): Rgba | null {
   return [d[0]! / 255, d[1]! / 255, d[2]! / 255, d[3]! / 255]
 }
 
+/** 四角（TL, TR, BR, BL）的水平与竖直半径。两个相等的角是圆角，不等的是椭圆角。 */
+export interface CornerRadii {
+  readonly x: readonly [number, number, number, number]
+  readonly y: readonly [number, number, number, number]
+}
+
 /**
  * 四角圆角（CSS 像素，变换之前）：百分比按盒子的宽、高解算；同一条边上相邻两角之和超过边长时一起缩小
- * （CSS 的规则，`border-radius: 999px` 的胶囊靠它变成半圆）；椭圆角取短的那个半径（着色器画的是
- * 圆角矩形，与裁剪祖先的圆角同一个近似）；最后钳到短边的一半。
+ * （CSS 的规则，`border-radius: 999px` 的胶囊靠它变成半圆、`50%` 在长方形上是椭圆）；最后水平的钳到宽的一半、
+ * 竖直的钳到高的一半 —— 着色器按象限取角，一个角伸过中线就不对了（CSS 允许单个角占满整条边，这里近似成半条）。
  */
-export function fillRadii(
-  radii: readonly string[],
-  width: number,
-  height: number
-): [number, number, number, number] {
+export function fillRadii(radii: readonly string[], width: number, height: number): CornerRadii {
   const resolved = radii.map((css) => {
     const [x, y] = parseCornerRadius(css)
     return [x.percent ? (x.value / 100) * width : x.value, y.percent ? (y.value / 100) * height : y.value] as const
   })
-  const cap = Math.min(width, height) / 2
-  const [tl, tr, br, bl] = scaleRadii(resolved, width, height).map(([x, y]) => Math.max(0, Math.min(x, y, cap)))
-  return [tl!, tr!, br!, bl!]
+  const scaled = scaleRadii(resolved, width, height)
+  const along = (axis: 0 | 1, cap: number): [number, number, number, number] => {
+    const [a, b, c, d] = scaled.map((r) => Math.max(0, Math.min(r[axis]!, cap)))
+    return [a!, b!, c!, d!]
+  }
+  return { x: along(0, width / 2), y: along(1, height / 2) }
 }
 
 /** 一块注册过的填充。 */
@@ -171,8 +176,10 @@ export interface MeasuredFill {
   readonly scissor: readonly [number, number, number, number]
   readonly clip: Box
   readonly clipRadii: readonly [number, number, number, number]
-  /** 四角圆角，画布设备像素。 */
+  /** 四角的水平半径，画布设备像素。 */
   readonly radii: readonly [number, number, number, number]
+  /** 四角的竖直半径（与 radii 相等的角是圆角）。 */
+  readonly radiiY: readonly [number, number, number, number]
   /** 纯色：颜色，alpha 已乘上 CSS 的不透明度。渐变：只用 alpha —— CSS 的不透明度。 */
   readonly color: Rgba
   /** 渐变（纯色是 null）。几何已换算到画布设备像素：盒子左上角为原点、转之前。 */
@@ -223,6 +230,7 @@ export function packFill(data: Float32Array, index: number, fill: MeasuredFill):
   data[o + 23] = 0
   // 渐变 @ 96 起。纯色时种类写 0，其余清零（槽位是复用的，别留着上一帧别的填充的数）
   data.fill(0, o + 24, o + FILL_STRIDE_FLOATS)
+  packCorners(data, o, fill)
   const g = fill.gradient
   if (!g) return
   const n = Math.min(g.colors.length, MAX_GRADIENT_STOPS)
@@ -257,6 +265,18 @@ export function packFill(data: Float32Array, index: number, fill: MeasuredFill):
   for (let i = 0; i + 1 < n; i++) {
     const gap = g.offsets[i + 1]! - g.offsets[i]!
     data[span + i] = gap > 0 ? 1 / gap : 0
+  }
+}
+
+/**
+ * 椭圆角 @ 256 起：竖直半径与两组倒数（着色器里不做除法）。写在 packFill 的最后 —— 前面的布局一个字节都没挪。
+ */
+function packCorners(data: Float32Array, o: number, fill: MeasuredFill): void {
+  const inv = (r: number): number => (r > 0 ? 1 / r : 0)
+  for (let i = 0; i < 4; i++) {
+    data[o + 64 + i] = fill.radiiY[i]!
+    data[o + 68 + i] = inv(fill.radii[i]!)
+    data[o + 72 + i] = inv(fill.radiiY[i]!)
   }
 }
 

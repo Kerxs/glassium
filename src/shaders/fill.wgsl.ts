@@ -25,9 +25,9 @@ import { POSE_WGSL } from './glass.wgsl.ts'
 import { OPTICS_WGSL } from './optics.wgsl.ts'
 import { SRGB_WGSL } from './srgb.wgsl.ts'
 
-/** Fill 结构体的字节数（16 个 vec4f，正好一个步长）。与面板一样按 256B 步长排进一条 buffer，用动态偏移切换。 */
-export const FILL_STRUCT_BYTES = 256
-export const FILL_STRIDE = 256
+/** Fill 结构体的字节数（19 个 vec4f）。按 512B 步长排进一条 buffer（动态偏移要对齐 256），用动态偏移切换。 */
+export const FILL_STRUCT_BYTES = 304
+export const FILL_STRIDE = 512
 export const FILL_STRIDE_FLOATS = FILL_STRIDE / 4
 /** Dest 结构体：scale.xy、aa、linear。 */
 export const FILL_DEST_BYTES = 16
@@ -51,6 +51,8 @@ struct Fill {
   stops: array<vec4f, ${MAX_GRADIENT_STOPS}>,  // 色标的颜色：未预乘的 rgb（sRGB 编码）+ a
   at: array<vec4f, 2>,  // 色标的位置（0–1 是 0%–100%）：at[0] 是第 0–3 个，at[1].x 第 4 个；at[1].y、z 是重复的周期的倒数与周期
   span: vec4f,          // 相邻两个色标之间：1 ÷ 位置之差（第 0–3 段；重合的是 0）
+  radiiY: vec4f,        // 四角的竖直半径（与 radii 同序，radii 是水平的）；两个相等的角是圆角
+  inv: array<vec4f, 2>, // 1 ÷ 水平半径、1 ÷ 竖直半径（四角；半径 0 写 0）—— 椭圆角用，着色器里不除以 uniform
 }
 
 // 这一次画到哪里。（不叫 target：那是 WGSL 的保留字。）
@@ -87,6 +89,24 @@ fn clipSd(px: vec2f, box: vec4f, radii: vec4f) -> f32 {
   let r = select(select(radii.x, radii.y, right), select(radii.w, radii.z, right), bottom);
   let e = vec2f(max(box.x - px.x, px.x - box.z), max(box.y - px.y, px.y - box.w)) + r;
   return length(max(e, vec2f(0.0, 0.0))) + min(max(e.x, e.y), 0.0) - r;
+}
+
+// 盒子的 SDF。水平、竖直半径相等的角（圆角）走 sdRoundedRect，与只有圆角时逐位相同；不相等的是椭圆角：
+// 椭圆的隐函数 |q / r| − 1 除以它的梯度长度 —— 一阶近似的距离，在抗锯齿用得到的边界附近准。
+fn fillSd(c: vec2f, halfSize: vec2f) -> f32 {
+  let rx = radiusAt(c, fill.radii);
+  let ry = radiusAt(c, fill.radiiY);
+  if (rx == ry) {
+    return sdRoundedRect(c, halfSize, rx);
+  }
+  let q = abs(c) - halfSize + vec2f(rx, ry);
+  if (q.x > 0.0 && q.y > 0.0) {
+    let inv = vec2f(radiusAt(c, fill.inv[0]), radiusAt(c, fill.inv[1]));
+    let k = q * inv;
+    let len = length(k);
+    return (len - 1.0) * len / max(length(k * inv), 1e-6);
+  }
+  return max(q.x - rx, q.y - ry);
 }
 
 // 第 i 个色标的位置。
@@ -130,7 +150,7 @@ fn gradientAt(t0: f32) -> vec4f {
   let px = in.pos.xy * dest.scale;
   let halfSize = fill.rect.zw * 0.5;
   let c = toLocal(px - (fill.rect.xy + halfSize), fill.pose);
-  let sd = sdRoundedRect(c, halfSize, radiusAt(c, fill.radii));
+  let sd = fillSd(c, halfSize);
   let shape = clamp(0.5 - sd / dest.aa, 0.0, 1.0);
   let clip = clamp(0.5 - clipSd(px, fill.clip, fill.clipRadii) / dest.aa, 0.0, 1.0);
   if (fill.paint.x < 0.5) {

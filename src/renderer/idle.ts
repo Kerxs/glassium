@@ -136,6 +136,7 @@ function sameFill(a: MeasuredFill, b: MeasuredFill): boolean {
     a.clip.y1 === b.clip.y1 &&
     sameTuple(a.clipRadii, b.clipRadii) &&
     sameTuple(a.radii, b.radii) &&
+    sameTuple(a.radiiY, b.radiiY) &&
     sameTuple(a.color, b.color) &&
     a.gradient === b.gradient &&
     a.layer === b.layer

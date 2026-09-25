@@ -202,7 +202,7 @@ WebGL2（WebGL2 的上下文丢失同理，第二次降到 CSS 兜底）。T5 �
 
 **235 条测试全绿**，playground 可跑（`npm run dev`），只用公开 API 搭的示例页在 `/demo.html`，
 逐项自动验证在 `/verify.html`
-（现在 WebGPU 上 **PASS 38/38**、WebGL2 上 **PASS 37/37**）。
+（现在 WebGPU 上 **PASS 39/39**、WebGL2 上 **PASS 38/38**）。
 
 T5 顺带把两个计划阶段悬着的硬件问题测掉了，结果记在
 [docs/calibration.md](docs/calibration.md)：`minUniformBufferOffsetAlignment` 实测 256

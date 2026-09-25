@@ -505,6 +505,8 @@ struct Fill {
   vec4 stops[${MAX_GRADIENT_STOPS}];
   vec4 at[2];
   vec4 span;
+  vec4 radiiY;
+  vec4 inv[2];
 };
 layout(std140) uniform FillBlock {
   Fill fill;
@@ -523,6 +525,23 @@ float clipSd(vec2 px, vec4 box, vec4 radii) {
   float r = bottom ? (right ? radii.z : radii.w) : (right ? radii.y : radii.x);
   vec2 e = vec2(max(box.x - px.x, px.x - box.z), max(box.y - px.y, px.y - box.w)) + r;
   return length(max(e, vec2(0.0))) + min(max(e.x, e.y), 0.0) - r;
+}
+
+// 与 fill.wgsl.ts 的 fillSd 对应。
+float fillSd(vec2 c, vec2 halfSize) {
+  float rx = radiusAt(c, fill.radii);
+  float ry = radiusAt(c, fill.radiiY);
+  if (rx == ry) {
+    return sdRoundedRect(c, halfSize, rx);
+  }
+  vec2 q = abs(c) - halfSize + vec2(rx, ry);
+  if (q.x > 0.0 && q.y > 0.0) {
+    vec2 inv = vec2(radiusAt(c, fill.inv[0]), radiusAt(c, fill.inv[1]));
+    vec2 k = q * inv;
+    float len = length(k);
+    return (len - 1.0) * len / max(length(k * inv), 1e-6);
+  }
+  return max(q.x - rx, q.y - ry);
 }
 
 // 与 fill.wgsl.ts 的 stopAt / gradientAt 对应。
@@ -562,7 +581,7 @@ void main() {
   vec2 px = frag * uDest.xy;
   vec2 halfSize = fill.rect.zw * 0.5;
   vec2 c = toLocal(px - (fill.rect.xy + halfSize), fill.pose);
-  float sd = sdRoundedRect(c, halfSize, radiusAt(c, fill.radii));
+  float sd = fillSd(c, halfSize);
   float shape = clamp(0.5 - sd / uDest.z, 0.0, 1.0);
   float clip = clamp(0.5 - clipSd(px, fill.clip, fill.clipRadii) / uDest.z, 0.0, 1.0);
   if (fill.paint.x < 0.5) {

@@ -785,8 +785,11 @@ export class PanelRegistry {
         color = [0, 0, 0, g.fade]
         gradient = gradientOf(record, paint, g.cssW, g.cssH, k)
       }
-      const cap = Math.min(g.w, g.h) / 2
-      const [tl, tr, br, bl] = fillRadii(style.radii, g.cssW, g.cssH).map((r) => Math.min(r * k, cap))
+      const corners = fillRadii(style.radii, g.cssW, g.cssH)
+      const scale = (r: readonly number[], cap: number): [number, number, number, number] => {
+        const [a, b, c, d] = r.map((v) => Math.min(v * k, cap))
+        return [a!, b!, c!, d!]
+      }
       fills.push({
         record,
         x: g.x,
@@ -797,7 +800,8 @@ export class PanelRegistry {
         scissor,
         clip: g.clip,
         clipRadii: g.clipRadii,
-        radii: [tl!, tr!, br!, bl!],
+        radii: scale(corners.x, g.w / 2),
+        radiiY: scale(corners.y, g.h / 2),
         color,
         gradient,
         layer: layerOf(record)

@@ -69,7 +69,7 @@
 |---|---|
 | `--glass-fill` | 颜色或渐变。注册成不继承的 `<color> \| <image>`，初始透明。纯色可以过渡；`currentcolor` 取元素的 `color`。渐变见下 |
 | 盒子、`transform`、`opacity`、裁剪祖先 | 与玻璃面板一样每帧跟着 |
-| `border-radius` | 圆角（椭圆角取短的那个半径） |
+| `border-radius` | 圆角与椭圆角（`50%` 在长方形上是椭圆，`20px / 8px` 这类也行） |
 
 **别写 `background`**：颜色画在场景里，元素自己在 stage 生效时是透明的。没有玻璃时 glassium.css 把 `--glass-fill`
 画成 CSS 背景。里面的内容照常是 DOM。

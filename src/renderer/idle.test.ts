@@ -65,6 +65,7 @@ const fill = (over: Partial<MeasuredFill> = {}): MeasuredFill => ({
   clip: { x0: -Infinity, y0: -Infinity, x1: Infinity, y1: Infinity },
   clipRadii: [0, 0, 0, 0],
   radii: [15.5, 15.5, 15.5, 15.5],
+  radiiY: [15.5, 15.5, 15.5, 15.5],
   color: [0.2, 0.78, 0.35, 1],
   gradient: null,
   layer: 0,
@@ -185,6 +186,7 @@ test('填充：值相同算相同；颜色（过渡中）、位置、圆角、�
   assert.equal(unchangedFrame(frame({ fills: [fill()] }), frame({ fills: [fill({ color: [0.2, 0.78, 0.35, 0.9] })] })), false, '颜色')
   assert.equal(unchangedFrame(frame({ fills: [fill()] }), frame({ fills: [fill({ x: 41 })] })), false, '位置')
   assert.equal(unchangedFrame(frame({ fills: [fill()] }), frame({ fills: [fill({ radii: [8, 8, 8, 8] })] })), false, '圆角')
+  assert.equal(unchangedFrame(frame({ fills: [fill()] }), frame({ fills: [fill({ radiiY: [8, 8, 8, 8] })] })), false, '椭圆角')
   assert.equal(
     unchangedFrame(frame({ fills: [fill()] }), frame({ fills: [fill({ clip: { x0: 0, y0: -Infinity, x1: Infinity, y1: Infinity } })] })),
     false,

@@ -57,6 +57,7 @@ test('packFill 写入的每个字段都落在 WGSL struct 的对应偏移上', (
     clip: { x0: 5, y0: -Infinity, x1: 400, y1: Infinity },
     clipRadii: [1, 2, 3, 4],
     radii: [5, 6, 7, 8],
+    radiiY: [5, 3, 0, 8],
     color: [0.1, 0.2, 0.3, 0.4],
     gradient: null,
     layer: 0
@@ -83,6 +84,10 @@ test('packFill 写入的每个字段都落在 WGSL struct 的对应偏移上', (
   near(at('pose', 0), 0.6, 'pose.cos')
   near(at('pose', 1), 0.8, 'pose.sin')
   near(at('paint', 0), 0, '纯色：种类 0')
+  near(at('radiiY', 1), 3, 'radiiY.TR')
+  near(at('inv', 1), 1 / 6, '1 / 水平半径 TR')
+  near(at('inv', 4 + 1), 1 / 3, '1 / 竖直半径 TR')
+  near(at('inv', 4 + 2), 0, '半径 0 的角：倒数写 0')
   assert.ok(data.subarray(0, base).every((v) => v === 0), '写越界到了前一个槽位')
 
   // 渐变：线性（方向除以长度²）、位置、重复的周期、相邻两个位置之差的倒数（重合的是 0）
@@ -122,7 +127,8 @@ test('packFill 写入的每个字段都落在 WGSL struct 的对应偏移上', (
   near(g('span', 1), 0, '重合的一段：硬边')
   near(g('span', 2), 2, '第 2 段')
   near(g('span', 3), 0, '没有第 3 段')
-  assert.equal(fields.get('span')! + 16, FILL_STRUCT_BYTES, 'span 是最后一项')
+  assert.equal(fields.get('inv')! + 32, FILL_STRUCT_BYTES, 'inv 是最后一项')
+  assert.equal(fields.get('radiiY'), 256, '椭圆角接在渐变后面：前面的布局没挪')
   assert.equal(fields.get('at')! - fields.get('stops')!, MAX_GRADIENT_STOPS * 16, '色标的颜色正好 MAX_GRADIENT_STOPS 个')
 
   // 径向：中心、半径的倒数
@@ -148,13 +154,14 @@ test('颜色：rgb() / rgba() / hex 直接解析；透明与空串是透明；No
   assert.equal(parseFillColor('oklch(0.7 0.2 150)'), null)
 })
 
-test('圆角：px 与百分比、胶囊（超长的半径按 CSS 的规则缩小）、椭圆角取短的、钳到短边一半', () => {
-  assert.deepEqual(fillRadii(['12px', '12px', '12px', '12px'], 200, 100), [12, 12, 12, 12])
-  assert.deepEqual(fillRadii(['999px', '999px', '999px', '999px'], 51, 31), [15.5, 15.5, 15.5, 15.5], '胶囊')
-  assert.deepEqual(fillRadii(['50%', '50%', '50%', '50%'], 200, 100), [50, 50, 50, 50], '50%：椭圆取短半径')
-  assert.deepEqual(fillRadii(['20px 8px', '0px', '0px', '0px'], 100, 100), [8, 0, 0, 0], '椭圆角 20×8 取 8')
-  assert.deepEqual(fillRadii(['30px', '0px', '0px', '0px'], 100, 30), [15, 0, 0, 0], '单个角大于短边一半：钳住')
-  assert.deepEqual(fillRadii(['0px', '0px', '0px', '0px'], 10, 10), [0, 0, 0, 0])
+test('圆角：px 与百分比、胶囊（超长的半径按 CSS 的规则缩小）、椭圆角、各轴钳到一半', () => {
+  const same = (r: number): { x: number[]; y: number[] } => ({ x: [r, r, r, r], y: [r, r, r, r] })
+  assert.deepEqual(fillRadii(['12px', '12px', '12px', '12px'], 200, 100), same(12))
+  assert.deepEqual(fillRadii(['999px', '999px', '999px', '999px'], 51, 31), same(15.5), '胶囊：两个轴一起缩小，还是圆角')
+  assert.deepEqual(fillRadii(['50%', '50%', '50%', '50%'], 200, 100), { x: [100, 100, 100, 100], y: [50, 50, 50, 50] }, '50%：椭圆')
+  assert.deepEqual(fillRadii(['20px 8px', '0px', '0px', '0px'], 100, 100), { x: [20, 0, 0, 0], y: [8, 0, 0, 0] }, '椭圆角 20×8')
+  assert.deepEqual(fillRadii(['30px', '0px', '0px', '0px'], 100, 30), { x: [30, 0, 0, 0], y: [15, 0, 0, 0] }, '竖直的钳到高的一半')
+  assert.deepEqual(fillRadii(['0px', '0px', '0px', '0px'], 10, 10), same(0))
 })
 
 test('场景目标：scissor 往外取整并钳到目标；Dest 是画布 ÷ 场景', () => {

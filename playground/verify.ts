@@ -1143,6 +1143,52 @@ async function run(): Promise<void> {
     return ok ? pass(detail) : fail(detail)
   })
 
+  await check('fill-ellipse', async () => {
+    // 椭圆角：300×100 的填充写 border-radius: 50%，CSS 画的是椭圆。以前两个半径取短的那个，画成胶囊。
+    // 有鉴别力的点：(20, 20)、(40, 12)、(60, 8) 在胶囊里、椭圆外 —— 必须是场景的灰；(100, 6)、中心、(8, 50) 两种形状都
+    // 包含，是填充的红。预期按椭圆方程手算，不经过被测的代码。另外：圆角（两个半径相等）的填充不受影响，边缘照旧。
+    stage.debug.setBackdrop({ scene: 'flat' })
+    const el = document.createElement('glass-fill')
+    el.setAttribute('style', 'position: absolute; left: 440px; top: 600px; width: 300px; height: 100px; border-radius: 50%; --glass-fill: rgb(255, 0, 0)')
+    document.body.append(el)
+    await sleep(0)
+    const v = stage.debug.stats().viewport!
+    const s = v.compositeWidth / v.cssWidth
+    const canvasBox = stage.canvas.getBoundingClientRect()
+    const box = el.getBoundingClientRect()
+    const pixel = async (x: number, y: number): Promise<[number, number, number]> => {
+      const d = await readback({
+        x: Math.floor((box.left + x - canvasBox.left) * s),
+        y: Math.floor((box.top + y - canvasBox.top) * s),
+        width: 1,
+        height: 1
+      })
+      return [d[0]!, d[1]!, d[2]!]
+    }
+    const inEllipse = (x: number, y: number): number => ((x - 150) / 150) ** 2 + ((y - 50) / 50) ** 2
+    const outside = [[20, 20], [40, 12], [60, 8]] as const
+    const inside = [[100, 6], [150, 50], [8, 50]] as const
+    const out: string[] = []
+    let ok = true
+    for (const [x, y] of outside) {
+      const c = await pixel(x, y)
+      const gray = Math.abs(c[0] - c[1]) <= 2
+      ok &&= gray && inEllipse(x, y) > 1.02
+      out.push(`(${x}, ${y}) ${c.join('/')}`)
+    }
+    for (const [x, y] of inside) {
+      const c = await pixel(x, y)
+      const red = c[0] > 240 && c[1] < 15
+      ok &&= red && inEllipse(x, y) < 0.98
+      out.push(`(${x}, ${y}) ${c.join('/')}`)
+    }
+    el.remove()
+    calibrationScene()
+    stage.debug.renderNow()
+    const detail = `椭圆外（胶囊里）${out.slice(0, 3).join('、')} · 椭圆里 ${out.slice(3).join('、')}`
+    return ok ? pass(detail) : fail(detail)
+  })
+
   await check('switch', async () => {
     // <glass-switch>：轨道是填充、旋钮是玻璃。
     // 静止时旋钮是白的、轨道是绿的；按下时旋钮变成透镜，透过它看到的是底下的绿色轨道 —— 轨道要是 CSS 背景，
