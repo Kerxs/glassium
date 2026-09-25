@@ -20,10 +20,13 @@
 import { OPTICS_WGSL } from './optics.wgsl.ts'
 import { SRGB_WGSL } from './srgb.wgsl.ts'
 
-/** Panel 结构体的字节数。按 256B 步长排进一条 buffer，用动态偏移切换。 */
-export const PANEL_STRUCT_BYTES = 176
-/** 每块面板在 uniform buffer 里占的步长。T5 实测 minUniformBufferOffsetAlignment = 256。 */
-export const PANEL_STRIDE = 256
+/** Panel 结构体的字节数。按 512B 步长排进一条 buffer，用动态偏移切换。 */
+export const PANEL_STRUCT_BYTES = 304
+/**
+ * 每块面板在 uniform buffer 里占的步长：两个 256B 槽位（T5 实测 minUniformBufferOffsetAlignment = 256）。
+ * 结构体原来是 176B、步长 256；裁剪加了椭圆角与第二个形状之后长到 304B。
+ */
+export const PANEL_STRIDE = 512
 /** Float32 视角下的步长。 */
 export const PANEL_STRIDE_FLOATS = PANEL_STRIDE / 4
 
@@ -39,6 +42,37 @@ fn toLocal(v: vec2f, pose: vec4f) -> vec2f {
 
 fn toWorld(v: vec2f, pose: vec4f) -> vec2f {
   return vec2f(pose.x * v.x - pose.y * v.y, pose.x * v.y + pose.y * v.x);
+}`
+
+/**
+ * 到带圆角（可以是椭圆角）盒子边界的有符号距离，画布设备像素。裁剪区域用（玻璃与填充共用）。
+ * 按象限取角；两个半径相等的角（圆角）是原来的算法，逐位不变。不相等的是椭圆角：椭圆的隐函数 |q / r| − 1
+ * 除以它的梯度长度 —— 一阶近似的距离，在抗锯齿用得到的边界附近准（与 fill.wgsl.ts 的 fillSd 同一个近似）。
+ * 倒数（invX、invY）由 CPU 算好：着色器里不除以 uniform。
+ */
+export const ROUNDED_BOX_WGSL = /* wgsl */ `fn cornerOf(v: vec4f, right: bool, bottom: bool) -> f32 {
+  return select(select(v.x, v.y, right), select(v.w, v.z, right), bottom);
+}
+
+fn roundedBoxSd(px: vec2f, box: vec4f, radii: vec4f, radiiY: vec4f, invX: vec4f, invY: vec4f) -> f32 {
+  let c = (box.xy + box.zw) * 0.5;
+  let right = px.x > c.x;
+  let bottom = px.y > c.y;
+  let r = cornerOf(radii, right, bottom);
+  let ry = cornerOf(radiiY, right, bottom);
+  let outside = vec2f(max(box.x - px.x, px.x - box.z), max(box.y - px.y, px.y - box.w));
+  if (r == ry) {
+    let e = outside + r;
+    return length(max(e, vec2f(0.0, 0.0))) + min(max(e.x, e.y), 0.0) - r;
+  }
+  let q = outside + vec2f(r, ry);
+  if (q.x > 0.0 && q.y > 0.0) {
+    let inv = vec2f(cornerOf(invX, right, bottom), cornerOf(invY, right, bottom));
+    let k = q * inv;
+    let len = length(k);
+    return (len - 1.0) * len / max(length(k * inv), 1e-6);
+  }
+  return max(q.x - r, q.y - ry);
 }`
 
 /** 调试视图。数值同时写进 uniform，所以顺序不能随便改。 */
@@ -87,10 +121,16 @@ struct Panel {
   rimPx: f32,           // 边缘高光的宽度，画布设备像素
   adapt: f32,           // 自适应：强度带文字深浅的符号（> 0 浅色文字、< 0 深色文字、0 关掉）
   clip: vec4f,          // 裁剪祖先围出的可见区域 x0, y0, x1, y1 —— 画布设备像素；没有裁剪的方向是 ±65536
-  clipRadii: vec4f,     // 可见区域四角的圆角 TL, TR, BR, BL
+  clipRadii: vec4f,     // 可见区域四角的圆角 TL, TR, BR, BL（水平半径）
   light: vec4f,         // 按压处的光：中心 x、y，σ（画布设备像素），强度（0 = 没有）
   shadow: vec4f,        // 投影：峰值 alpha、σ、向下的偏移（画布设备像素）、空
   pose: vec4f,          // 旋转：cos θ、sin θ（屏幕坐标，y 向下），空，空。没有旋转是 (1, 0)
+  clipRadiiY: vec4f,    // 可见区域四角的竖直半径（与 clipRadii 相等的角是圆角）
+  clipInv: array<vec4f, 2>, // 1 ÷ 水平半径、1 ÷ 竖直半径（半径 0 写 0）
+  shapeBox: vec4f,      // 单独算的那个圆角形状（被截断的圆角祖先、clip-path 的圆 / 椭圆）；没有时是 ±65536、半径 0
+  shapeRadii: vec4f,
+  shapeRadiiY: vec4f,
+  shapeInv: array<vec4f, 2>,
 }
 
 // 光源方向：指向光源的单位向量，屏幕坐标（y 向下）。左上 45°。
@@ -132,14 +172,13 @@ fn shadowAlpha(sdShifted: f32, strength: f32, sigma: f32) -> f32 {
   return strength * exp(-d * d / (2.0 * sigma * sigma));
 }
 
-fn clipCoverage(px: vec2f, box: vec4f, radii: vec4f) -> f32 {
-  let c = (box.xy + box.zw) * 0.5;
-  let right = px.x > c.x;
-  let bottom = px.y > c.y;
-  let r = select(select(radii.x, radii.y, right), select(radii.w, radii.z, right), bottom);
-  let e = vec2f(max(box.x - px.x, px.x - box.z), max(box.y - px.y, px.y - box.w)) + r;
-  let sd = length(max(e, vec2f(0.0, 0.0))) + min(max(e.x, e.y), 0.0) - r;
-  return clamp(0.5 - sd, 0.0, 1.0);
+${ROUNDED_BOX_WGSL}
+
+// 裁剪的覆盖率：交集矩形（带角上的圆角）× 单独算的那个形状。没有那个形状时后一项正好是 1，乘上去逐位不变。
+fn clipCoverage(px: vec2f, p: Panel) -> f32 {
+  let a = clamp(0.5 - roundedBoxSd(px, p.clip, p.clipRadii, p.clipRadiiY, p.clipInv[0], p.clipInv[1]), 0.0, 1.0);
+  let b = clamp(0.5 - roundedBoxSd(px, p.shapeBox, p.shapeRadii, p.shapeRadiiY, p.shapeInv[0], p.shapeInv[1]), 0.0, 1.0);
+  return a * b;
 }
 
 
@@ -361,7 +400,7 @@ fn evalOptics(px: vec2f) -> Optics {
   let o = evalOptics(px);
   // 1px 抗锯齿：sd 以像素为单位，所以 0.5 - sd 在边界两侧各半个像素内从 1 过渡到 0。
   // 再乘上裁剪区域的覆盖率（祖先的圆角）。探针不乘 —— 它验的是光学，不是裁剪。
-  let clip = clipCoverage(px, panel.clip, panel.clipRadii);
+  let clip = clipCoverage(px, panel);
   let coverage = clamp(0.5 - o.sd, 0.0, 1.0) * clip;
 
   let debug = debugView(u32(panel.debugMode + 0.5), o.sd, coverage, o.dir, o.displacement, panel.amountPx);

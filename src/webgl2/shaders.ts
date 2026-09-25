@@ -205,6 +205,32 @@ vec2 toWorld(vec2 v, vec4 pose) {
 }`
 
 /** 与 glass.wgsl.ts 的 GLASS_COMMON_WGSL 对应。 */
+/** 与 glass.wgsl.ts 的 ROUNDED_BOX_WGSL 对应：到带圆角（可以是椭圆角）盒子边界的有符号距离。 */
+const ROUNDED_BOX_GLSL = `float cornerOf(vec4 v, bool right, bool bottom) {
+  return bottom ? (right ? v.z : v.w) : (right ? v.y : v.x);
+}
+
+float roundedBoxSd(vec2 px, vec4 box, vec4 radii, vec4 radiiY, vec4 invX, vec4 invY) {
+  vec2 c = (box.xy + box.zw) * 0.5;
+  bool right = px.x > c.x;
+  bool bottom = px.y > c.y;
+  float r = cornerOf(radii, right, bottom);
+  float ry = cornerOf(radiiY, right, bottom);
+  vec2 outside = vec2(max(box.x - px.x, px.x - box.z), max(box.y - px.y, px.y - box.w));
+  if (r == ry) {
+    vec2 e = outside + r;
+    return length(max(e, vec2(0.0))) + min(max(e.x, e.y), 0.0) - r;
+  }
+  vec2 q = outside + vec2(r, ry);
+  if (q.x > 0.0 && q.y > 0.0) {
+    vec2 inv = vec2(cornerOf(invX, right, bottom), cornerOf(invY, right, bottom));
+    vec2 k = q * inv;
+    float len = length(k);
+    return (len - 1.0) * len / max(length(k * inv), 1e-6);
+  }
+  return max(q.x - r, q.y - ry);
+}`
+
 const GLASS_COMMON = `
 ${OPTICS_GLSL}
 
@@ -229,6 +255,12 @@ struct Panel {
   vec4 light;
   vec4 shadow;
   vec4 pose;
+  vec4 clipRadiiY;
+  vec4 clipInv[2];
+  vec4 shapeBox;
+  vec4 shapeRadii;
+  vec4 shapeRadiiY;
+  vec4 shapeInv[2];
 };
 
 const vec2 LIGHT_DIR = vec2(-0.70710678, -0.70710678);
@@ -376,15 +408,13 @@ float shadowAlpha(float sdShifted, float strength, float sigma) {
   return strength * exp(-d * d / (2.0 * sigma * sigma));
 }
 
+${ROUNDED_BOX_GLSL}
+
 // 与 glass.wgsl.ts 的 clipCoverage 对应。
-float clipCoverage(vec2 px, vec4 box, vec4 radii) {
-  vec2 c = (box.xy + box.zw) * 0.5;
-  bool right = px.x > c.x;
-  bool bottom = px.y > c.y;
-  float r = bottom ? (right ? radii.z : radii.w) : (right ? radii.y : radii.x);
-  vec2 e = vec2(max(box.x - px.x, px.x - box.z), max(box.y - px.y, px.y - box.w)) + r;
-  float sd = length(max(e, vec2(0.0))) + min(max(e.x, e.y), 0.0) - r;
-  return clamp(0.5 - sd, 0.0, 1.0);
+float clipCoverage(vec2 px, Panel p) {
+  float a = clamp(0.5 - roundedBoxSd(px, p.clip, p.clipRadii, p.clipRadiiY, p.clipInv[0], p.clipInv[1]), 0.0, 1.0);
+  float b = clamp(0.5 - roundedBoxSd(px, p.shapeBox, p.shapeRadii, p.shapeRadiiY, p.shapeInv[0], p.shapeInv[1]), 0.0, 1.0);
+  return a * b;
 }
 
 vec4 debugView(int mode, float sd, float coverage, vec2 dir, float displacement, float amountPx) {
@@ -447,7 +477,7 @@ void main() {
     outColor = vec4(o.sd, o.dir.x, o.dir.y, o.displacement);
     return;
   }
-  float clip = clipCoverage(px, panel.clip, panel.clipRadii);
+  float clip = clipCoverage(px, panel);
   float coverage = clamp(0.5 - o.sd, 0.0, 1.0) * clip;
   vec4 debug = debugView(int(panel.debugMode + 0.5), o.sd, coverage, o.dir, o.displacement, panel.amountPx);
   if (debug.a >= 0.0) {
@@ -507,6 +537,12 @@ struct Fill {
   vec4 span;
   vec4 radiiY;
   vec4 inv[2];
+  vec4 clipRadiiY;
+  vec4 clipInv[2];
+  vec4 shapeBox;
+  vec4 shapeRadii;
+  vec4 shapeRadiiY;
+  vec4 shapeInv[2];
 };
 layout(std140) uniform FillBlock {
   Fill fill;
@@ -517,14 +553,13 @@ uniform float uLinear;      // 1 = 输出线性值（线性光模式下画进场
 out vec4 outColor;
 ${SRGB_GLSL}
 
+${ROUNDED_BOX_GLSL}
+
 // 与 fill.wgsl.ts 的 clipSd 对应。
-float clipSd(vec2 px, vec4 box, vec4 radii) {
-  vec2 c = (box.xy + box.zw) * 0.5;
-  bool right = px.x > c.x;
-  bool bottom = px.y > c.y;
-  float r = bottom ? (right ? radii.z : radii.w) : (right ? radii.y : radii.x);
-  vec2 e = vec2(max(box.x - px.x, px.x - box.z), max(box.y - px.y, px.y - box.w)) + r;
-  return length(max(e, vec2(0.0))) + min(max(e.x, e.y), 0.0) - r;
+float clipSd(vec2 px) {
+  float a = roundedBoxSd(px, fill.clip, fill.clipRadii, fill.clipRadiiY, fill.clipInv[0], fill.clipInv[1]);
+  float b = roundedBoxSd(px, fill.shapeBox, fill.shapeRadii, fill.shapeRadiiY, fill.shapeInv[0], fill.shapeInv[1]);
+  return max(a, b);
 }
 
 // 与 fill.wgsl.ts 的 fillSd 对应。
@@ -583,7 +618,7 @@ void main() {
   vec2 c = toLocal(px - (fill.rect.xy + halfSize), fill.pose);
   float sd = fillSd(c, halfSize);
   float shape = clamp(0.5 - sd / uDest.z, 0.0, 1.0);
-  float clip = clamp(0.5 - clipSd(px, fill.clip, fill.clipRadii) / uDest.z, 0.0, 1.0);
+  float clip = clamp(0.5 - clipSd(px) / uDest.z, 0.0, 1.0);
   if (fill.paint.x < 0.5) {
     float a = fill.color.a * shape * clip;
     if (a <= 0.0) {
@@ -765,10 +800,10 @@ float groupShadow(vec2 px) {
 
 float groupClip(vec2 px) {
   int count = min(int(grp.header.x + 0.5), ${capacity});
-  float c = clipCoverage(px, grp.members[0].clip, grp.members[0].clipRadii);
+  float c = clipCoverage(px, grp.members[0]);
   for (int i = 1; i < ${capacity}; i++) {
     if (i >= count) break;
-    c = max(c, clipCoverage(px, grp.members[i].clip, grp.members[i].clipRadii));
+    c = max(c, clipCoverage(px, grp.members[i]));
   }
   return c;
 }

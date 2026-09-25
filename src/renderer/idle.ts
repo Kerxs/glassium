@@ -24,6 +24,7 @@ import type { BlendSpace } from '../core/color.ts'
 import type { ResolvedViewport } from '../core/units.ts'
 import type { PanelDebugMode } from '../shaders/glass.wgsl.ts'
 import type { BackdropState, SceneImage } from './backend.ts'
+import type { RoundedBox } from './clipping.ts'
 import type { MeasuredFill } from './fills.ts'
 import type { MeasuredGroup, MeasuredPanel } from './panels.ts'
 
@@ -75,6 +76,18 @@ function sameScene(a: SceneImage | null, b: SceneImage | null): boolean {
   )
 }
 
+function sameRoundedBox(a: RoundedBox | null, b: RoundedBox | null): boolean {
+  if (a === null || b === null) return a === b
+  return (
+    a.box.x0 === b.box.x0 &&
+    a.box.y0 === b.box.y0 &&
+    a.box.x1 === b.box.x1 &&
+    a.box.y1 === b.box.y1 &&
+    sameTuple(a.rx, b.rx) &&
+    sameTuple(a.ry, b.ry)
+  )
+}
+
 function samePanel(a: MeasuredPanel, b: MeasuredPanel): boolean {
   return (
     a.record === b.record &&
@@ -89,6 +102,8 @@ function samePanel(a: MeasuredPanel, b: MeasuredPanel): boolean {
     a.clip.x1 === b.clip.x1 &&
     a.clip.y1 === b.clip.y1 &&
     sameTuple(a.clipRadii, b.clipRadii) &&
+    sameTuple(a.clipRadiiY, b.clipRadiiY) &&
+    sameRoundedBox(a.clipShape, b.clipShape) &&
     sameTuple(a.light, b.light) &&
     a.fade === b.fade &&
     a.tone === b.tone &&
@@ -135,6 +150,8 @@ function sameFill(a: MeasuredFill, b: MeasuredFill): boolean {
     a.clip.x1 === b.clip.x1 &&
     a.clip.y1 === b.clip.y1 &&
     sameTuple(a.clipRadii, b.clipRadii) &&
+    sameTuple(a.clipRadiiY, b.clipRadiiY) &&
+    sameRoundedBox(a.clipShape, b.clipShape) &&
     sameTuple(a.radii, b.radii) &&
     sameTuple(a.radiiY, b.radiiY) &&
     sameTuple(a.color, b.color) &&

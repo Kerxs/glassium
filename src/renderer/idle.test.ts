@@ -41,6 +41,8 @@ const panel = (over: Partial<MeasuredPanel> = {}): MeasuredPanel => ({
   scissor: [0, 0, 120, 80],
   clip: { x0: -Infinity, y0: -Infinity, x1: Infinity, y1: Infinity },
   clipRadii: [0, 0, 0, 0],
+  clipRadiiY: [0, 0, 0, 0],
+  clipShape: null,
   light: [0, 0, 1, 0],
   fade: 1,
   tone: 1,
@@ -64,6 +66,8 @@ const fill = (over: Partial<MeasuredFill> = {}): MeasuredFill => ({
   scissor: [38, 58, 55, 35],
   clip: { x0: -Infinity, y0: -Infinity, x1: Infinity, y1: Infinity },
   clipRadii: [0, 0, 0, 0],
+  clipRadiiY: [0, 0, 0, 0],
+  clipShape: null,
   radii: [15.5, 15.5, 15.5, 15.5],
   radiiY: [15.5, 15.5, 15.5, 15.5],
   color: [0.2, 0.78, 0.35, 1],
@@ -145,6 +149,18 @@ test('面板：动了、换了降级结果、换了裁剪、多一块少一块�
     false
   )
   assert.equal(unchangedFrame(frame(), frame({ panels: [panel({ clipRadii: [0, 12, 0, 0] })] })), false)
+  assert.equal(unchangedFrame(frame(), frame({ panels: [panel({ clipRadiiY: [0, 12, 0, 0] })] })), false)
+  const circle = { box: { x0: 0, y0: 0, x1: 80, y1: 80 }, rx: [40, 40, 40, 40], ry: [40, 40, 40, 40] } as const
+  assert.equal(unchangedFrame(frame(), frame({ panels: [panel({ clipShape: circle })] })), false)
+  assert.equal(
+    unchangedFrame(frame({ panels: [panel({ clipShape: circle })] }), frame({ panels: [panel({ clipShape: { ...circle } })] })),
+    true,
+    '同样的形状（不同的对象）：没变'
+  )
+  assert.equal(
+    unchangedFrame(frame({ fills: [fill({ clipShape: circle })] }), frame({ fills: [fill({ clipShape: { ...circle, box: { ...circle.box, x1: 81 } } })] })),
+    false
+  )
   assert.equal(unchangedFrame(frame(), frame({ panels: [panel({ light: [30, 40, 20, 0.2] })] })), false, '按压处的光')
   assert.equal(unchangedFrame(frame(), frame({ panels: [panel({ fade: 0.5 })] })), false, 'CSS 不透明度（渐隐中）')
   assert.equal(unchangedFrame(frame(), frame({ panels: [panel({ tone: -1 })] })), false, '文字深浅')

@@ -117,7 +117,8 @@ GPU 输出由 `playground/verify.html` 在浏览器里逐项验证（光学探�
 
 - [x] **裁剪**（`src/renderer/clipping.ts`）。面板在滚动容器里被滚出可见区域时，玻璃跟着裁掉；
       按包含块链找裁剪祖先，absolute / fixed 的规则与浏览器一致。容器的 `border-radius` 也跟：圆角外的玻璃
-      在着色器里抹掉（没有裁剪的面板逐位不变）。clip-path 不跟，见 [docs/limitations.md](docs/limitations.md)
+      在着色器里抹掉（没有裁剪的面板逐位不变）。clip-path 的基本形状也跟（见下），近似之处见
+      [docs/limitations.md](docs/limitations.md)
 - [x] **帧开销实测**。每多一块面板主线程约多 1.7 µs；GPU 每帧约 0.25 ms，与面板数基本无关（高端独显），
       见 [docs/calibration.md](docs/calibration.md)
 - [x] **用户场景**：`stage.setScene()`（`src/renderer/scene-source.ts`）。玻璃后面画你自己的图片、视频或画布，
@@ -172,6 +173,11 @@ GPU 输出由 `playground/verify.html` 在浏览器里逐项验证（光学探�
       出现，一边长大一边移到自己的位置 —— 离得近时 smin 把它和邻居连着，颈部拉长、断开；`container.dismiss(member)`
       反过来缩回去再拿掉。实测一滴的中心正落在邻居的边上（496.0, 528.0），那里画着玻璃。动的是 `translate` / `scale`，
       玻璃跟得上；减少动效时直接出现、直接拿掉
+- [x] **clip-path 与裁剪的椭圆角**（`src/renderer/clip-path.ts`）：面板自己或祖先写了 `clip-path` 时玻璃跟着裁 ——
+      `inset()`（圆角、椭圆角）、`circle()`、`ellipse()`、`rect()`、`xywh()`、只写盒子关键字；`polygon()` 按外接矩形
+      近似，`url()` / `path()` 画不了（警告一次）。`overflow` 祖先的椭圆角（长方形上的 `border-radius: 50%`）不再按
+      短半径近似；被别的裁剪从中间截断的圆角区域整个交给着色器单独算。实测 300×100 的椭圆外、按短半径画成圆角时却在
+      里面的两点是场景 127，椭圆里是玻璃 185/97/97；没有这些的页面整帧逐位不变
 - [x] **变形：这一块变成那一块**（`morphGlass(from, to)`，`src/components/morph-glass.ts`）：SwiftUI `glassEffectID`
       那种 —— 按钮长成一张卡片，再缩回去；两头是任意两块玻璃，不必在同一个容器里。一块过渡用的玻璃从 from 的位置、
       大小、圆角、材质插值到 to 的，from 在开头 30% 里淡出、to 在最后 30% 里淡入，投影交叉淡出淡入。两头与只有
@@ -204,9 +210,9 @@ GPU 设备丢失时会在新设备上整套重建（实测约 30 ms，恢复后�
 WebGL2（WebGL2 的上下文丢失同理，第二次降到 CSS 兜底）。T5 到 T8 期间这一点是坏的：
 日志说会重新初始化，实际上画布会冻住 —— 现已修复，见 [docs/limitations.md](docs/limitations.md)。
 
-**238 条测试全绿**，playground 可跑（`npm run dev`），只用公开 API 搭的示例页在 `/demo.html`，
+**256 条测试全绿**，playground 可跑（`npm run dev`），只用公开 API 搭的示例页在 `/demo.html`，
 逐项自动验证在 `/verify.html`
-（现在 WebGPU 上 **PASS 40/40**、WebGL2 上 **PASS 39/39**）。
+（现在 WebGPU 上 **PASS 41/41**、WebGL2 上 **PASS 40/40**）。
 
 T5 顺带把两个计划阶段悬着的硬件问题测掉了，结果记在
 [docs/calibration.md](docs/calibration.md)：`minUniformBufferOffsetAlignment` 实测 256

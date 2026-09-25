@@ -56,6 +56,8 @@ test('packFill 写入的每个字段都落在 WGSL struct 的对应偏移上', (
     scissor: [9, 20, 337, 48],
     clip: { x0: 5, y0: -Infinity, x1: 400, y1: Infinity },
     clipRadii: [1, 2, 3, 4],
+    clipRadiiY: [1, 2, 6, 4],
+    clipShape: { box: { x0: 0, y0: 0, x1: 80, y1: 40 }, rx: [40, 40, 40, 40], ry: [20, 20, 20, 20] },
     radii: [5, 6, 7, 8],
     radiiY: [5, 3, 0, 8],
     color: [0.1, 0.2, 0.3, 0.4],
@@ -88,6 +90,11 @@ test('packFill 写入的每个字段都落在 WGSL struct 的对应偏移上', (
   near(at('inv', 1), 1 / 6, '1 / 水平半径 TR')
   near(at('inv', 4 + 1), 1 / 3, '1 / 竖直半径 TR')
   near(at('inv', 4 + 2), 0, '半径 0 的角：倒数写 0')
+  near(at('clipRadiiY', 2), 6, '裁剪的竖直半径 BR')
+  near(at('clipInv', 4 + 2), 1 / 6, '1 / 裁剪的竖直半径 BR')
+  near(at('shapeBox', 2), 80, '单独算的形状 x1')
+  near(at('shapeRadiiY', 0), 20, '形状的竖直半径')
+  near(at('shapeInv', 0), 1 / 40, '1 / 形状的水平半径')
   assert.ok(data.subarray(0, base).every((v) => v === 0), '写越界到了前一个槽位')
 
   // 渐变：线性（方向除以长度²）、位置、重复的周期、相邻两个位置之差的倒数（重合的是 0）
@@ -127,8 +134,9 @@ test('packFill 写入的每个字段都落在 WGSL struct 的对应偏移上', (
   near(g('span', 1), 0, '重合的一段：硬边')
   near(g('span', 2), 2, '第 2 段')
   near(g('span', 3), 0, '没有第 3 段')
-  assert.equal(fields.get('inv')! + 32, FILL_STRUCT_BYTES, 'inv 是最后一项')
+  assert.equal(fields.get('shapeInv')! + 32, FILL_STRUCT_BYTES, 'shapeInv 是最后一项')
   assert.equal(fields.get('radiiY'), 256, '椭圆角接在渐变后面：前面的布局没挪')
+  assert.equal(fields.get('clipRadiiY'), 304, '裁剪的后半截接在椭圆角后面')
   assert.equal(fields.get('at')! - fields.get('stops')!, MAX_GRADIENT_STOPS * 16, '色标的颜色正好 MAX_GRADIENT_STOPS 个')
 
   // 径向：中心、半径的倒数

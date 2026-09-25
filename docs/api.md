@@ -222,6 +222,10 @@ button.classList.add('collapsed')           // 接着把 from 藏起来（或拿
 玻璃生效时组件带上 `data-glassium-active` 属性，兜底表面随之去掉。所有选择器都在 `:where()` 里，优先级为 0。
 兜底表面的圆角来自 CSS 的 `border-radius`，不来自 `corner-radius`。
 
+玻璃与填充跟着 DOM 的裁剪走：`overflow` 不是 visible 的祖先（连同它的 `border-radius`，椭圆角也算），以及面板自己
+或祖先的 `clip-path` —— `inset()`、`circle()`、`ellipse()`、`rect()`、`xywh()`、盒子关键字；`polygon()` 按外接矩形。
+`url()`、`path()` 与 `mask` 不跟（前两个会警告）。详见 [limitations.md](limitations.md)「裁剪」一节。
+
 ---
 
 ## `createGlassStage(options?)` → `Promise<GlassStage>`

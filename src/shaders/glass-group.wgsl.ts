@@ -23,8 +23,8 @@ import { GLASS_COMMON_WGSL, PANEL_STRUCT_BYTES } from './glass.wgsl.ts'
 export const GROUP_CAPACITY = 4
 /** Group 结构体的字节数：16B 的头 + 4 × 176B 的成员 = 720B。 */
 export const GROUP_STRUCT_BYTES = 16 + GROUP_CAPACITY * PANEL_STRUCT_BYTES
-/** 每组在 uniform buffer 里占的步长：三个 256B 槽位（动态偏移仍按 256 对齐）。 */
-export const GROUP_STRIDE = 768
+/** 每组在 uniform buffer 里占的步长：五个 256B 槽位（动态偏移仍按 256 对齐）。16 + 4 × 304 = 1232B。 */
+export const GROUP_STRIDE = 1280
 export const GROUP_STRIDE_FLOATS = GROUP_STRIDE / 4
 
 export const GLASS_GROUP_WGSL = /* wgsl */ `
@@ -187,9 +187,9 @@ fn groupShadow(px: vec2f) -> f32 {
 
 fn groupClip(px: vec2f) -> f32 {
   let count = min(u32(group.header.x + 0.5), ${GROUP_CAPACITY}u);
-  var c = clipCoverage(px, group.members[0].clip, group.members[0].clipRadii);
+  var c = clipCoverage(px, group.members[0]);
   for (var i = 1u; i < count; i++) {
-    c = max(c, clipCoverage(px, group.members[i].clip, group.members[i].clipRadii));
+    c = max(c, clipCoverage(px, group.members[i]));
   }
   return c;
 }

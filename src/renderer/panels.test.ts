@@ -56,9 +56,10 @@ function parsePanelStruct(): { fields: Map<string, number>; size: number } {
   let offset = 0
   let maxAlign = 0
   for (const line of m[1]!.split('\n')) {
-    const f = /^\s*(\w+)\s*:\s*(\w+)\s*,/.exec(line)
+    const f = /^\s*(\w+)\s*:\s*(\w+|array<vec4f,\s*(\d+)>)\s*,/.exec(line)
     if (!f) continue
-    const layout = LAYOUT[f[2]!]
+    // array<vec4f, N>：uniform 里数组元素的步长是 16，对齐 16
+    const layout = f[3] ? { align: 16, size: 16 * Number(f[3]) } : LAYOUT[f[2]!]
     assert.ok(layout, `struct Panel 里出现了测试不认识的类型 ${f[2]}，请补进 LAYOUT`)
     offset = Math.ceil(offset / layout.align) * layout.align
     fields.set(f[1]!, offset)
@@ -105,6 +106,8 @@ test('packPanel 写入的每个字段都落在 WGSL struct 的对应偏移上', 
     // 一半有界、一半没有：没有裁剪的方向要写成有限的 ±65536（着色器里 ∞ − ∞ 是 NaN）
     clip: { x0: 5, y0: -Infinity, x1: 400, y1: Infinity },
     clipRadii: [1, 2, 3, 4],
+    clipRadiiY: [1, 5, 0, 4],
+    clipShape: { box: { x0: 20, y0: 30, x1: 220, y1: 130 }, rx: [100, 100, 100, 100], ry: [50, 50, 50, 50] },
     light: [50, 60, 25, 0.15],
     fade: 0.5,
     tone: -1,
@@ -172,6 +175,26 @@ test('packPanel 写入的每个字段都落在 WGSL struct 的对应偏移上', 
   near(at('shadow', 2), SHADOW_OFFSET_DP * scale, 'shadow.offset')
   near(at('pose', 0), 0.6, 'pose.cos')
   near(at('pose', 1), 0.8, 'pose.sin')
+  // 裁剪的后半截：竖直半径、倒数（半径 0 写 0），单独算的那个形状
+  near(at('clipRadiiY', 1), 5, 'clipRadiiY.TR')
+  near(at('clipInv', 1), 1 / 2, '1 / 水平半径 TR')
+  near(at('clipInv', 4 + 1), 1 / 5, '1 / 竖直半径 TR')
+  near(at('clipInv', 4 + 2), 0, '半径 0 的角：倒数写 0')
+  near(at('shapeBox', 0), 20, 'shapeBox.x0')
+  near(at('shapeBox', 3), 130, 'shapeBox.y1')
+  near(at('shapeRadii', 2), 100, 'shapeRadii.BR')
+  near(at('shapeRadiiY', 2), 50, 'shapeRadiiY.BR')
+  near(at('shapeInv', 0), 1 / 100, '1 / 形状的水平半径')
+  near(at('shapeInv', 4), 1 / 50, '1 / 形状的竖直半径')
+  assert.equal(fields.get('shapeInv')! + 32, PANEL_STRUCT_BYTES, 'shapeInv 是最后一项')
+  assert.equal(fields.get('clipRadiiY'), 176, '裁剪的后半截接在原来的 176B 后面：前面的布局没挪')
+
+  // 没有单独算的形状：写「不裁」（±65536 的矩形、半径 0）—— 着色器里覆盖率正好是 1
+  packPanel(data, 2, { ...panel, clipShape: null }, viewport, 6, 'grad')
+  near(at('shapeBox', 0), -CLIP_UNBOUNDED_PX, '没有形状：x0 = −65536')
+  near(at('shapeBox', 2), CLIP_UNBOUNDED_PX, '没有形状：x1 = +65536')
+  near(at('shapeRadii', 0), 0, '没有形状：半径 0')
+  near(at('shapeInv', 0), 0, '没有形状：倒数 0')
 
   // 相邻槽位不能被写脏
   assert.ok(data.subarray(0, base).every((v) => v === 0), '写越界到了前一个槽位')

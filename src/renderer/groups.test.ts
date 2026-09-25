@@ -190,7 +190,7 @@ test('packGroup：头是 (成员数, k, 调试模式, 0)，成员与 packPanel �
   assert.deepEqual([...data.subarray(o, o + 4)], [2, 30, 2, 0])
 
   for (let i = 0; i < 2; i++) {
-    const single = new Float32Array(64)
+    const single = new Float32Array(PANEL_STRUCT_FLOATS)
     packPanel(single, 0, group.members[i]!, viewport, 6, 'mask')
     const at = o + 4 + i * PANEL_STRUCT_FLOATS
     assert.deepEqual([...data.subarray(at, at + PANEL_STRUCT_FLOATS)], [...single.subarray(0, PANEL_STRUCT_FLOATS)])

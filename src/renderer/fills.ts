@@ -17,7 +17,15 @@
 import { MAX_GRADIENT_STOPS, type FillPaint, type ResolvedPaint } from '../core/gradient.ts'
 import { parseTint } from '../core/material.ts'
 import { FILL_STRIDE_FLOATS } from '../shaders/fill.wgsl.ts'
-import { CLIP_UNBOUNDED_PX, parseCornerRadius, scaleRadii, type Box, type ClipEntry } from './clipping.ts'
+import {
+  CLIP_UNBOUNDED_PX,
+  packClipExtras,
+  parseCornerRadius,
+  scaleRadii,
+  type Box,
+  type ClipEntry,
+  type RoundedBox
+} from './clipping.ts'
 
 /** 填充颜色的 CSS 自定义属性。 */
 export const FILL_PROPERTY = '--glass-fill'
@@ -176,6 +184,10 @@ export interface MeasuredFill {
   readonly scissor: readonly [number, number, number, number]
   readonly clip: Box
   readonly clipRadii: readonly [number, number, number, number]
+  /** 可见区域四角的竖直半径（与 clipRadii 相等的角是圆角）。 */
+  readonly clipRadiiY: readonly [number, number, number, number]
+  /** 单独算的那个圆角形状（见 clipping.ts 的 RoundClip），没有是 null。 */
+  readonly clipShape: RoundedBox | null
   /** 四角的水平半径，画布设备像素。 */
   readonly radii: readonly [number, number, number, number]
   /** 四角的竖直半径（与 radii 相等的角是圆角）。 */
@@ -231,6 +243,8 @@ export function packFill(data: Float32Array, index: number, fill: MeasuredFill):
   // 渐变 @ 96 起。纯色时种类写 0，其余清零（槽位是复用的，别留着上一帧别的填充的数）
   data.fill(0, o + 24, o + FILL_STRIDE_FLOATS)
   packCorners(data, o, fill)
+  // clipRadiiY @ 304、clipInv @ 320；shapeBox @ 352、shapeRadii @ 368、shapeRadiiY @ 384、shapeInv @ 400
+  packClipExtras(data, o + 76, o + 88, fill.clipRadii, fill.clipRadiiY, fill.clipShape)
   const g = fill.gradient
   if (!g) return
   const n = Math.min(g.colors.length, MAX_GRADIENT_STOPS)

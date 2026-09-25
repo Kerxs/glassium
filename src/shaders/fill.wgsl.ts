@@ -21,12 +21,12 @@
  */
 
 import { MAX_GRADIENT_STOPS } from '../core/gradient.ts'
-import { POSE_WGSL } from './glass.wgsl.ts'
+import { POSE_WGSL, ROUNDED_BOX_WGSL } from './glass.wgsl.ts'
 import { OPTICS_WGSL } from './optics.wgsl.ts'
 import { SRGB_WGSL } from './srgb.wgsl.ts'
 
-/** Fill 结构体的字节数（19 个 vec4f）。按 512B 步长排进一条 buffer（动态偏移要对齐 256），用动态偏移切换。 */
-export const FILL_STRUCT_BYTES = 304
+/** Fill 结构体的字节数（27 个 vec4f）。按 512B 步长排进一条 buffer（动态偏移要对齐 256），用动态偏移切换。 */
+export const FILL_STRUCT_BYTES = 432
 export const FILL_STRIDE = 512
 export const FILL_STRIDE_FLOATS = FILL_STRIDE / 4
 /** Dest 结构体：scale.xy、aa、linear。 */
@@ -53,6 +53,12 @@ struct Fill {
   span: vec4f,          // 相邻两个色标之间：1 ÷ 位置之差（第 0–3 段；重合的是 0）
   radiiY: vec4f,        // 四角的竖直半径（与 radii 同序，radii 是水平的）；两个相等的角是圆角
   inv: array<vec4f, 2>, // 1 ÷ 水平半径、1 ÷ 竖直半径（四角；半径 0 写 0）—— 椭圆角用，着色器里不除以 uniform
+  clipRadiiY: vec4f,    // 裁剪：可见区域四角的竖直半径（与 clipRadii 相等的角是圆角）
+  clipInv: array<vec4f, 2>,
+  shapeBox: vec4f,      // 裁剪：单独算的那个圆角形状（见 glass.wgsl.ts 的 Panel）
+  shapeRadii: vec4f,
+  shapeRadiiY: vec4f,
+  shapeInv: array<vec4f, 2>,
 }
 
 // 这一次画到哪里。（不叫 target：那是 WGSL 的保留字。）
@@ -80,15 +86,14 @@ struct VsOut {
   return out;
 }
 
-// 到裁剪区域（带圆角）边界的有符号距离。与 glass.wgsl.ts 的 clipCoverage 是同一个 SDF，
-// 只是不在这里钳成覆盖率 —— 覆盖率要按目标像素的宽度换算。
-fn clipSd(px: vec2f, box: vec4f, radii: vec4f) -> f32 {
-  let c = (box.xy + box.zw) * 0.5;
-  let right = px.x > c.x;
-  let bottom = px.y > c.y;
-  let r = select(select(radii.x, radii.y, right), select(radii.w, radii.z, right), bottom);
-  let e = vec2f(max(box.x - px.x, px.x - box.z), max(box.y - px.y, px.y - box.w)) + r;
-  return length(max(e, vec2f(0.0, 0.0))) + min(max(e.x, e.y), 0.0) - r;
+${ROUNDED_BOX_WGSL}
+
+// 到裁剪区域边界的有符号距离：交集矩形（带角上的圆角）与单独算的那个形状取交（SDF 取大的）。与 glass.wgsl.ts 的
+// clipCoverage 同一套，只是不在这里钳成覆盖率 —— 覆盖率要按目标像素的宽度换算。没有那个形状时逐位不变。
+fn clipSd(px: vec2f) -> f32 {
+  let a = roundedBoxSd(px, fill.clip, fill.clipRadii, fill.clipRadiiY, fill.clipInv[0], fill.clipInv[1]);
+  let b = roundedBoxSd(px, fill.shapeBox, fill.shapeRadii, fill.shapeRadiiY, fill.shapeInv[0], fill.shapeInv[1]);
+  return max(a, b);
 }
 
 // 盒子的 SDF。水平、竖直半径相等的角（圆角）走 sdRoundedRect，与只有圆角时逐位相同；不相等的是椭圆角：
@@ -152,7 +157,7 @@ fn gradientAt(t0: f32) -> vec4f {
   let c = toLocal(px - (fill.rect.xy + halfSize), fill.pose);
   let sd = fillSd(c, halfSize);
   let shape = clamp(0.5 - sd / dest.aa, 0.0, 1.0);
-  let clip = clamp(0.5 - clipSd(px, fill.clip, fill.clipRadii) / dest.aa, 0.0, 1.0);
+  let clip = clamp(0.5 - clipSd(px) / dest.aa, 0.0, 1.0);
   if (fill.paint.x < 0.5) {
     let a = fill.color.a * shape * clip;
     if (a <= 0.0) {

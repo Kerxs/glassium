@@ -2373,6 +2373,124 @@ async function run(): Promise<void> {
     return cornerWith === cornerWithout && middleWith !== middleWithout ? pass(detail) : fail(detail)
   })
 
+  await check('clip-path', async () => {
+    // clip-path 的基本形状与椭圆角的裁剪。一块比容器大的红玻璃，看几个有鉴别力的点是玻璃（R − G 大）还是场景（灰）：
+    // 1) circle()：圆里是玻璃；外接正方形的角上是场景（只按矩形裁时那里是玻璃）
+    // 2) ellipse()（300×100 上 rx 150、ry 50）：两个在椭圆外、按短半径画成圆角时却在里面的点是场景
+    // 3) overflow: hidden + border-radius: 50%（裁剪祖先的椭圆角）：同样两点
+    // 4) 面板自己写 clip-path: inset(10px round 30px / 10px)
+    // 5) 圆被 overflow 的祖先从中间截断：截断处附近、圆外的一点是场景（只按交集的角算时那里是直角、是玻璃）
+    // 6) circle(0%)：什么都看不见；url() 引用画不了：警告一次、照样画（与 DOM 一样不裁）
+    stage.debug.setBackdrop({ scene: 'flat' })
+    const warnings: string[] = []
+    const realWarn = console.warn
+    console.warn = (...args: unknown[]): void => {
+      if (String(args[0]).includes('clip-path')) warnings.push(String(args[0]))
+      else realWarn(...args)
+    }
+    const made: HTMLElement[] = []
+    const redCard = (w: number, h: number, css: Partial<CSSStyleDeclaration> = {}): HTMLElement => {
+      const card = document.createElement('glass-card')
+      card.setAttribute('corner-radius', '0')
+      card.setAttribute('tint', 'rgba(255, 60, 60, 0.45)')
+      Object.assign(card.style, { position: 'absolute', left: '-20px', top: '-20px', width: `${w + 40}px`, height: `${h + 40}px`, ...css })
+      return card
+    }
+    const box = (left: number, top: number, w: number, h: number, css: Partial<CSSStyleDeclaration>, child?: HTMLElement): HTMLElement => {
+      const el = document.createElement('div')
+      Object.assign(el.style, { position: 'absolute', left: `${left}px`, top: `${top}px`, width: `${w}px`, height: `${h}px`, ...css })
+      el.append(child ?? redCard(w, h))
+      document.body.append(el)
+      made.push(el)
+      return el
+    }
+    const circle = box(60, 480, 200, 100, { clipPath: 'circle()' })
+    const ellipse = box(300, 480, 300, 100, { clipPath: 'ellipse()' })
+    const oval = box(300, 620, 300, 100, { overflow: 'hidden', borderRadius: '50%' })
+    const own = redCard(160, 60, { left: '60px', top: '620px', width: '200px', height: '100px', clipPath: 'inset(10px round 30px / 10px)' })
+    document.body.append(own)
+    made.push(own)
+    const cutInner = document.createElement('div')
+    Object.assign(cutInner.style, { position: 'absolute', left: '0', top: '0', width: '200px', height: '100px', clipPath: 'circle()' })
+    cutInner.append(redCard(200, 100))
+    const cut = box(60, 720, 130, 100, { overflow: 'hidden' }, cutInner)
+    const none = box(300, 720, 200, 100, { clipPath: 'circle(0%)' })
+    const missing = box(540, 720, 200, 100, { clipPath: 'url(#glassium-verify-missing)' })
+    await sleep(0)
+
+    const v = stage.debug.stats().viewport!
+    const s = v.compositeWidth / v.cssWidth
+    const canvasBox = stage.canvas.getBoundingClientRect()
+    const at = async (el: HTMLElement, x: number, y: number): Promise<number[]> => {
+      const r = el.getBoundingClientRect()
+      const d = await readback({
+        x: Math.floor((r.left + x - canvasBox.left) * s),
+        y: Math.floor((r.top + y - canvasBox.top) * s),
+        width: 1,
+        height: 1
+      })
+      return [d[0]!, d[1]!, d[2]!]
+    }
+    const glass = (c: readonly number[]): boolean => c[0]! - c[1]! > 20
+    const scene = (c: readonly number[]): boolean => Math.abs(c[0]! - c[1]!) <= 2
+    type Probe = readonly [HTMLElement, number, number, 'glass' | 'scene']
+    const probes: Record<string, readonly Probe[]> = {
+      circle: [
+        [circle, 138, 50, 'glass'],
+        [circle, 100, 8, 'glass'],
+        [circle, 140, 90, 'scene'], // 外接正方形的角上
+        [circle, 60, 10, 'scene'],
+        [circle, 20, 50, 'scene']
+      ],
+      ellipse: [
+        [ellipse, 20, 20, 'scene'], // 椭圆外；按短半径 50 画成圆角时在里面
+        [ellipse, 40, 12, 'scene'],
+        [ellipse, 150, 6, 'glass'],
+        [ellipse, 8, 50, 'glass']
+      ],
+      oval: [
+        [oval, 20, 20, 'scene'],
+        [oval, 40, 12, 'scene'],
+        [oval, 150, 6, 'glass'],
+        [oval, 8, 50, 'glass']
+      ],
+      own: [
+        [own, 12, 12, 'scene'], // 椭圆角外
+        [own, 5, 50, 'scene'], // inset 外
+        [own, 25, 14, 'glass'],
+        [own, 100, 50, 'glass']
+      ],
+      cut: [
+        [cut, 125, 3, 'scene'], // 圆外、截断处附近 —— 只按交集的角算时是玻璃
+        [cut, 120, 15, 'glass'],
+        [cut, 70, 50, 'glass']
+      ],
+      none: [[none, 100, 50, 'scene']],
+      missing: [[missing, 100, 50, 'glass']]
+    }
+    const f = (c: readonly number[]): string => c.join('/')
+    const parts: string[] = []
+    let ok = true
+    for (const [name, list] of Object.entries(probes)) {
+      const got: string[] = []
+      for (const [el, x, y, want] of list) {
+        const c = await at(el, x, y)
+        const right = want === 'glass' ? glass(c) : scene(c)
+        ok &&= right
+        got.push(`(${x}, ${y}) ${f(c)}${right ? '' : `（应为${want === 'glass' ? '玻璃' : '场景'}）`}`)
+      }
+      parts.push(`${name} ${got.join('、')}`)
+    }
+    console.warn = realWarn
+    const warned = warnings.length === 1 && warnings[0]!.includes('url()')
+    ok &&= warned
+    for (const el of made) el.remove()
+    calibrationScene()
+    stage.debug.renderNow()
+    const detail = `${parts.join(' · ')} · url() 警告 ${warnings.length} 条${warned ? '' : '（应为 1 条）'}`
+    return ok ? pass(detail) : fail(detail)
+  })
+
   await check('cross-backend', async () => {
     // 同一个固定场景，两个后端各画一帧：calibration 一次，用户图片（cover，放大、带斜条纹硬边）一次；
     // 线性光模式下两个场景再各一次（内置场景与图片场景的线性化、层的解码都在里面）

@@ -39,9 +39,12 @@ import {
   findClipEntries,
   flatParent,
   intersect,
+  packClipExtras,
   union,
   type Box,
-  type ClipEntry
+  type ClipEntry,
+  type Corners,
+  type RoundedBox
 } from './clipping.ts'
 
 export interface GlassPanel {
@@ -158,8 +161,12 @@ export interface MeasuredPanel {
   readonly scissor: readonly [number, number, number, number]
   /** 裁剪祖先围出的可见区域，画布设备像素（没有裁剪的轴是 ±∞）。合并组要用它。 */
   readonly clip: Box
-  /** 可见区域四角的圆角（TL, TR, BR, BL），画布设备像素。着色器按它把圆角外的玻璃抹掉。 */
+  /** 可见区域四角的圆角（TL, TR, BR, BL；水平半径），画布设备像素。着色器按它把圆角外的玻璃抹掉。 */
   readonly clipRadii: readonly [number, number, number, number]
+  /** 可见区域四角的竖直半径（与 clipRadii 相等的角是圆角）。 */
+  readonly clipRadiiY: readonly [number, number, number, number]
+  /** 单独算的那个圆角形状（被截断的圆角祖先、clip-path 的圆 / 椭圆），画布设备像素；没有是 null。 */
+  readonly clipShape: RoundedBox | null
   /** 按压处的光：中心 x、y 与 σ（画布设备像素）、强度（已乘 LIGHT_GAIN）。没有光时强度为 0。 */
   readonly light: readonly [number, number, number, number]
   /**
@@ -232,6 +239,8 @@ interface Geometry {
   readonly rotation: readonly [number, number]
   readonly clip: Box
   readonly clipRadii: [number, number, number, number]
+  readonly clipRadiiY: [number, number, number, number]
+  readonly clipShape: RoundedBox | null
   readonly fade: number
 }
 
@@ -562,14 +571,25 @@ export class PanelRegistry {
       }
       const visible = record.clips.length > 0 ? roundClipOf(record.clips, clipRects) : NO_CLIP
       const clipBox = visible === NO_CLIP ? UNBOUNDED : toDevice(visible.box)
-      const clipRadii = visible.radii.map((r) => r * sx) as [number, number, number, number]
+      // 圆角（两个半径相等）两个轴都按 sx 换算：仍是圆角，着色器走原来的算法（sx、sy 只差画布取整的那一点）
+      const deviceCorners = (rx: Corners, ry: Corners): [[number, number, number, number], [number, number, number, number]] => {
+        const x = rx.map((r) => r * sx) as [number, number, number, number]
+        const y = ry.map((r, i) => (r === rx[i] ? x[i]! : r * sy)) as [number, number, number, number]
+        return [x, y]
+      }
+      const [clipRadii, clipRadiiY] = deviceCorners(visible.rx, visible.ry)
+      let clipShape: RoundedBox | null = null
+      if (visible.shape) {
+        const [rx, ry] = deviceCorners(visible.shape.rx, visible.shape.ry)
+        clipShape = { box: toDevice(visible.shape.box), rx, ry }
+      }
 
       let fade = 1
       for (const s of record.opacityStyles) {
         const o = parseFloat(s.opacity)
         if (Number.isFinite(o)) fade *= o
       }
-      return { bounds, x, y, w, h, cssW, cssH, visualScale, rotation, clip: clipBox, clipRadii, fade }
+      return { bounds, x, y, w, h, cssW, cssH, visualScale, rotation, clip: clipBox, clipRadii, clipRadiiY, clipShape, fade }
     }
     // 层：最近的玻璃祖先（沿渲染树往上，自己不算）是谁，缓存到树代数变了为止；层号 = 玻璃祖先的层号 + 1
     const treeGeneration = this.#treeGeneration
@@ -682,6 +702,8 @@ export class PanelRegistry {
         scissor,
         clip: g.clip,
         clipRadii: g.clipRadii,
+        clipRadiiY: g.clipRadiiY,
+        clipShape: g.clipShape,
         light,
         fade: g.fade,
         tone: record.tone,
@@ -800,6 +822,8 @@ export class PanelRegistry {
         scissor,
         clip: g.clip,
         clipRadii: g.clipRadii,
+        clipRadiiY: g.clipRadiiY,
+        clipShape: g.clipShape,
         radii: scale(corners.x, g.w / 2),
         radiiY: scale(corners.y, g.h / 2),
         color,
@@ -876,7 +900,7 @@ function gradientOf(record: FillRecord, paint: FillPaint, width: number, height:
 }
 
 /**
- * 把一块面板写进 uniform 数组的第 index 个槽位（每槽 256B）。
+ * 把一块面板写进 uniform 数组的第 index 个槽位（每槽 512B）。
  *
  * 字段顺序必须与 glass.wgsl.ts 的 `struct Panel` 逐一对应。这里写错一个偏移，
  * WebGPU 不会报任何错，你只会看到一块位置或形状微妙不对的玻璃 —— 所以两处的注释
@@ -893,11 +917,11 @@ export function packPanel(
   writePanel(data, index * PANEL_STRIDE_FLOATS, panel, viewport, blurLevels, debugMode)
 }
 
-/** Panel 结构体占几个 float（176B / 4）。合并组里的成员按这个步长紧挨着排。 */
+/** Panel 结构体占几个 float（304B / 4）。合并组里的成员按这个步长紧挨着排。 */
 export const PANEL_STRUCT_FLOATS = PANEL_STRUCT_BYTES / 4
 
 /**
- * 把一个合并组写进 uniform 数组的第 index 个组槽位（每槽 768B）。
+ * 把一个合并组写进 uniform 数组的第 index 个组槽位（每槽 1280B）。
  *
  * 布局必须与 glass-group.wgsl.ts 的 `struct Group` 一致：16B 的头
  * （成员数、k、调试模式、空）之后是 4 个紧挨着的 Panel。
@@ -1016,4 +1040,6 @@ function writePanel(
   data[o + 41] = panel.rotation[1]
   data[o + 42] = 0
   data[o + 43] = 0
+  // clipRadiiY @ 176、clipInv @ 192；shapeBox @ 224、shapeRadii @ 240、shapeRadiiY @ 256、shapeInv @ 272
+  packClipExtras(data, o + 44, o + 56, panel.clipRadii, panel.clipRadiiY, panel.clipShape)
 }
