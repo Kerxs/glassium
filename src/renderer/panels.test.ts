@@ -108,6 +108,7 @@ test('packPanel 写入的每个字段都落在 WGSL struct 的对应偏移上', 
     clipRadii: [1, 2, 3, 4],
     clipRadiiY: [1, 5, 0, 4],
     clipShape: { box: { x0: 20, y0: 30, x1: 220, y1: 130 }, rx: [100, 100, 100, 100], ry: [50, 50, 50, 50] },
+    mask: { kind: 'linear', repeating: false, geometry: [10, 20, 110, 20], alphas: [0, 1, 1, 0], offsets: [0, 0.1, 0.9, 1] },
     light: [50, 60, 25, 0.15],
     fade: 0.5,
     tone: -1,
@@ -186,7 +187,18 @@ test('packPanel 写入的每个字段都落在 WGSL struct 的对应偏移上', 
   near(at('shapeRadiiY', 2), 50, 'shapeRadiiY.BR')
   near(at('shapeInv', 0), 1 / 100, '1 / 形状的水平半径')
   near(at('shapeInv', 4), 1 / 50, '1 / 形状的竖直半径')
-  assert.equal(fields.get('shapeInv')! + 32, PANEL_STRUCT_BYTES, 'shapeInv 是最后一项')
+  // 遮罩：种类、色标数、方向 ÷ 长度²、不透明度、位置、相邻两个位置之差的倒数
+  near(at('maskPaint', 0), 1, '遮罩：线性')
+  near(at('maskPaint', 1), 4, '遮罩的色标数')
+  near(at('maskGeom', 0), 10, '遮罩起点 x')
+  near(at('maskGeom', 2), 100 / 10000, '遮罩方向 ÷ 长度²')
+  near(at('maskAlpha', 1), 1, '第 1 个不透明度')
+  near(at('maskAlpha', 3), 0, '第 3 个不透明度')
+  near(at('maskAt', 2), 0.9, '第 2 个位置')
+  near(at('maskSpan', 0), 10, '第 0 段：1 ÷ 0.1')
+  near(at('maskSpan', 1), 1 / 0.8, '第 1 段')
+  assert.equal(fields.get('maskSpan')! + 16, PANEL_STRUCT_BYTES, 'maskSpan 是最后一项')
+  assert.equal(fields.get('maskPaint'), 304, '遮罩接在裁剪后面：前面的布局没挪')
   assert.equal(fields.get('clipRadiiY'), 176, '裁剪的后半截接在原来的 176B 后面：前面的布局没挪')
 
   // 没有单独算的形状：写「不裁」（±65536 的矩形、半径 0）—— 着色器里覆盖率正好是 1

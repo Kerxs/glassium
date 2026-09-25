@@ -109,6 +109,35 @@
         color: rgba(255, 255, 255, 0.75);
       }
 
+      /* 横着滑的一排：overflow 裁掉滑出去的玻璃，mask-image 让两头淡出 —— 玻璃跟着裁、跟着淡 */
+      .week {
+        display: flex;
+        gap: 10px;
+        overflow-x: auto;
+        scrollbar-width: none;
+        padding: 2px 24px;
+        -webkit-mask-image: linear-gradient(to right, transparent, black 24px, black calc(100% - 24px), transparent);
+        mask-image: linear-gradient(to right, transparent, black 24px, black calc(100% - 24px), transparent);
+      }
+
+      .week .day {
+        flex: 0 0 88px;
+        display: grid;
+        justify-items: center;
+        gap: 2px;
+        padding: 12px 10px;
+      }
+
+      .day .value {
+        font-size: 22px;
+        font-weight: 700;
+      }
+
+      .day .label {
+        font-size: 12px;
+        color: rgba(255, 255, 255, 0.75);
+      }
+
       .player {
         display: flex;
         align-items: center;
@@ -486,6 +515,17 @@
         <glass-card class="tile" preset="thin" corner-radius="20">
           <span class="value">19:07</span><span class="label">日落</span>
         </glass-card>
+      </div>
+
+      <p class="section-title">这一周（横着滑：两头的淡出是 mask-image，玻璃跟着淡）</p>
+      <div class="week">
+        <glass-card class="day" preset="thin" corner-radius="18"><span class="label">周一</span><span class="value">24°</span></glass-card>
+        <glass-card class="day" preset="thin" corner-radius="18"><span class="label">周二</span><span class="value">26°</span></glass-card>
+        <glass-card class="day" preset="thin" corner-radius="18"><span class="label">周三</span><span class="value">22°</span></glass-card>
+        <glass-card class="day" preset="thin" corner-radius="18"><span class="label">周四</span><span class="value">19°</span></glass-card>
+        <glass-card class="day" preset="thin" corner-radius="18"><span class="label">周五</span><span class="value">21°</span></glass-card>
+        <glass-card class="day" preset="thin" corner-radius="18"><span class="label">周六</span><span class="value">25°</span></glass-card>
+        <glass-card class="day" preset="thin" corner-radius="18"><span class="label">周日</span><span class="value">27°</span></glass-card>
       </div>
 
       <p class="section-title">正在播放</p>

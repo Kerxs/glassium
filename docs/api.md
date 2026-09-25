@@ -286,7 +286,8 @@ GPU 玻璃画在最底下，盖不住滚上来的 DOM 文字。
 
 玻璃与填充跟着 DOM 的裁剪走：`overflow` 不是 visible 的祖先（连同它的 `border-radius`，椭圆角也算），以及面板自己
 或祖先的 `clip-path` —— `inset()`、`circle()`、`ellipse()`、`rect()`、`xywh()`、盒子关键字；`polygon()` 按外接矩形。
-`url()`、`path()` 与 `mask` 不跟（前两个会警告）。详见 [limitations.md](limitations.md)「裁剪」一节。
+`url()`、`path()` 不跟（会警告）。`mask-image` 是渐变（linear / radial，一层）时玻璃与填充跟着淡，`mask-mode: luminance`
+按亮度；`url()` 的遮罩、多层不跟（会警告）。详见 [limitations.md](limitations.md)「裁剪」一节。
 
 ---
 

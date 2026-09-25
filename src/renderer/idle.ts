@@ -25,6 +25,7 @@ import type { ResolvedViewport } from '../core/units.ts'
 import type { PanelDebugMode } from '../shaders/glass.wgsl.ts'
 import type { BackdropState, SceneImage } from './backend.ts'
 import type { RoundedBox } from './clipping.ts'
+import { sameMask } from './mask.ts'
 import type { MeasuredFill } from './fills.ts'
 import type { MeasuredGroup, MeasuredPanel } from './panels.ts'
 
@@ -104,6 +105,7 @@ function samePanel(a: MeasuredPanel, b: MeasuredPanel): boolean {
     sameTuple(a.clipRadii, b.clipRadii) &&
     sameTuple(a.clipRadiiY, b.clipRadiiY) &&
     sameRoundedBox(a.clipShape, b.clipShape) &&
+    sameMask(a.mask, b.mask) &&
     sameTuple(a.light, b.light) &&
     a.fade === b.fade &&
     a.tone === b.tone &&
@@ -152,6 +154,7 @@ function sameFill(a: MeasuredFill, b: MeasuredFill): boolean {
     sameTuple(a.clipRadii, b.clipRadii) &&
     sameTuple(a.clipRadiiY, b.clipRadiiY) &&
     sameRoundedBox(a.clipShape, b.clipShape) &&
+    sameMask(a.mask, b.mask) &&
     sameTuple(a.radii, b.radii) &&
     sameTuple(a.radiiY, b.radiiY) &&
     sameTuple(a.color, b.color) &&

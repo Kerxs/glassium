@@ -13,11 +13,12 @@
 /** 未预乘的 sRGB [r, g, b, a]，0–1。 */
 export type Rgba = readonly [number, number, number, number]
 
-/** 一个长度：百分比或 CSS 像素。 */
-export interface Length {
-  readonly value: number
-  readonly unit: '%' | 'px'
-}
+/**
+ * 一个长度：百分比、CSS 像素，或两者之和（计算值里的 `calc(100% - 24px)`：value 是百分比那一项，px 是像素那一项）。
+ */
+export type Length =
+  | { readonly value: number; readonly unit: '%' | 'px' }
+  | { readonly value: number; readonly unit: 'calc'; readonly px: number }
 
 export interface GradientStop {
   readonly color: Rgba
@@ -90,12 +91,39 @@ function parseAngle(token: string): number | null {
 }
 
 function parseLength(token: string): Length | null {
+  const calc = /^calc\((.*)\)$/i.exec(token)
+  if (calc) return parseCalc(calc[1]!)
   const m = /^([-+]?(?:\d+\.?\d*|\.\d+)(?:e[-+]?\d+)?)(%|px)?$/i.exec(token)
   if (!m) return null
   const value = Number(m[1])
   if (m[2] === '%') return { value, unit: '%' }
   if (m[2] || value === 0) return { value, unit: 'px' }
   return null // 没有单位的非零数不是长度
+}
+
+/** calc() 里只有加减、每项是 px 或 % 的（计算值里的 calc 都是这样）。嵌套、乘除不认。 */
+function parseCalc(inner: string): Length | null {
+  if (/[()*/]/.test(inner)) return null
+  const parts = inner.trim().split(/\s+/)
+  if (parts.length % 2 === 0) return null
+  let px = 0
+  let pct = 0
+  let sign = 1
+  for (let i = 0; i < parts.length; i++) {
+    const p = parts[i]!
+    if (i % 2 === 1) {
+      if (p !== '+' && p !== '-') return null
+      sign = p === '+' ? 1 : -1
+      continue
+    }
+    const term = parseLength(p)
+    if (!term || term.unit === 'calc') return null
+    if (term.unit === '%') pct += sign * term.value
+    else px += sign * term.value
+  }
+  if (pct === 0) return { value: px, unit: 'px' }
+  if (px === 0) return { value: pct, unit: '%' }
+  return { value: pct, unit: 'calc', px }
 }
 
 const SIDES: Readonly<Record<string, number>> = { top: 0, right: 90, bottom: 180, left: 270 }
@@ -176,7 +204,7 @@ interface RadialShape {
 
 /** 径向渐变的第一个参数（形状、大小、位置）。不是这种参数（比如它是第一个色标）返回 null。 */
 function parseRadialShape(arg: string): RadialShape | null {
-  const words = arg.toLowerCase().split(/\s+/)
+  const words = splitTopLevel(arg.toLowerCase(), ' ') // 按顶层切：calc(100% - 10px) 里的空白不算
   const atIndex = words.indexOf('at')
   const head = atIndex >= 0 ? words.slice(0, atIndex) : words
   const at = atIndex >= 0 ? parsePosition(words.slice(atIndex + 1)) : ([HALF, HALF] as const)
@@ -199,7 +227,7 @@ function parseRadialShape(arg: string): RadialShape | null {
   }
   if (lengths.length > 2 || (extent && lengths.length > 0)) return null
   if (lengths.length === 1) {
-    if (shape === 'ellipse' || lengths[0]!.unit === '%') return null // 圆的半径不能是百分比
+    if (shape === 'ellipse' || lengths[0]!.unit !== 'px') return null // 圆的半径不能是百分比
     return { shape: 'circle', size: [lengths[0]!], at }
   }
   if (lengths.length === 2) {
@@ -286,7 +314,10 @@ export interface ResolvedPaint {
   readonly offsets: readonly number[]
 }
 
-const toPx = (l: Length, basis: number): number => (l.unit === '%' ? (l.value / 100) * basis : l.value)
+const toPx = (l: Length, basis: number): number => {
+  if (l.unit === 'calc') return (l.value / 100) * basis + l.px
+  return l.unit === '%' ? (l.value / 100) * basis : l.value
+}
 
 /**
  * 按 CSS 的规则补色标的位置（CSS Images 3 §3.4.3）：第一个默认 0%、最后一个默认 100%；比前面小的抬到前面的

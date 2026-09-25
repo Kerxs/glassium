@@ -2753,6 +2753,98 @@ async function run(): Promise<void> {
     return ok ? pass(detail) : fail(detail)
   })
 
+  await check('mask', async () => {
+    // mask-image 的渐变：玻璃（与填充）跟着淡。平的灰场景上一块红玻璃：遮罩的不透明度 m = (R − G) ÷ 不遮时的 (R − G)。
+    // 预期按 CSS 的几何手算（不经过 mask.ts）：
+    // 1) to right：透明 → 黑 25% → 黑 75% → 透明。12.5% 处 0.5、50% 处 1、87.5% 处 0.5、2% 处 0.08；
+    //    容器上方正中是 0 —— 渐变在那里是 1，是 mask-clip（border box 以外整个遮住）让它变成 0
+    // 2) radial circle closest-side：黑 60% → 透明。中心 1、半径的 80% 处 0.5、95% 处 0.125、角上 0
+    // 3) mask-mode: luminance，白 → 黑：25% 处 0.75、50% 处 0.5
+    // 4) 填充也淡：红色填充（255/0/0）在 to right 黑 → 透明的遮罩里，50% 处 m = (R − G) ÷ 255 = 0.5
+    // 5) url() 画不了：警告一次，玻璃照画（不淡）
+    stage.debug.setBackdrop({ scene: 'flat' })
+    const warnings: string[] = []
+    const realWarn = console.warn
+    console.warn = (...args: unknown[]): void => {
+      if (String(args[0]).includes('mask-image')) warnings.push(String(args[0]))
+      else realWarn(...args)
+    }
+    const made: HTMLElement[] = []
+    const box = (left: number, top: number, w: number, h: number, css: Partial<CSSStyleDeclaration>, child: HTMLElement): HTMLElement => {
+      const el = document.createElement('div')
+      Object.assign(el.style, { position: 'absolute', left: `${left}px`, top: `${top}px`, width: `${w}px`, height: `${h}px`, ...css })
+      el.append(child)
+      document.body.append(el)
+      made.push(el)
+      return el
+    }
+    const redCard = (w: number, h: number): HTMLElement => {
+      const card = document.createElement('glass-card')
+      card.setAttribute('corner-radius', '0')
+      card.setAttribute('tint', 'rgba(255, 60, 60, 0.45)')
+      Object.assign(card.style, { position: 'absolute', left: '-20px', top: '-20px', width: `${w + 40}px`, height: `${h + 40}px` })
+      return card
+    }
+    const redFill = (): HTMLElement => {
+      const fill = document.createElement('glass-fill')
+      fill.setAttribute('style', 'position: absolute; inset: 0; --glass-fill: rgb(255, 0, 0)')
+      return fill
+    }
+    const linear = box(40, 480, 400, 100, { maskImage: 'linear-gradient(to right, transparent, black 25%, black 75%, transparent)' }, redCard(400, 100))
+    const radial = box(40, 620, 200, 200, { maskImage: 'radial-gradient(circle closest-side, black 60%, transparent)' }, redCard(200, 200))
+    const lum = box(280, 620, 400, 60, { maskImage: 'linear-gradient(to right, white, black)', maskMode: 'luminance' }, redCard(400, 60))
+    const fill = box(280, 720, 400, 60, { maskImage: 'linear-gradient(to right, black, transparent)' }, redFill())
+    const missing = box(280, 820, 200, 60, { maskImage: 'url(#glassium-verify-missing)' }, redCard(200, 60))
+    await sleep(0)
+
+    const v = stage.debug.stats().viewport!
+    const s = v.compositeWidth / v.cssWidth
+    const canvasBox = stage.canvas.getBoundingClientRect()
+    const diff = async (el: HTMLElement, fx: number, fy: number, dy = 0): Promise<number> => {
+      const r = el.getBoundingClientRect()
+      const d = await readback({
+        x: Math.floor((r.left + r.width * fx - canvasBox.left) * s),
+        y: Math.floor((r.top + r.height * fy + dy - canvasBox.top) * s),
+        width: 1,
+        height: 1
+      })
+      return d[0]! - d[1]!
+    }
+    const full = await diff(linear, 0.5, 0.5) // 不遮（m = 1）时的 R − G
+    type Probe = readonly [string, HTMLElement, number, number, number, number, number] // 名字、元素、fx、fy、dy、预期、满时的 R − G
+    const probes: Probe[] = [
+      ['线性 12.5%', linear, 0.125, 0.5, 0, 0.5, full],
+      ['线性 50%', linear, 0.5, 0.5, 0, 1, full],
+      ['线性 87.5%', linear, 0.875, 0.5, 0, 0.5, full],
+      ['线性 2%', linear, 0.02, 0.5, 0, 0.08, full],
+      ['容器上方', linear, 0.5, 0, -10, 0, full],
+      ['径向中心', radial, 0.5, 0.5, 0, 1, full],
+      ['径向 80%', radial, 0.9, 0.5, 0, 0.5, full],
+      ['径向 95%', radial, 0.975, 0.5, 0, 0.125, full],
+      ['径向角上', radial, 0.05, 0.05, 0, 0, full],
+      ['亮度 25%', lum, 0.25, 0.5, 0, 0.75, full],
+      ['亮度 50%', lum, 0.5, 0.5, 0, 0.5, full],
+      ['填充 50%', fill, 0.5, 0.5, 0, 0.5, 255],
+      ['url() 不淡', missing, 0.5, 0.5, 0, 1, full]
+    ]
+    const parts: string[] = []
+    let ok = full > 60
+    for (const [name, el, fx, fy, dy, want, base] of probes) {
+      const m = (await diff(el, fx, fy, dy)) / base
+      const right = Math.abs(m - want) <= 0.04
+      ok &&= right
+      parts.push(`${name} ${m.toFixed(3)}${right ? '' : `（应为 ${want}）`}`)
+    }
+    console.warn = realWarn
+    const warned = warnings.length === 1 && warnings[0]!.includes('url()')
+    ok &&= warned
+    for (const el of made) el.remove()
+    calibrationScene()
+    stage.debug.renderNow()
+    const detail = `不遮时 R − G ${full} · ${parts.join('、')} · url() 警告 ${warnings.length} 条`
+    return ok ? pass(detail) : fail(detail)
+  })
+
   await check('cross-backend', async () => {
     // 同一个固定场景，两个后端各画一帧：calibration 一次，用户图片（cover，放大、带斜条纹硬边）一次；
     // 线性光模式下两个场景再各一次（内置场景与图片场景的线性化、层的解码都在里面）

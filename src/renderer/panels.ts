@@ -30,6 +30,7 @@ import {
   type MeasuredFill,
   type Rgba
 } from './fills.ts'
+import { packMask, type DeviceMask } from './mask.ts'
 import { poseOf, type PoseStyle } from './pose.ts'
 import {
   CLIP_UNBOUNDED_PX,
@@ -39,6 +40,7 @@ import {
   findClipEntries,
   flatParent,
   intersect,
+  maskOf,
   packClipExtras,
   union,
   type Box,
@@ -167,6 +169,8 @@ export interface MeasuredPanel {
   readonly clipRadiiY: readonly [number, number, number, number]
   /** 单独算的那个圆角形状（被截断的圆角祖先、clip-path 的圆 / 椭圆），画布设备像素；没有是 null。 */
   readonly clipShape: RoundedBox | null
+  /** 最近的那一层遮罩（mask-image 的渐变），画布设备像素；没有是 null。 */
+  readonly mask: DeviceMask | null
   /** 按压处的光：中心 x、y 与 σ（画布设备像素）、强度（已乘 LIGHT_GAIN）。没有光时强度为 0。 */
   readonly light: readonly [number, number, number, number]
   /**
@@ -241,6 +245,7 @@ interface Geometry {
   readonly clipRadii: [number, number, number, number]
   readonly clipRadiiY: [number, number, number, number]
   readonly clipShape: RoundedBox | null
+  readonly mask: DeviceMask | null
   readonly fade: number
 }
 
@@ -509,6 +514,7 @@ export class PanelRegistry {
       x1: (b.x1 - originX) * sx,
       y1: (b.y1 - originY) * sy
     })
+    const toDevicePoint = (x: number, y: number): readonly [number, number] => [(x - originX) * sx, (y - originY) * sy]
 
     const styleGeneration = this.#styleGeneration
     // 一块面板或填充的几何：包围盒、（有旋转时）转之前的矩形、视觉缩放、裁剪、CSS 上的不透明度
@@ -583,13 +589,14 @@ export class PanelRegistry {
         const [rx, ry] = deviceCorners(visible.shape.rx, visible.shape.ry)
         clipShape = { box: toDevice(visible.shape.box), rx, ry }
       }
+      const mask = record.clips.length > 0 ? maskOf(record.clips, clipRects, toDevicePoint, sx, sy) : null
 
       let fade = 1
       for (const s of record.opacityStyles) {
         const o = parseFloat(s.opacity)
         if (Number.isFinite(o)) fade *= o
       }
-      return { bounds, x, y, w, h, cssW, cssH, visualScale, rotation, clip: clipBox, clipRadii, clipRadiiY, clipShape, fade }
+      return { bounds, x, y, w, h, cssW, cssH, visualScale, rotation, clip: clipBox, clipRadii, clipRadiiY, clipShape, mask, fade }
     }
     // 层：最近的玻璃祖先（沿渲染树往上，自己不算）是谁，缓存到树代数变了为止；层号 = 玻璃祖先的层号 + 1
     const treeGeneration = this.#treeGeneration
@@ -704,6 +711,7 @@ export class PanelRegistry {
         clipRadii: g.clipRadii,
         clipRadiiY: g.clipRadiiY,
         clipShape: g.clipShape,
+        mask: g.mask,
         light,
         fade: g.fade,
         tone: record.tone,
@@ -824,6 +832,7 @@ export class PanelRegistry {
         clipRadii: g.clipRadii,
         clipRadiiY: g.clipRadiiY,
         clipShape: g.clipShape,
+        mask: g.mask,
         radii: scale(corners.x, g.w / 2),
         radiiY: scale(corners.y, g.h / 2),
         color,
@@ -917,11 +926,11 @@ export function packPanel(
   writePanel(data, index * PANEL_STRIDE_FLOATS, panel, viewport, blurLevels, debugMode)
 }
 
-/** Panel 结构体占几个 float（304B / 4）。合并组里的成员按这个步长紧挨着排。 */
+/** Panel 结构体占几个 float（416B / 4）。合并组里的成员按这个步长紧挨着排。 */
 export const PANEL_STRUCT_FLOATS = PANEL_STRUCT_BYTES / 4
 
 /**
- * 把一个合并组写进 uniform 数组的第 index 个组槽位（每槽 1280B）。
+ * 把一个合并组写进 uniform 数组的第 index 个组槽位（每槽 1792B）。
  *
  * 布局必须与 glass-group.wgsl.ts 的 `struct Group` 一致：16B 的头
  * （成员数、k、调试模式、空）之后是 4 个紧挨着的 Panel。
@@ -1042,4 +1051,6 @@ function writePanel(
   data[o + 43] = 0
   // clipRadiiY @ 176、clipInv @ 192；shapeBox @ 224、shapeRadii @ 240、shapeRadiiY @ 256、shapeInv @ 272
   packClipExtras(data, o + 44, o + 56, panel.clipRadii, panel.clipRadiiY, panel.clipShape)
+  // 遮罩 @ 304：maskPaint、maskGeom、maskAlpha[2]、maskAt[2]、maskSpan
+  packMask(data, o + 76, panel.mask)
 }

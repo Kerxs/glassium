@@ -17,6 +17,7 @@
 import { MAX_GRADIENT_STOPS, type FillPaint, type ResolvedPaint } from '../core/gradient.ts'
 import { parseTint } from '../core/material.ts'
 import { FILL_STRIDE_FLOATS } from '../shaders/fill.wgsl.ts'
+import { packMask, type DeviceMask } from './mask.ts'
 import {
   CLIP_UNBOUNDED_PX,
   packClipExtras,
@@ -188,6 +189,8 @@ export interface MeasuredFill {
   readonly clipRadiiY: readonly [number, number, number, number]
   /** 单独算的那个圆角形状（见 clipping.ts 的 RoundClip），没有是 null。 */
   readonly clipShape: RoundedBox | null
+  /** 最近的那一层遮罩（mask.ts），没有是 null。 */
+  readonly mask: DeviceMask | null
   /** 四角的水平半径，画布设备像素。 */
   readonly radii: readonly [number, number, number, number]
   /** 四角的竖直半径（与 radii 相等的角是圆角）。 */
@@ -245,6 +248,8 @@ export function packFill(data: Float32Array, index: number, fill: MeasuredFill):
   packCorners(data, o, fill)
   // clipRadiiY @ 304、clipInv @ 320；shapeBox @ 352、shapeRadii @ 368、shapeRadiiY @ 384、shapeInv @ 400
   packClipExtras(data, o + 76, o + 88, fill.clipRadii, fill.clipRadiiY, fill.clipShape)
+  // 遮罩 @ 432
+  packMask(data, o + 108, fill.mask)
   const g = fill.gradient
   if (!g) return
   const n = Math.min(g.colors.length, MAX_GRADIENT_STOPS)

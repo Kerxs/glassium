@@ -231,6 +231,45 @@ float roundedBoxSd(vec2 px, vec4 box, vec4 radii, vec4 radiiY, vec4 invX, vec4 i
   return max(q.x - r, q.y - ry);
 }`
 
+/** 与 glass.wgsl.ts 的 MASK_WGSL 对应：遮罩（mask-image 的渐变）在 px 处的不透明度。 */
+const MASK_GLSL = `float maskPick(int i, vec4 a, vec4 b) {
+  return i < 4 ? a[min(i, 3)] : b.x;
+}
+
+float maskAlpha(vec2 px, vec4 paint, vec4 geom, vec4 alpha0, vec4 alpha1, vec4 at0, vec4 at1, vec4 span) {
+  if (paint.x < 0.5) {
+    return 1.0;
+  }
+  float t;
+  if (paint.x < 1.5) {
+    t = dot(px - geom.xy, geom.zw);
+  } else {
+    t = length((px - geom.xy) * geom.zw);
+  }
+  int count = int(paint.y + 0.5);
+  float first = at0.x;
+  if (paint.z > 0.5 && at1.y > 0.0) {
+    float u = (t - first) * at1.y;
+    t = first + (u - floor(u)) * at1.z;
+  }
+  float a = alpha0.x;
+  if (t <= first) {
+    return a;
+  }
+  for (int i = 1; i < 5; i++) {
+    if (i >= count) {
+      break;
+    }
+    float next = maskPick(i, alpha0, alpha1);
+    if (t < maskPick(i, at0, at1)) {
+      float f = clamp((t - maskPick(i - 1, at0, at1)) * span[i - 1], 0.0, 1.0);
+      return a + (next - a) * f;
+    }
+    a = next;
+  }
+  return a;
+}`
+
 const GLASS_COMMON = `
 ${OPTICS_GLSL}
 
@@ -261,6 +300,11 @@ struct Panel {
   vec4 shapeRadii;
   vec4 shapeRadiiY;
   vec4 shapeInv[2];
+  vec4 maskPaint;
+  vec4 maskGeom;
+  vec4 maskAlpha[2];
+  vec4 maskAt[2];
+  vec4 maskSpan;
 };
 
 const vec2 LIGHT_DIR = vec2(-0.70710678, -0.70710678);
@@ -410,11 +454,14 @@ float shadowAlpha(float sdShifted, float strength, float sigma) {
 
 ${ROUNDED_BOX_GLSL}
 
+${MASK_GLSL}
+
 // 与 glass.wgsl.ts 的 clipCoverage 对应。
 float clipCoverage(vec2 px, Panel p) {
   float a = clamp(0.5 - roundedBoxSd(px, p.clip, p.clipRadii, p.clipRadiiY, p.clipInv[0], p.clipInv[1]), 0.0, 1.0);
   float b = clamp(0.5 - roundedBoxSd(px, p.shapeBox, p.shapeRadii, p.shapeRadiiY, p.shapeInv[0], p.shapeInv[1]), 0.0, 1.0);
-  return a * b;
+  float m = maskAlpha(px, p.maskPaint, p.maskGeom, p.maskAlpha[0], p.maskAlpha[1], p.maskAt[0], p.maskAt[1], p.maskSpan);
+  return a * b * m;
 }
 
 vec4 debugView(int mode, float sd, float coverage, vec2 dir, float displacement, float amountPx) {
@@ -543,6 +590,11 @@ struct Fill {
   vec4 shapeRadii;
   vec4 shapeRadiiY;
   vec4 shapeInv[2];
+  vec4 maskPaint;
+  vec4 maskGeom;
+  vec4 maskAlpha[2];
+  vec4 maskAt[2];
+  vec4 maskSpan;
 };
 layout(std140) uniform FillBlock {
   Fill fill;
@@ -554,6 +606,8 @@ out vec4 outColor;
 ${SRGB_GLSL}
 
 ${ROUNDED_BOX_GLSL}
+
+${MASK_GLSL}
 
 // 与 fill.wgsl.ts 的 clipSd 对应。
 float clipSd(vec2 px) {
@@ -618,7 +672,8 @@ void main() {
   vec2 c = toLocal(px - (fill.rect.xy + halfSize), fill.pose);
   float sd = fillSd(c, halfSize);
   float shape = clamp(0.5 - sd / uDest.z, 0.0, 1.0);
-  float clip = clamp(0.5 - clipSd(px) / uDest.z, 0.0, 1.0);
+  float clip = clamp(0.5 - clipSd(px) / uDest.z, 0.0, 1.0) *
+    maskAlpha(px, fill.maskPaint, fill.maskGeom, fill.maskAlpha[0], fill.maskAlpha[1], fill.maskAt[0], fill.maskAt[1], fill.maskSpan);
   if (fill.paint.x < 0.5) {
     float a = fill.color.a * shape * clip;
     if (a <= 0.0) {

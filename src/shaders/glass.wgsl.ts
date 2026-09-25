@@ -21,10 +21,10 @@ import { OPTICS_WGSL } from './optics.wgsl.ts'
 import { SRGB_WGSL } from './srgb.wgsl.ts'
 
 /** Panel 结构体的字节数。按 512B 步长排进一条 buffer，用动态偏移切换。 */
-export const PANEL_STRUCT_BYTES = 304
+export const PANEL_STRUCT_BYTES = 416
 /**
  * 每块面板在 uniform buffer 里占的步长：两个 256B 槽位（T5 实测 minUniformBufferOffsetAlignment = 256）。
- * 结构体原来是 176B、步长 256；裁剪加了椭圆角与第二个形状之后长到 304B。
+ * 结构体原来是 176B、步长 256；裁剪加了椭圆角与第二个形状之后长到 304B，再加遮罩到 416B。
  */
 export const PANEL_STRIDE = 512
 /** Float32 视角下的步长。 */
@@ -73,6 +73,48 @@ fn roundedBoxSd(px: vec2f, box: vec4f, radii: vec4f, radiiY: vec4f, invX: vec4f,
     return (len - 1.0) * len / max(length(k * inv), 1e-6);
   }
   return max(q.x - r, q.y - ry);
+}`
+
+/**
+ * 遮罩（mask-image 的渐变，renderer/mask.ts）在 px 处的不透明度。种类 0 是没有遮罩：正好 1，乘上去逐位不变。
+ * 与填充的 gradientAt 同一套取色标的办法，只插不透明度。倒数都由 CPU 算好：着色器里不除以 uniform。
+ */
+export const MASK_WGSL = /* wgsl */ `fn maskPick(i: u32, a: vec4f, b: vec4f) -> f32 {
+  return select(b.x, a[min(i, 3u)], i < 4u);
+}
+
+fn maskAlpha(px: vec2f, paint: vec4f, geom: vec4f, alpha0: vec4f, alpha1: vec4f, at0: vec4f, at1: vec4f, span: vec4f) -> f32 {
+  if (paint.x < 0.5) {
+    return 1.0;
+  }
+  var t: f32;
+  if (paint.x < 1.5) {
+    t = dot(px - geom.xy, geom.zw);
+  } else {
+    t = length((px - geom.xy) * geom.zw);
+  }
+  let count = u32(paint.y + 0.5);
+  let first = at0.x;
+  if (paint.z > 0.5 && at1.y > 0.0) {
+    let u = (t - first) * at1.y;
+    t = first + (u - floor(u)) * at1.z;
+  }
+  var a = alpha0.x;
+  if (t <= first) {
+    return a;
+  }
+  for (var i = 1u; i < 5u; i++) {
+    if (i >= count) {
+      break;
+    }
+    let next = maskPick(i, alpha0, alpha1);
+    if (t < maskPick(i, at0, at1)) {
+      let f = clamp((t - maskPick(i - 1u, at0, at1)) * span[i - 1u], 0.0, 1.0);
+      return a + (next - a) * f;
+    }
+    a = next;
+  }
+  return a;
 }`
 
 /** 调试视图。数值同时写进 uniform，所以顺序不能随便改。 */
@@ -131,6 +173,11 @@ struct Panel {
   shapeRadii: vec4f,
   shapeRadiiY: vec4f,
   shapeInv: array<vec4f, 2>,
+  maskPaint: vec4f,     // 遮罩（mask-image 的渐变）：种类（0 没有 · 1 线性 · 2 径向）、色标数、重复、空
+  maskGeom: vec4f,      // 线性：起点、(终点 − 起点) ÷ 长度²；径向：中心、1/rx、1/ry（画布设备像素，绝对坐标）
+  maskAlpha: array<vec4f, 2>, // 色标的不透明度（5 个）
+  maskAt: array<vec4f, 2>,    // 色标的位置（5 个）；maskAt[1].y、z 是重复的周期的倒数与周期
+  maskSpan: vec4f,      // 相邻两个位置之差的倒数（重合的是 0）
 }
 
 // 光源方向：指向光源的单位向量，屏幕坐标（y 向下）。左上 45°。
@@ -174,11 +221,15 @@ fn shadowAlpha(sdShifted: f32, strength: f32, sigma: f32) -> f32 {
 
 ${ROUNDED_BOX_WGSL}
 
-// 裁剪的覆盖率：交集矩形（带角上的圆角）× 单独算的那个形状。没有那个形状时后一项正好是 1，乘上去逐位不变。
+${MASK_WGSL}
+
+// 裁剪的覆盖率：交集矩形（带角上的圆角）× 单独算的那个形状 × 遮罩。没有那个形状、没有遮罩时后两项正好是 1，
+// 乘上去逐位不变。
 fn clipCoverage(px: vec2f, p: Panel) -> f32 {
   let a = clamp(0.5 - roundedBoxSd(px, p.clip, p.clipRadii, p.clipRadiiY, p.clipInv[0], p.clipInv[1]), 0.0, 1.0);
   let b = clamp(0.5 - roundedBoxSd(px, p.shapeBox, p.shapeRadii, p.shapeRadiiY, p.shapeInv[0], p.shapeInv[1]), 0.0, 1.0);
-  return a * b;
+  let m = maskAlpha(px, p.maskPaint, p.maskGeom, p.maskAlpha[0], p.maskAlpha[1], p.maskAt[0], p.maskAt[1], p.maskSpan);
+  return a * b * m;
 }
 
 

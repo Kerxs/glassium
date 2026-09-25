@@ -136,3 +136,27 @@ test('只有一个色标：两头同色', () => {
   assert.deepEqual(r.colors, [[1, 0, 0, 1], [1, 0, 0, 1]])
   assert.deepEqual(r.offsets, [0, 1])
 })
+
+test('calc() 的长度：计算值里保留的 calc(100% - 24px) 这类（只有加减）', () => {
+  // 两头各淡出 24px 的遮罩 —— 最常见的写法
+  const fade = parseFillPaint(
+    'linear-gradient(to right, rgba(0, 0, 0, 0), rgb(0, 0, 0) 24px, rgb(0, 0, 0) calc(100% - 24px), rgba(0, 0, 0, 0))',
+    color
+  )
+  assert.ok(fade && fade.paint.kind === 'linear')
+  const r = resolvePaint(fade.paint, 400, 100)!
+  assert.deepEqual(
+    r.offsets.map((o) => Math.round(o * 1000) / 1000),
+    [0, 0.06, 0.94, 1]
+  )
+  // 径向的位置也可以是 calc
+  const at = parseFillPaint('radial-gradient(circle at calc(100% - 10px) 50%, rgb(0, 0, 0), rgba(0, 0, 0, 0))', color)
+  assert.ok(at && at.paint.kind === 'radial')
+  assert.deepEqual(resolvePaint(at.paint, 200, 100)!.geometry.slice(0, 2), [190, 50])
+  // 只剩一项时化成普通的长度；乘除、嵌套不认
+  const px = parseFillPaint('linear-gradient(red calc(10px + 5px), blue)', color)
+  assert.ok(px && px.paint.kind === 'linear')
+  assert.deepEqual(px.paint.stops[0]!.position, { value: 15, unit: 'px' })
+  assert.equal(parseFillPaint('linear-gradient(red calc(2 * 10px), blue)', color), null)
+  assert.equal(parseFillPaint('linear-gradient(red calc(10% + (5px)), blue)', color), null)
+})

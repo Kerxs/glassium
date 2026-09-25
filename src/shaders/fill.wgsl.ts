@@ -21,13 +21,13 @@
  */
 
 import { MAX_GRADIENT_STOPS } from '../core/gradient.ts'
-import { POSE_WGSL, ROUNDED_BOX_WGSL } from './glass.wgsl.ts'
+import { MASK_WGSL, POSE_WGSL, ROUNDED_BOX_WGSL } from './glass.wgsl.ts'
 import { OPTICS_WGSL } from './optics.wgsl.ts'
 import { SRGB_WGSL } from './srgb.wgsl.ts'
 
-/** Fill 结构体的字节数（27 个 vec4f）。按 512B 步长排进一条 buffer（动态偏移要对齐 256），用动态偏移切换。 */
-export const FILL_STRUCT_BYTES = 432
-export const FILL_STRIDE = 512
+/** Fill 结构体的字节数（34 个 vec4f）。按 768B 步长排进一条 buffer（动态偏移要对齐 256），用动态偏移切换。 */
+export const FILL_STRUCT_BYTES = 544
+export const FILL_STRIDE = 768
 export const FILL_STRIDE_FLOATS = FILL_STRIDE / 4
 /** Dest 结构体：scale.xy、aa、linear。 */
 export const FILL_DEST_BYTES = 16
@@ -59,6 +59,11 @@ struct Fill {
   shapeRadii: vec4f,
   shapeRadiiY: vec4f,
   shapeInv: array<vec4f, 2>,
+  maskPaint: vec4f,     // 遮罩：与 glass.wgsl.ts 的 Panel 同名字段相同
+  maskGeom: vec4f,
+  maskAlpha: array<vec4f, 2>,
+  maskAt: array<vec4f, 2>,
+  maskSpan: vec4f,
 }
 
 // 这一次画到哪里。（不叫 target：那是 WGSL 的保留字。）
@@ -87,6 +92,8 @@ struct VsOut {
 }
 
 ${ROUNDED_BOX_WGSL}
+
+${MASK_WGSL}
 
 // 到裁剪区域边界的有符号距离：交集矩形（带角上的圆角）与单独算的那个形状取交（SDF 取大的）。与 glass.wgsl.ts 的
 // clipCoverage 同一套，只是不在这里钳成覆盖率 —— 覆盖率要按目标像素的宽度换算。没有那个形状时逐位不变。
@@ -157,7 +164,8 @@ fn gradientAt(t0: f32) -> vec4f {
   let c = toLocal(px - (fill.rect.xy + halfSize), fill.pose);
   let sd = fillSd(c, halfSize);
   let shape = clamp(0.5 - sd / dest.aa, 0.0, 1.0);
-  let clip = clamp(0.5 - clipSd(px) / dest.aa, 0.0, 1.0);
+  let clip = clamp(0.5 - clipSd(px) / dest.aa, 0.0, 1.0) *
+    maskAlpha(px, fill.maskPaint, fill.maskGeom, fill.maskAlpha[0], fill.maskAlpha[1], fill.maskAt[0], fill.maskAt[1], fill.maskSpan);
   if (fill.paint.x < 0.5) {
     let a = fill.color.a * shape * clip;
     if (a <= 0.0) {

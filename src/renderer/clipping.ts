@@ -36,10 +36,17 @@
  * - 同时有两个以上「单独算」的圆角区域时只算面积最小的那个，其余的按矩形裁。
  * - 两个圆角区域的角落在同一处时取两个轴各自大的那个半径。
  * - 裁剪祖先自己的 transform：矩形按变换之后的包围盒，边框宽、px 写的 clip-path 长度不跟着缩放。
- * - 滚动条盖住的那条不管（滚动条画在内容之上）；mask 不管。
+ * - 滚动条盖住的那条不管（滚动条画在内容之上）。
+ *
+ * ## 遮罩
+ *
+ * `mask-image` 的渐变也在这里收集（同样不看包含块）：最近的那一层交给着色器按渐变淡（mask.ts），`mask-clip` 的
+ * 盒子（默认 border box）并进矩形裁剪 —— 那个盒子以外整个被遮住。
  */
 
+import { parseTint } from '../core/material.ts'
 import { parseClipPath, resolveClipPath, type ParsedClipPath } from './clip-path.ts'
+import { maskBox, parseMask, resolveMask, type DeviceMask, type ParsedMask } from './mask.ts'
 
 /** 计算值里与裁剪有关的几项。拆出来是为了让判定逻辑能在 Node 里测。 */
 export interface ClipStyle {
@@ -433,7 +440,16 @@ export interface PathClipEntry {
   readonly radii: readonly CornerSpec[]
 }
 
-export type ClipEntry = OverflowClipEntry | PathClipEntry
+/** 一个写了 mask-image（渐变）的元素：解析好的遮罩，与解算参考盒要用的边框、内边距。 */
+export interface MaskClipEntry {
+  readonly kind: 'mask'
+  readonly element: Element
+  readonly mask: ParsedMask
+  readonly border: Sides
+  readonly padding: Sides
+}
+
+export type ClipEntry = OverflowClipEntry | PathClipEntry | MaskClipEntry
 
 const sidesOf = (s: CSSStyleDeclaration, prefix: 'border' | 'padding' | 'margin'): Sides => {
   const suffix = prefix === 'border' ? 'Width' : ''
@@ -448,8 +464,18 @@ const radiiOf = (s: CSSStyleDeclaration): CornerSpec[] => [
   parseCornerRadius(s.borderBottomLeftRadius)
 ]
 
-/** 画不了、只能近似的 clip-path 每个元素的每个值只警告一次。 */
+/** 画不了、只能近似的 clip-path、遮罩每个元素的每个值只警告一次。 */
 const warnedClipPath = new WeakMap<Element, string>()
+const warnedMask = new WeakMap<Element, string>()
+
+/** 遮罩渐变里的颜色：计算值里都是 rgb() / rgba()。 */
+const maskColor = (css: string): readonly [number, number, number, number] | null => {
+  try {
+    return parseTint(css)
+  } catch {
+    return null
+  }
+}
 
 /** 找出一块面板的全部裁剪祖先与 clip-path。要读计算样式，所以结果应当缓存（见 PanelRegistry）。 */
 export function findClipEntries(panel: Element): ClipEntry[] {
@@ -489,6 +515,32 @@ export function findClipEntries(panel: Element): ClipEntry[] {
       radii: radiiOf(s)
     })
   }
+  // 遮罩：同样是自己与每个祖先（由近到远），只有最近的那一层交给着色器
+  let masks = 0
+  for (const el of [panel, ...chain]) {
+    const s = getComputedStyle(el)
+    const image = s.maskImage || s.webkitMaskImage || 'none'
+    if (image === 'none' || s.display === 'contents') continue
+    const parsed = parseMask(
+      { image, mode: s.maskMode, size: s.maskSize, position: s.maskPosition, origin: s.maskOrigin, clip: s.maskClip },
+      maskColor
+    )
+    if (parsed.kind === 'none') continue
+    const problems =
+      parsed.kind === 'unsupported'
+        ? [`${parsed.reason}，玻璃不跟着淡`]
+        : masks > 0
+          ? ['祖先里有几层遮罩，只算最近的那一层']
+          : parsed.warnings
+    const key = `${image}|${problems.join('；')}`
+    if (problems.length > 0 && warnedMask.get(el) !== key) {
+      warnedMask.set(el, key)
+      console.warn(`[Glassium] mask-image：${problems.join('；')}：`, el)
+    }
+    if (parsed.kind !== 'mask') continue
+    masks++
+    out.push({ kind: 'mask', element: el, mask: parsed.value, border: sidesOf(s, 'border'), padding: sidesOf(s, 'padding') })
+  }
   return out
 }
 
@@ -505,8 +557,13 @@ export function roundClipOf(entries: readonly ClipEntry[], rects: Map<Element, D
       r = c.element.getBoundingClientRect()
       rects.set(c.element, r)
     }
-    const resolve = (len: Length, basis: number): number => (len.percent ? (len.value / 100) * basis : len.value)
     const border: Box = { x0: r.left, y0: r.top, x1: r.right, y1: r.bottom }
+    if (c.kind === 'mask') {
+      // mask-clip：那个盒子以外整个被遮住（直角）
+      if (c.mask.clip) paths.push(roundedOf(maskBox(c.mask.clip, border, c.border, c.padding), [[0, 0], [0, 0], [0, 0], [0, 0]]))
+      continue
+    }
+    const resolve = (len: Length, basis: number): number => (len.percent ? (len.value / 100) * basis : len.value)
     const radii = c.radii.map(([x, y]) => [resolve(x, r.width), resolve(y, r.height)] as const)
     if (c.kind === 'overflow') {
       shapes.push({ border, borderWidths: c.border, radii, x: c.x, y: c.y })
@@ -522,4 +579,26 @@ export function roundClipOf(entries: readonly ClipEntry[], rects: Map<Element, D
     paths.push(fitRoundedBox(g.box, g.radii))
   }
   return roundClip(shapes, paths)
+}
+
+/**
+ * 最近的那一层遮罩解算到画布设备像素（没有遮罩时是 null）。rects 与 roundClipOf 共用（同一帧里量过的不再量）；
+ * toDevice 把视口 CSS px 的一点换到画布设备像素，sx、sy 是两个方向的缩放。
+ */
+export function maskOf(
+  entries: readonly ClipEntry[],
+  rects: Map<Element, DOMRect>,
+  toDevice: (x: number, y: number) => readonly [number, number],
+  sx: number,
+  sy: number
+): DeviceMask | null {
+  const c = entries.find((e): e is MaskClipEntry => e.kind === 'mask')
+  if (!c) return null
+  let r = rects.get(c.element)
+  if (!r) {
+    r = c.element.getBoundingClientRect()
+    rects.set(c.element, r)
+  }
+  const border: Box = { x0: r.left, y0: r.top, x1: r.right, y1: r.bottom }
+  return resolveMask(c.mask, maskBox(c.mask.origin, border, c.border, c.padding), toDevice, sx, sy)
 }
