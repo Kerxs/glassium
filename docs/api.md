@@ -62,16 +62,27 @@
 
 ### `<glass-fill>`
 
-画进场景的纯色圆角矩形：玻璃看得见它（开关的轨道、滑块的进度条、卡片后面的色块）。样式全在 CSS 里：
+画进场景的圆角矩形，纯色或渐变：玻璃看得见它（开关的轨道、滑块的进度条、卡片后面的色块、彩色的渐变底）。
+样式全在 CSS 里：
 
 | CSS | 说明 |
 |---|---|
-| `--glass-fill` | 颜色。注册成不继承、可以过渡的 `<color>`，初始透明。`currentcolor` 取元素的 `color` |
+| `--glass-fill` | 颜色或渐变。注册成不继承的 `<color> \| <image>`，初始透明。纯色可以过渡；`currentcolor` 取元素的 `color`。渐变见下 |
 | 盒子、`transform`、`opacity`、裁剪祖先 | 与玻璃面板一样每帧跟着 |
 | `border-radius` | 圆角（椭圆角取短的那个半径） |
 
 **别写 `background`**：颜色画在场景里，元素自己在 stage 生效时是透明的。没有玻璃时 glassium.css 把 `--glass-fill`
 画成 CSS 背景。里面的内容照常是 DOM。
+
+渐变：`linear-gradient()`、`radial-gradient()` 与两种 `repeating-`，几何按 CSS 的规则解算（方向与角、四种大小关键字、
+`at` 位置、色标位置的补法），在预乘的 sRGB 里插值 —— 与浏览器画同一个 CSS 渐变一致，透明的一头不发黑。
+最多 5 个色标（多的留前 4 个与最后一个，警告一次）；颜色提示（单独的 `30%`）按没写处理；`conic-gradient()`
+不支持（按透明处理，警告一次）。线性光模式下也是在 sRGB 里插完再换成线性值。
+
+```html
+<glass-fill style="--glass-fill: linear-gradient(120deg, #ff5f6d, #ffc371 40%, #2e9bff); border-radius: 22px">…</glass-fill>
+<glass-fill style="--glass-fill: radial-gradient(circle at 30% 40%, #fff, transparent)">…</glass-fill>
+```
 
 ### `<glass-switch>`
 

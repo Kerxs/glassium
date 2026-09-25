@@ -91,7 +91,7 @@ const CSS = `
 }
 :host(:not([data-glassium-active])) [part='track'],
 [part='track'][data-glassium-overlay] {
-  background-color: var(--glass-fill);
+  background: var(--glass-fill);
 }
 :host(:not([data-glassium-active])) [part='thumb'],
 [part='thumb'][data-glassium-overlay] {

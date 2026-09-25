@@ -20,6 +20,7 @@
  * 所以验证是拿两个后端的整帧回读逐像素比，而不是看截图。
  */
 
+import { MAX_GRADIENT_STOPS } from '../core/gradient.ts'
 import { OPTICS_GLSL } from '../shaders/generated/optics.glsl.ts'
 
 const HEADER = `#version 300 es
@@ -499,6 +500,11 @@ struct Fill {
   vec4 clip;
   vec4 clipRadii;
   vec4 pose;
+  vec4 paint;
+  vec4 geom;
+  vec4 stops[${MAX_GRADIENT_STOPS}];
+  vec4 at[2];
+  vec4 span;
 };
 layout(std140) uniform FillBlock {
   Fill fill;
@@ -519,6 +525,38 @@ float clipSd(vec2 px, vec4 box, vec4 radii) {
   return length(max(e, vec2(0.0))) + min(max(e.x, e.y), 0.0) - r;
 }
 
+// 与 fill.wgsl.ts 的 stopAt / gradientAt 对应。
+float stopAt(int i) {
+  return fill.at[i / 4][i % 4];
+}
+
+vec4 gradientAt(float t0) {
+  int count = int(fill.paint.y + 0.5);
+  float first = stopAt(0);
+  float t = t0;
+  if (fill.paint.z > 0.5 && fill.at[1].y > 0.0) {
+    float u = (t - first) * fill.at[1].y;
+    t = first + (u - floor(u)) * fill.at[1].z;
+  }
+  vec4 color = vec4(fill.stops[0].rgb * fill.stops[0].a, fill.stops[0].a);
+  if (t <= first) {
+    return color;
+  }
+  for (int i = 1; i < ${MAX_GRADIENT_STOPS}; i++) {
+    if (i >= count) {
+      break;
+    }
+    vec4 s = fill.stops[i];
+    vec4 next = vec4(s.rgb * s.a, s.a);
+    if (t < stopAt(i)) {
+      float f = clamp((t - stopAt(i - 1)) * fill.span[i - 1], 0.0, 1.0);
+      return mix(color, next, f);
+    }
+    color = next;
+  }
+  return color;
+}
+
 void main() {
   vec2 frag = uDest.w > 0.5 ? vec2(gl_FragCoord.x, uDestHeight - gl_FragCoord.y) : gl_FragCoord.xy;
   vec2 px = frag * uDest.xy;
@@ -527,12 +565,29 @@ void main() {
   float sd = sdRoundedRect(c, halfSize, radiusAt(c, fill.radii));
   float shape = clamp(0.5 - sd / uDest.z, 0.0, 1.0);
   float clip = clamp(0.5 - clipSd(px, fill.clip, fill.clipRadii) / uDest.z, 0.0, 1.0);
-  float a = fill.color.a * shape * clip;
-  if (a <= 0.0) {
+  if (fill.paint.x < 0.5) {
+    float a = fill.color.a * shape * clip;
+    if (a <= 0.0) {
+      discard;
+    }
+    vec3 rgb = uLinear > 0.5 ? srgbToLinear(fill.color.rgb) : fill.color.rgb;
+    outColor = vec4(rgb * a, a);
+    return;
+  }
+  vec2 local = c + halfSize;
+  float t = fill.paint.x < 1.5
+    ? dot(local - fill.geom.xy, fill.geom.zw)
+    : length((local - fill.geom.xy) * fill.geom.zw);
+  vec4 paint = gradientAt(t);
+  float k = fill.color.a * shape * clip;
+  if (paint.a * k <= 0.0) {
     discard;
   }
-  vec3 rgb = uLinear > 0.5 ? srgbToLinear(fill.color.rgb) : fill.color.rgb;
-  outColor = vec4(rgb * a, a);
+  if (uLinear > 0.5) {
+    outColor = vec4(srgbToLinear(paint.rgb / paint.a) * paint.a * k, paint.a * k);
+    return;
+  }
+  outColor = paint * k;
 }
 `
 

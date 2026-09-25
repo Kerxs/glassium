@@ -43,11 +43,11 @@
 }
 
 /*
- * 填充的颜色：不继承、可以过渡的 <color>（`transition: --glass-fill 0.25s` 直接可用）。
- * register.ts 里 JS 也注册一次，没引这份 CSS 时由那边兜底。
+ * 填充的颜色或渐变：不继承的 <color> | <image>。纯色可以过渡（`transition: --glass-fill 0.25s` 直接可用），
+ * 也可以写 linear-gradient() / radial-gradient()。register.ts 里 JS 也注册一次，没引这份 CSS 时由那边兜底。
  */
 @property --glass-fill {
-  syntax: '<color>';
+  syntax: '<color> | <image>';
   inherits: false;
   initial-value: transparent;
 }
@@ -92,7 +92,7 @@
  */
 :where(glass-fill:not([data-glassium-active])),
 :where(glass-fill)[data-glassium-overlay] {
-  background-color: var(--glass-fill);
+  background: var(--glass-fill); /* 简写：颜色与渐变都放得进去 */
 }
 
 /*

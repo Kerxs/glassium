@@ -19,6 +19,8 @@ import {
   GlassPresets,
   joinProbeAndColors,
   linearToSrgb,
+  parseFillPaint,
+  resolvePaint,
   simulateMoreContrast,
   simulateReducedMotion,
   simulateReducedTransparency,
@@ -234,6 +236,12 @@ function pixelDiff(a: Uint8Array, b: Uint8Array, width: number): string {
   }
   if (count === 0) return '逐位相同'
   return `${count} 个像素不同，最大差 ${max}，范围 (${x0}, ${y0})–(${x1}, ${y1})` + (count <= 6 ? `：${listed.join('；')}` : '')
+}
+
+/** `rgb(r, g, b)` / `rgba(r, g, b, a)` → 0–1 的 [r, g, b, a]。只给验证页算预期值用。 */
+function parseRgb(css: string): [number, number, number, number] | null {
+  const m = /^rgba?\(\s*([\d.]+),\s*([\d.]+),\s*([\d.]+)(?:,\s*([\d.]+))?\s*\)$/.exec(css.trim())
+  return m ? [Number(m[1]) / 255, Number(m[2]) / 255, Number(m[3]) / 255, m[4] === undefined ? 1 : Number(m[4])] : null
 }
 
 /** 元素在画布设备像素下的矩形，四周外扩 pad。 */
@@ -991,6 +999,148 @@ async function run(): Promise<void> {
     return reduced && outsideChanged === 0 && inside > 10000 && insideWrong === 0 && glassRed > 100 && Math.abs(glassGray) < 5 && midOk
       ? pass(detail)
       : fail(detail)
+  })
+
+  await check('fill-gradient', async () => {
+    // 渐变填充（--glass-fill 写 linear-gradient / radial-gradient）。预期值按 CSS 的几何现算（resolvePaint），
+    // 与画出来的逐点比：
+    // 1) 线性 to right 红 → 蓝：沿水平方向 7 个点；
+    // 2) 径向 circle at 30% 50%（farthest-corner）白 → 黑：中心、右 80、左 50；
+    // 3) 一头是透明的蓝：插值在预乘的 sRGB 里做，半途是半透明的纯红（叠在灰上 191/64/64）；不预乘的话透明那头的
+    //    蓝会混进来（191/64/191）。用透明的黑分不出来 —— 那时两种插值恰好相同；
+    // 4) 硬边（两个色标同一位置）、重复（周期 20px）；
+    // 5) 默认方向（to bottom）上红下蓝；转 90° 的元素渐变跟着转（to right 在屏幕上从上到下）。这两项的预期是手写的，
+    //    不经过 resolvePaint —— 它自己的几何错了，拿它算的预期值也跟着错，查不出来；
+    // 6) 玻璃看得见它：盖在渐变上的透明玻璃，中心就是那一点的渐变色；线性光模式下渐变照旧（在 sRGB 里插完再换）。
+    stage.debug.setBackdrop({ scene: 'flat' })
+    const v = stage.debug.stats().viewport!
+    const s = v.compositeWidth / v.cssWidth
+    const canvasBox = stage.canvas.getBoundingClientRect()
+    const pixel = async (x: number, y: number): Promise<[number, number, number]> => {
+      const d = await readback({ x: Math.floor((x - canvasBox.left) * s), y: Math.floor((y - canvasBox.top) * s), width: 1, height: 1 })
+      return [d[0]!, d[1]!, d[2]!]
+    }
+    /** 画布设备像素的中心 → CSS 像素（相对元素左上角）。预期值按采样点真正的位置算。 */
+    const centerOf = (x: number, y: number, box: DOMRect): [number, number] => [
+      (Math.floor((x - canvasBox.left) * s) + 0.5) / s - (box.left - canvasBox.left),
+      (Math.floor((y - canvasBox.top) * s) + 0.5) / s - (box.top - canvasBox.top)
+    ]
+    const make = (style: string): HTMLElement => {
+      const el = document.createElement('glass-fill')
+      el.setAttribute('style', `position: absolute; ${style}`)
+      document.body.append(el)
+      return el
+    }
+    /** 按解算好的渐变算一点（盒子里的 CSS 坐标）的颜色：两个色标之间线性插值（色标都不透明）。 */
+    const expectAt = (css: string, box: DOMRect, local: [number, number]): number[] => {
+      const r = resolvePaint(parseFillPaint(css, (c) => (c.startsWith('rgb') ? parseRgb(c) : null))!.paint, box.width, box.height)!
+      const [a, b, c, d] = r.geometry
+      const t =
+        r.kind === 'linear'
+          ? ((local[0] - a) * (c - a) + (local[1] - b) * (d - b)) / ((c - a) ** 2 + (d - b) ** 2)
+          : Math.hypot((local[0] - a) / c, (local[1] - b) / d)
+      const u = Math.min(1, Math.max(0, (t - r.offsets[0]!) / (r.offsets[1]! - r.offsets[0]!)))
+      return [0, 1, 2].map((i) => (r.colors[0]![i]! * (1 - u) + r.colors[1]![i]! * u) * 255)
+    }
+    const errOf = (got: readonly number[], want: readonly number[]): number => Math.max(...got.map((g, i) => Math.abs(g - want[i]!)))
+    const f = (c: readonly number[]): string => c.map((x) => Math.round(x)).join('/')
+    let worst = 0
+
+    // 1) 线性
+    const linearCss = 'linear-gradient(to right, rgb(255, 0, 0), rgb(0, 0, 255))'
+    const lin = make(`left: 440px; top: 40px; width: 300px; height: 60px; --glass-fill: ${linearCss}`)
+    await sleep(0)
+    const lb = lin.getBoundingClientRect()
+    const linSamples: string[] = []
+    for (const k of [0.02, 0.1, 0.25, 0.5, 0.75, 0.9, 0.98]) {
+      const x = lb.left + k * lb.width
+      const y = lb.top + lb.height / 2
+      const got = await pixel(x, y)
+      const want = expectAt(linearCss, lb, centerOf(x, y, lb))
+      worst = Math.max(worst, errOf(got, want))
+      if (k === 0.25 || k === 0.75) linSamples.push(`${k * 100}% ${f(got)}（${f(want)}）`)
+    }
+
+    // 6) 玻璃：盖在线性渐变 30% 处的一块透明玻璃；线性光下再看一次
+    const glassEl = document.createElement('div')
+    Object.assign(glassEl.style, { position: 'absolute', left: `${440 + 90 - 20}px`, top: '50px', width: '40px', height: '40px' })
+    document.body.append(glassEl)
+    const glass = stage.register(glassEl, {
+      blur: 0, refraction: 0, distortion: 0, highlight: 0, saturation: 1, dispersion: 0, shadow: 0, adaptive: 0,
+      tint: 'rgba(0, 0, 0, 0)', cornerRadius: 8
+    })
+    const glassSeen = await pixel(440 + 90, 70)
+    const glassWant = expectAt(linearCss, lb, centerOf(440 + 90, 70, lb))
+    stage.setBlendSpace('linear')
+    const glassLinear = await pixel(440 + 90, 70)
+    const crispLinear = await pixel(lb.left + 0.75 * lb.width, lb.top + 30)
+    stage.setBlendSpace('srgb')
+    const crispSrgb = await pixel(lb.left + 0.75 * lb.width, lb.top + 30)
+    glass.unregister()
+    glassEl.remove()
+    lin.remove()
+
+    // 2) 径向
+    const radialCss = 'radial-gradient(circle at 30% 50%, rgb(255, 255, 255), rgb(0, 0, 0))'
+    const rad = make(`left: 440px; top: 40px; width: 200px; height: 200px; --glass-fill: ${radialCss}`)
+    await sleep(0)
+    const rb = rad.getBoundingClientRect()
+    const radSamples: string[] = []
+    for (const dx of [0, 80, -50]) {
+      const x = rb.left + 60 + dx
+      const y = rb.top + 100
+      const got = await pixel(x, y)
+      const want = expectAt(radialCss, rb, centerOf(x, y, rb))
+      worst = Math.max(worst, errOf(got, want))
+      radSamples.push(`${dx} ${got[0]}（${Math.round(want[0]!)}）`)
+    }
+    rad.remove()
+
+    // 3) 一头透明；4) 硬边、重复；5) 旋转
+    const tr = make('left: 440px; top: 40px; width: 200px; height: 40px; --glass-fill: linear-gradient(to right, rgb(255, 0, 0), rgba(0, 0, 255, 0))')
+    await sleep(0)
+    const half = await pixel(440 + 100.5, 60)
+    tr.remove()
+    const hard = make('left: 440px; top: 40px; width: 200px; height: 40px; --glass-fill: linear-gradient(to right, rgb(255, 0, 0) 50%, rgb(0, 0, 255) 50%)')
+    await sleep(0)
+    const hardL = await pixel(440 + 98.5, 60)
+    const hardR = await pixel(440 + 101.5, 60)
+    hard.remove()
+    const rep = make('left: 440px; top: 40px; width: 200px; height: 40px; --glass-fill: repeating-linear-gradient(to right, rgb(255, 0, 0) 0px, rgb(0, 0, 255) 20px)')
+    await sleep(0)
+    const rep10 = await pixel(440 + 10, 60)
+    const rep30 = await pixel(440 + 30, 60)
+    rep.remove()
+    const down = make('left: 440px; top: 40px; width: 40px; height: 200px; --glass-fill: linear-gradient(rgb(255, 0, 0), rgb(0, 0, 255))')
+    await sleep(0)
+    const downTop = await pixel(460, 50)
+    const downBottom = await pixel(460, 230)
+    down.remove()
+    const rot = make('left: 440px; top: 400px; width: 200px; height: 40px; transform: rotate(90deg); --glass-fill: linear-gradient(to right, rgb(255, 0, 0), rgb(0, 0, 255))')
+    await sleep(0)
+    const rr = rot.getBoundingClientRect()
+    const rotTop = await pixel(rr.left + rr.width / 2, rr.top + 10)
+    const rotBottom = await pixel(rr.left + rr.width / 2, rr.bottom - 10)
+    rot.remove()
+    calibrationScene()
+    stage.debug.renderNow()
+
+    const detail =
+      `线性 ${linSamples.join('、')} · 径向 ${radSamples.join('、')} · 与预期最多差 ${worst.toFixed(1)} · ` +
+      `一头透明的半途 ${f(half)} · 硬边 ${f(hardL)} | ${f(hardR)} · 重复 10px ${f(rep10)}、30px ${f(rep30)} · ` +
+      `默认方向 上 ${f(downTop)} 下 ${f(downBottom)} · 转 90° 上 ${f(rotTop)} 下 ${f(rotBottom)} · ` +
+      `玻璃里 ${f(glassSeen)}（${f(glassWant)}）、线性光 ${f(glassLinear)} · ` +
+      `线性光下渐变本身 ${f(crispLinear)}（sRGB ${f(crispSrgb)}）`
+    const ok =
+      worst <= 2 &&
+      errOf(half, [191.5, 64, 64]) <= 2 &&
+      errOf(hardL, [255, 0, 0]) === 0 && errOf(hardR, [0, 0, 255]) === 0 &&
+      errOf(rep10, rep30) <= 1 && Math.abs(rep10[0]! - rep10[2]!) < 20 &&
+      downTop[0]! > 200 && downBottom[2]! > 200 &&
+      rotTop[0]! > 200 && rotBottom[2]! > 200 &&
+      errOf(glassSeen, glassWant) <= 2 && errOf(glassLinear, glassSeen) <= 2 &&
+      errOf(crispLinear, crispSrgb) === 0
+    return ok ? pass(detail) : fail(detail)
   })
 
   await check('switch', async () => {

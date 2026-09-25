@@ -1,18 +1,20 @@
 /**
- * 填充（`<glass-fill>`）：CSS 摆位、Glassium 画进场景的纯色圆角矩形。
+ * 填充（`<glass-fill>`）：CSS 摆位、Glassium 画进场景的圆角矩形，纯色或渐变。
  *
- * 玻璃只折射场景（R2），DOM 的背景它看不见。开关的轨道、滑块的进度条这类「玻璃底下的纯色形状」
- * 写成填充就进了场景：玻璃折射它、模糊它、按它的亮度调自适应。怎么画见 shaders/fill.wgsl.ts。
+ * 玻璃只折射场景（R2），DOM 的背景它看不见。开关的轨道、滑块的进度条、页面上的彩色渐变块这类
+ * 「玻璃底下的形状」写成填充就进了场景：玻璃折射它、模糊它、按它的亮度调自适应。怎么画见 shaders/fill.wgsl.ts。
  *
  * 样式全从 CSS 来：
  * - 盒子（位置、尺寸、变换、裁剪、不透明度）与面板一样每帧量（panels.ts 共用同一段测量）；
- * - 颜色是自定义属性 `--glass-fill`，注册成不继承、可过渡的 `<color>`（register.ts 与 glassium.css
- *   各注册一次），CSS 过渡直接可用 —— 每帧读计算值；
+ * - 颜色是自定义属性 `--glass-fill`，注册成不继承的 `<color> | <image>`（register.ts 与 glassium.css
+ *   各注册一次）：纯色可以过渡，也可以写 `linear-gradient()` / `radial-gradient()`（core/gradient.ts）
+ *   —— 每帧读计算值；
  * - 圆角是 CSS 的 border-radius。
  *
  * 元素自己的 CSS 背景在 stage 生效时是透明的（glassium.css），否则它会挡住后面的玻璃（R1）。
  */
 
+import { MAX_GRADIENT_STOPS, type FillPaint, type ResolvedPaint } from '../core/gradient.ts'
 import { parseTint } from '../core/material.ts'
 import { FILL_STRIDE_FLOATS } from '../shaders/fill.wgsl.ts'
 import { CLIP_UNBOUNDED_PX, parseCornerRadius, scaleRadii, type Box, type ClipEntry } from './clipping.ts'
@@ -20,10 +22,13 @@ import { CLIP_UNBOUNDED_PX, parseCornerRadius, scaleRadii, type Box, type ClipEn
 /** 填充颜色的 CSS 自定义属性。 */
 export const FILL_PROPERTY = '--glass-fill'
 
-/** 注册成 `<color>`：不继承（开关里的轨道不会把颜色传给里面的东西）、初始透明、可以过渡。 */
+/**
+ * 注册成 `<color> | <image>`：不继承（开关里的轨道不会把颜色传给里面的东西）、初始透明；纯色可以过渡，
+ * 渐变（`<image>`）是离散的。
+ */
 export const FILL_PROPERTY_DEFINITION = {
   name: FILL_PROPERTY,
-  syntax: '<color>',
+  syntax: '<color> | <image>',
   inherits: false,
   initialValue: 'transparent'
 } as const
@@ -35,7 +40,7 @@ const TRANSPARENT: Rgba = [0, 0, 0, 0]
 
 /** 从元素读出的填充样式：各项计算值的原文。 */
 export interface FillStyle {
-  /** `--glass-fill` 的计算值。注册过的是 `rgb(…)` 一类，没注册的是作者写的原文。 */
+  /** `--glass-fill` 的计算值：颜色或渐变。注册过的颜色是 `rgb(…)` 一类，没注册的是作者写的原文。 */
   readonly color: string
   /** `color` 的计算值：`--glass-fill` 是 `currentcolor` 时用它。 */
   readonly currentColor: string
@@ -131,11 +136,19 @@ export interface FillRecord {
   opacityGeneration?: number
   /** 元素自己的计算样式（活对象）。 */
   style?: CSSStyleDeclaration
-  /** 上一次解析的颜色：文本没变就不重新解析。 */
-  colorText?: string
-  color?: Rgba
-  /** 颜色解析不了时只警告一次。 */
-  warnedColor?: boolean
+  /** 上一次解析的 `--glass-fill`（纯色或渐变；解析不了是 null）：文本没变就不重新解析。 */
+  paintText?: string
+  paint?: FillPaint | null
+  /** 解析不了、或者只能近似时只警告一次。 */
+  warnedPaint?: boolean
+  /** 上一次解算到盒子上的渐变（画布设备像素）：渐变、尺寸、缩放都没变就还是这一个对象（idle.ts 比引用）。 */
+  gradient?: {
+    readonly paint: FillPaint
+    readonly width: number
+    readonly height: number
+    readonly scale: number
+    readonly value: ResolvedPaint
+  }
   /** 最近的玻璃祖先（见 panels.ts 的层）与找它时的树代数。 */
   glassParent?: object | null
   glassParentGeneration?: number
@@ -160,8 +173,10 @@ export interface MeasuredFill {
   readonly clipRadii: readonly [number, number, number, number]
   /** 四角圆角，画布设备像素。 */
   readonly radii: readonly [number, number, number, number]
-  /** 颜色，alpha 已乘上 CSS 的不透明度。 */
+  /** 纯色：颜色，alpha 已乘上 CSS 的不透明度。渐变：只用 alpha —— CSS 的不透明度。 */
   readonly color: Rgba
+  /** 渐变（纯色是 null）。几何已换算到画布设备像素：盒子左上角为原点、转之前。 */
+  readonly gradient: ResolvedPaint | null
   /**
    * 在第几层（见 panels.ts 的 MAX_GLASS_LAYER）：0 是场景里、所有玻璃之下；写在一块玻璃里面的填充在那块玻璃之上，
    * 是它的层号加一 —— 同一层的玻璃看得见它，下面那层的玻璃看不见。
@@ -206,6 +221,49 @@ export function packFill(data: Float32Array, index: number, fill: MeasuredFill):
   data[o + 21] = fill.rotation[1]
   data[o + 22] = 0
   data[o + 23] = 0
+  // 渐变 @ 96 起。纯色时种类写 0，其余清零（槽位是复用的，别留着上一帧别的填充的数）
+  data.fill(0, o + 24, o + FILL_STRIDE_FLOATS)
+  const g = fill.gradient
+  if (!g) return
+  const n = Math.min(g.colors.length, MAX_GRADIENT_STOPS)
+  // paint @ 96
+  data[o + 24] = g.kind === 'linear' ? 1 : 2
+  data[o + 25] = n
+  data[o + 26] = g.repeating ? 1 : 0
+  // geom @ 112：着色器里不做除法，倒数在这里算
+  const [a, b, c, d] = g.geometry
+  data[o + 28] = a
+  data[o + 29] = b
+  if (g.kind === 'linear') {
+    const dx = c - a
+    const dy = d - b
+    const len2 = dx * dx + dy * dy
+    data[o + 30] = len2 > 0 ? dx / len2 : 0
+    data[o + 31] = len2 > 0 ? dy / len2 : 0
+  } else {
+    data[o + 30] = 1 / Math.max(c, 1e-3)
+    data[o + 31] = 1 / Math.max(d, 1e-3)
+  }
+  // stops @ 128
+  for (let i = 0; i < n; i++) data.set(g.colors[i]!, o + 32 + i * 4)
+  // at @ 208：位置；at[1].y、z 是重复的周期的倒数与周期
+  const at = o + 32 + MAX_GRADIENT_STOPS * 4
+  for (let i = 0; i < n; i++) data[at + i] = g.offsets[i]!
+  const period = g.offsets[n - 1]! - g.offsets[0]!
+  data[at + 5] = g.repeating && period > 0 ? 1 / period : 0
+  data[at + 6] = g.repeating && period > 0 ? period : 0
+  // span @ 240：相邻两个色标之间位置之差的倒数（重合的写 0，着色器里那一段是硬边）
+  const span = at + 8
+  for (let i = 0; i + 1 < n; i++) {
+    const gap = g.offsets[i + 1]! - g.offsets[i]!
+    data[span + i] = gap > 0 ? 1 / gap : 0
+  }
+}
+
+/** 把解算好的渐变（CSS 像素）缩放到画布设备像素。 */
+export function scaleGradient(paint: ResolvedPaint, scale: number): ResolvedPaint {
+  const [a, b, c, d] = paint.geometry
+  return { ...paint, geometry: [a * scale, b * scale, c * scale, d * scale] }
 }
 
 /**

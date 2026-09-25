@@ -19,10 +19,12 @@ import {
   type PanelDebugMode
 } from '../shaders/glass.wgsl.ts'
 import { levelForSigma } from './blur.ts'
+import { parseFillPaint, resolvePaint, type FillPaint, type ResolvedPaint } from '../core/gradient.ts'
 import {
   fillRadii,
   parseFillColor,
   readFillStyle,
+  scaleGradient,
   type FillRecord,
   type FillStyle,
   type MeasuredFill,
@@ -757,7 +759,7 @@ export class PanelRegistry {
       panels.push(m)
     }
 
-    // 4) 填充：几何与面板同一套，颜色每帧读（CSS 过渡要逐帧跟上），圆角按变换之前的尺寸解算
+    // 4) 填充：几何与面板同一套，颜色每帧读（CSS 过渡要逐帧跟上），圆角、渐变按变换之前的尺寸解算
     const fills: MeasuredFill[] = []
     for (const record of this.#fills) {
       const overlay = isOverlay(record)
@@ -769,10 +771,20 @@ export class PanelRegistry {
       if (scissor[2] === 0 || scissor[3] === 0) continue
       const style = this.#readFillStyle(record)
       if (!style) continue
-      const color = fillColorOf(record, style)
-      const alpha = color[3] * g.fade
-      if (!(alpha > 0)) continue
+      const paint = fillPaintOf(record, style)
+      if (!paint) continue // 解析不了：按透明处理（已警告）
       const k = sx * g.visualScale
+      let color: Rgba
+      let gradient: ResolvedPaint | null = null
+      if (paint.kind === 'solid') {
+        const alpha = paint.color[3] * g.fade
+        if (!(alpha > 0)) continue
+        color = [paint.color[0], paint.color[1], paint.color[2], alpha]
+      } else {
+        if (!(g.fade > 0)) continue
+        color = [0, 0, 0, g.fade]
+        gradient = gradientOf(record, paint, g.cssW, g.cssH, k)
+      }
       const cap = Math.min(g.w, g.h) / 2
       const [tl, tr, br, bl] = fillRadii(style.radii, g.cssW, g.cssH).map((r) => Math.min(r * k, cap))
       fills.push({
@@ -786,7 +798,8 @@ export class PanelRegistry {
         clip: g.clip,
         clipRadii: g.clipRadii,
         radii: [tl!, tr!, br!, bl!],
-        color: [color[0], color[1], color[2], alpha],
+        color,
+        gradient,
         layer: layerOf(record)
       })
     }
@@ -824,21 +837,38 @@ function markOverlay(el: HTMLElement, on: boolean): void {
 }
 
 /**
- * 填充的颜色：`--glass-fill` 的计算值（`currentcolor` 取元素的 color）。文本没变就用上一次解析的结果；
- * 解析不了按透明处理并警告一次。
+ * 填充的颜色或渐变：`--glass-fill` 的计算值（`currentcolor`，包括渐变色标里的，取元素的 color）。文本没变就用
+ * 上一次解析的结果；解析不了（conic-gradient、写错的颜色）返回 null、按透明处理，只能近似的（颜色提示、色标
+ * 太多）照画 —— 两种都只警告一次。
  */
-function fillColorOf(record: FillRecord, style: FillStyle): Rgba {
+function fillPaintOf(record: FillRecord, style: FillStyle): FillPaint | null {
   let text = style.color.trim()
   if (text.toLowerCase() === 'currentcolor') text = style.currentColor.trim()
-  if (record.color && text === record.colorText) return record.color
-  const parsed = parseFillColor(text)
-  if (!parsed && !record.warnedColor) {
-    record.warnedColor = true
-    console.warn(`[Glassium] 填充的 ${'--glass-fill'} 解析不了（${text}），按透明处理：`, record.element)
+  // 渐变里有 currentcolor 时，元素的 color 变了也要重新解析
+  const key = /currentcolor/i.test(text) ? `${text}|${style.currentColor}` : text
+  if (record.paint !== undefined && key === record.paintText) return record.paint
+  const parsed = parseFillPaint(text, (css) =>
+    parseFillColor(css.toLowerCase() === 'currentcolor' ? style.currentColor : css)
+  )
+  const problems = parsed ? parsed.warnings : [`解析不了（${text}），按透明处理`]
+  if (problems.length > 0 && !record.warnedPaint) {
+    record.warnedPaint = true
+    console.warn(`[Glassium] 填充的 --glass-fill：${problems.join('；')}：`, record.element)
   }
-  record.colorText = text
-  record.color = parsed ?? [0, 0, 0, 0]
-  return record.color
+  record.paintText = key
+  record.paint = parsed?.paint ?? null
+  return record.paint
+}
+
+/** 渐变解算到盒子上（画布设备像素）。渐变、尺寸、缩放都没变就还是上一次那个对象 —— idle.ts 按引用比。 */
+function gradientOf(record: FillRecord, paint: FillPaint, width: number, height: number, scale: number): ResolvedPaint {
+  const cached = record.gradient
+  if (cached && cached.paint === paint && cached.width === width && cached.height === height && cached.scale === scale) {
+    return cached.value
+  }
+  const value = scaleGradient(resolvePaint(paint, width, height)!, scale)
+  record.gradient = { paint, width, height, scale, value }
+  return value
 }
 
 /**

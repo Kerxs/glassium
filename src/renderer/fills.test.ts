@@ -1,6 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 
+import { MAX_GRADIENT_STOPS } from '../core/gradient.ts'
 import { resolveViewport } from '../core/units.ts'
 import { FILL_STRIDE, FILL_STRIDE_FLOATS, FILL_STRUCT_BYTES, FILL_WGSL } from '../shaders/fill.wgsl.ts'
 import { CLIP_UNBOUNDED_PX } from './clipping.ts'
@@ -25,11 +26,13 @@ function parseFillStruct(): { fields: Map<string, number>; size: number } {
   const fields = new Map<string, number>()
   let offset = 0
   for (const line of m[1]!.split('\n')) {
-    const f = /^\s*(\w+)\s*:\s*(\w+)\s*,/.exec(line)
-    if (!f) continue
-    assert.equal(f[2], 'vec4f', `struct Fill 只该有 vec4f，${f[1]} 是 ${f[2]}`)
+    const f = /^\s*(\w+)\s*:\s*(vec4f|array<vec4f,\s*(\d+)>)\s*,/.exec(line)
+    if (!f) {
+      assert.ok(!/^\s*\w+\s*:/.test(line), `struct Fill 只该有 vec4f 与 array<vec4f, N>：${line.trim()}`)
+      continue
+    }
     fields.set(f[1]!, offset)
-    offset += 16
+    offset += 16 * (f[3] ? Number(f[3]) : 1)
   }
   return { fields, size: offset }
 }
@@ -55,6 +58,7 @@ test('packFill 写入的每个字段都落在 WGSL struct 的对应偏移上', (
     clipRadii: [1, 2, 3, 4],
     radii: [5, 6, 7, 8],
     color: [0.1, 0.2, 0.3, 0.4],
+    gradient: null,
     layer: 0
   }
   const data = new Float32Array(FILL_STRIDE_FLOATS * 3)
@@ -78,7 +82,56 @@ test('packFill 写入的每个字段都落在 WGSL struct 的对应偏移上', (
   near(at('clipRadii', 2), 3, 'clipRadii.BR')
   near(at('pose', 0), 0.6, 'pose.cos')
   near(at('pose', 1), 0.8, 'pose.sin')
+  near(at('paint', 0), 0, '纯色：种类 0')
   assert.ok(data.subarray(0, base).every((v) => v === 0), '写越界到了前一个槽位')
+
+  // 渐变：线性（方向除以长度²）、位置、重复的周期、相邻两个位置之差的倒数（重合的是 0）
+  const linear: MeasuredFill = {
+    ...fill,
+    color: [0, 0, 0, 0.5],
+    gradient: {
+      kind: 'linear',
+      repeating: true,
+      geometry: [10, 20, 50, 20],
+      colors: [
+        [1, 0, 0, 1],
+        [0, 1, 0, 0.5],
+        [0, 1, 0, 0.5],
+        [0, 0, 1, 1]
+      ],
+      offsets: [0.1, 0.4, 0.4, 0.9]
+    }
+  }
+  data.fill(7) // 上一帧的残留：纯色的槽位要把渐变那几项清掉
+  packFill(data, 1, linear)
+  const g = (name: string, c: number): number => data[FILL_STRIDE_FLOATS + fields.get(name)! / 4 + c]!
+  near(g('paint', 0), 1, '种类：线性')
+  near(g('paint', 1), 4, '色标数')
+  near(g('paint', 2), 1, '重复')
+  near(g('geom', 0), 10, '起点 x')
+  near(g('geom', 2), 40 / 1600, '方向 ÷ 长度²')
+  near(g('geom', 3), 0, '方向 y')
+  near(g('stops', 1 * 4 + 1), 1, '第 1 个色标的 g')
+  near(g('stops', 1 * 4 + 3), 0.5, '第 1 个色标的 a')
+  near(g('stops', 4 * 4 + 0), 0, '第 4 个色标（没有）清零')
+  near(g('at', 0), 0.1, '位置 0')
+  near(g('at', 3), 0.9, '位置 3')
+  near(g('at', 5), 1 / 0.8, '重复：周期的倒数')
+  near(g('at', 6), 0.8, '重复：周期')
+  near(g('span', 0), 1 / 0.3, '第 0 段')
+  near(g('span', 1), 0, '重合的一段：硬边')
+  near(g('span', 2), 2, '第 2 段')
+  near(g('span', 3), 0, '没有第 3 段')
+  assert.equal(fields.get('span')! + 16, FILL_STRUCT_BYTES, 'span 是最后一项')
+  assert.equal(fields.get('at')! - fields.get('stops')!, MAX_GRADIENT_STOPS * 16, '色标的颜色正好 MAX_GRADIENT_STOPS 个')
+
+  // 径向：中心、半径的倒数
+  packFill(data, 1, { ...linear, gradient: { ...linear.gradient!, kind: 'radial', repeating: false, geometry: [30, 40, 20, 10] } })
+  near(g('paint', 0), 2, '种类：径向')
+  near(g('geom', 1), 40, '中心 y')
+  near(g('geom', 2), 1 / 20, '1/rx')
+  near(g('geom', 3), 1 / 10, '1/ry')
+  near(g('at', 5), 0, '不重复：周期写 0')
 })
 
 /* ------------------------------------------------------------------ *
@@ -149,7 +202,7 @@ test('measure：填充按画布设备像素量、圆角乘 DPR；屏外的、透
 
   // 颜色文本没变：同一个解析结果（不重新解析）
   const again = registry.measure(viewport).fills[0]!
-  assert.equal(again.record.color, f.record.color)
+  assert.equal(again.record.paint, f.record.paint)
   // currentcolor：用元素的 color
   styles.set(track, { color: 'currentcolor', currentColor: 'rgb(255, 255, 255)', radii: ['0px', '0px', '0px', '0px'] })
   assert.deepEqual(registry.measure(viewport).fills[0]!.color, [1, 1, 1, 1])

@@ -66,6 +66,7 @@ const fill = (over: Partial<MeasuredFill> = {}): MeasuredFill => ({
   clipRadii: [0, 0, 0, 0],
   radii: [15.5, 15.5, 15.5, 15.5],
   color: [0.2, 0.78, 0.35, 1],
+  gradient: null,
   layer: 0,
   ...over
 })
@@ -191,6 +192,14 @@ test('填充：值相同算相同；颜色（过渡中）、位置、圆角、�
   )
   assert.equal(unchangedFrame(frame({ fills: [fill()] }), frame({ fills: [fill({ rotation: [0.9, 0.1] })] })), false, '旋转')
   assert.equal(unchangedFrame(frame({ fills: [fill()] }), frame({ fills: [fill({ layer: 1 })] })), false, '换了层')
+  // 渐变按引用比：解算结果缓存在记录上，渐变与尺寸没变就是同一个对象
+  const g = { kind: 'linear', repeating: false, geometry: [0, 0, 10, 0], colors: [[1, 0, 0, 1], [0, 0, 1, 1]], offsets: [0, 1] } as const
+  assert.equal(unchangedFrame(frame({ fills: [fill({ gradient: g })] }), frame({ fills: [fill({ gradient: g })] })), true, '同一个渐变')
+  assert.equal(
+    unchangedFrame(frame({ fills: [fill({ gradient: g })] }), frame({ fills: [fill({ gradient: { ...g } })] })),
+    false,
+    '换了一个渐变对象'
+  )
   assert.equal(unchangedFrame(frame({ fills: [fill()] }), frame({ fills: [] })), false)
   assert.equal(
     unchangedFrame(frame({ fills: [fill()] }), frame({ fills: [fill({ record: { element: {} } as unknown as FillRecord })] })),

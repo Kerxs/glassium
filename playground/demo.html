@@ -240,6 +240,25 @@
         text-shadow: 0 1px 10px rgba(0, 0, 0, 0.4);
       }
 
+      /* 渐变填充：--glass-fill 直接写 CSS 渐变，画进场景 —— 上面那颗玻璃折射它，边缘把颜色弯进来。
+         填充不是玻璃，里面的按钮仍在第 0 层，看得见它 */
+      .aurora {
+        --glass-fill: linear-gradient(120deg, #ff5f6d, #ffc371 40%, #47cf73 68%, #2e9bff);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        height: 104px;
+        border-radius: 22px;
+      }
+
+      .aurora glass-button {
+        height: 52px;
+        padding: 0 26px;
+        font-weight: 600;
+        color: #fff;
+        text-shadow: 0 1px 8px rgba(0, 0, 0, 0.35);
+      }
+
       /* 设置列表：底板是一块填充（画进场景），开关的轨道也是填充、旋钮是玻璃。
          不放在 <glass-card> 里 —— 玻璃不叠玻璃（R2）：卡片的玻璃会把轨道一起模糊掉 */
       .settings {
@@ -459,6 +478,11 @@
             <span value="auto">自动</span>
           </glass-segmented>
         </label>
+      </glass-fill>
+
+      <p class="section-title">渐变填充（--glass-fill 写 linear-gradient / radial-gradient）</p>
+      <glass-fill class="aurora">
+        <glass-button preset="clear" type="button">透过玻璃看渐变</glass-button>
       </glass-fill>
 
       <p class="section-title">对话框（盖在 DOM 上的玻璃）</p>

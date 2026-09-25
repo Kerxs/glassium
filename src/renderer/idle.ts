@@ -16,7 +16,8 @@
  *   dynamic 的每帧都变，其余比源、版本号与铺法
  * - 面板：同一块面板、同样的矩形 / 裁剪、同一个降级结果（材质或尺寸变了会重新降级，换一个新对象）
  * - 合并组：成员逐个同上，外加 smoothing 与裁剪矩形
- * - 填充：同一块、同样的矩形 / 裁剪 / 圆角 / 颜色（颜色的 CSS 过渡期间每帧都不同）
+ * - 填充：同一块、同样的矩形 / 裁剪 / 圆角 / 颜色（颜色的 CSS 过渡期间每帧都不同）/ 渐变（解算结果缓存在记录上，
+ *   渐变或尺寸没变就是同一个对象）
  */
 
 import type { BlendSpace } from '../core/color.ts'
@@ -136,6 +137,7 @@ function sameFill(a: MeasuredFill, b: MeasuredFill): boolean {
     sameTuple(a.clipRadii, b.clipRadii) &&
     sameTuple(a.radii, b.radii) &&
     sameTuple(a.color, b.color) &&
+    a.gradient === b.gradient &&
     a.layer === b.layer
   )
 }
