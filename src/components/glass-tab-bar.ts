@@ -29,7 +29,6 @@
 import type { GlassMaterial } from '../core/material.ts'
 import { OVERLAY_HOST_CSS } from '../core/overlay.ts'
 import type { GlassPanel } from '../renderer/panels.ts'
-import { MATERIAL_ATTRIBUTES } from './attributes.ts'
 import { GlassElement, sharedSheet } from './base.ts'
 import { initialMinimize, nextMinimize, type MinimizeState } from './minimize.ts'
 import { Segments, segmentValue } from './segments.ts'
@@ -165,7 +164,7 @@ const sheet = { sheet: null as CSSStyleSheet | null }
 
 export class GlassTabBar extends GlassElement {
   static override get observedAttributes(): string[] {
-    return [...MATERIAL_ATTRIBUTES, 'value', 'minimize']
+    return [...super.observedAttributes, 'value', 'minimize']
   }
 
   readonly #bubble: HTMLElement

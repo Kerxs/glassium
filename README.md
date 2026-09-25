@@ -174,6 +174,9 @@ GPU 输出由 `playground/verify.html` 在浏览器里逐项验证（光学探�
       出现，一边长大一边移到自己的位置 —— 离得近时 smin 把它和邻居连着，颈部拉长、断开；`container.dismiss(member)`
       反过来缩回去再拿掉。实测一滴的中心正落在邻居的边上（496.0, 528.0），那里画着玻璃。动的是 `translate` / `scale`，
       玻璃跟得上；减少动效时直接出现、直接拿掉
+- [x] **浮在正文上的玻璃 `scroll-edge`**（`src/components/scroll-edge.ts`）：卡片、按钮、标签栏写 `scroll-edge="bottom"`
+      （浮在视口底边）或 `"top"`，正文从它底下经过时淡入一层磨砂 —— GPU 玻璃盖不住 DOM 文字，磨砂模糊下面的一切。
+      bottom 在下面还有内容时是 1、离文档末尾 16px 内淡出；top 往下滚了才有。demo 底部的标签栏用上了
 - [x] **导航栏 `<glass-nav-bar>`**（`src/components/glass-nav-bar.ts`）：两侧各一个玻璃胶囊装按钮（iOS 26 的分组），
       中间是标题；`large-title` 时标题大字写在栏下面、跟着正文滚走，滚进栏底下时栏中间淡入一行小标题。栏那一行
       sticky。正文滚到栏底下时 GPU 玻璃盖不住滚上来的 DOM 文字，所以按「底下压了多少正文」淡入一条模糊渐隐
@@ -216,16 +219,16 @@ GPU 设备丢失时会在新设备上整套重建（实测约 30 ms，恢复后�
 WebGL2（WebGL2 的上下文丢失同理，第二次降到 CSS 兜底）。T5 到 T8 期间这一点是坏的：
 日志说会重新初始化，实际上画布会冻住 —— 现已修复，见 [docs/limitations.md](docs/limitations.md)。
 
-**258 条测试全绿**，playground 可跑（`npm run dev`），只用公开 API 搭的示例页在 `/demo.html`，
+**261 条测试全绿**，playground 可跑（`npm run dev`），只用公开 API 搭的示例页在 `/demo.html`，
 逐项自动验证在 `/verify.html`
-（现在 WebGPU 上 **PASS 42/42**、WebGL2 上 **PASS 41/41**）。
+（现在 WebGPU 上 **PASS 43/43**、WebGL2 上 **PASS 42/42**）。
 
 T5 顺带把两个计划阶段悬着的硬件问题测掉了，结果记在
 [docs/calibration.md](docs/calibration.md)：`minUniformBufferOffsetAlignment` 实测 256
 （256B stride 假设成立），以及 WGSL 的**动态层索引采样可用**（模糊分档不必退回静态绑定）。
 
-第一期的十二项都在上面。还没做的（DPR 2 的实测、与上游渲染结果的像素级截图对比）
-列在 [docs/calibration.md](docs/calibration.md) 的「待补」里。
+第一期的十二项都在上面。还没做的（与上游渲染结果的像素级截图对比）列在
+[docs/calibration.md](docs/calibration.md) 的「待补」里。
 
 与上游的偏离逐条记在 [docs/porting-notes.md](docs/porting-notes.md)：色散的象限变号、
 高光缺暗边、以及 `radiusAt` 传错坐标系导致四角半径塌缩。规划阶段有两条结论后来被证明是错的，

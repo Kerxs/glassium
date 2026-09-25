@@ -225,6 +225,19 @@ button.classList.add('collapsed')           // 接着把 from 藏起来（或拿
 没有折射。组件把材质写成自己影子样式里的 CSS 变量：`--glassium-blur`、`--glassium-saturate`、`--glassium-tint`、
 `--glassium-rim-light`、`--glassium-rim-dark`、`--glassium-shadow`（`overlayVars(material)` 算的就是这些）。
 
+### 浮在正文上的玻璃（`scroll-edge`）
+
+卡片、按钮、标签栏写 `scroll-edge="bottom"`（浮在视口底边，比如底部的标签栏、右下角的浮动按钮）或 `scroll-edge="top"`
+（浮在顶边）：正文从它底下经过时，影子树里的一层磨砂（`::part(frost)`，CSS 的 `backdrop-filter`）按滚动淡入 ——
+GPU 玻璃画在最底下，盖不住滚上来的 DOM 文字。
+
+- `bottom`：下面还有没滚到的内容时是 1，离文档末尾不到 16px（`SCROLL_EDGE_RAMP`）时淡出，到底是 0。页面底下要给它
+  留出位置（padding-bottom），否则滚到底时最后几行照样压在它上面。
+- `top`：往下滚了 16px 之内淡入；回到顶上是 0。
+- 磨砂是 DOM，画布上的 GPU 玻璃照画（在磨砂底下、被它模糊）。看的是整个文档的滚动（window）。
+- `scrollEdgeProgress(edge, scrollY, scrollHeight, viewportHeight)` 是它的算法。`<glass-nav-bar>` 自带一套（按栏有没有
+  贴住算），不用写这个属性。
+
 ### 材质属性
 
 三个玻璃组件都认，与 `GlassMaterial` 一一对应。写错的属性在控制台报一次并被忽略。

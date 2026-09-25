@@ -342,7 +342,8 @@
       }
 
       /* 浮在底部的标签栏：栏是玻璃，选中那一格下面的气泡是写在栏里面的玻璃（第 1 层）。
-         minimize="scroll"：往下滚时缩成只剩选中那一格（居中定位，所以往中间收），往上滚展开 */
+         minimize="scroll"：往下滚时缩成只剩选中那一格（居中定位，所以往中间收），往上滚展开。
+         scroll-edge="bottom"：正文从它底下经过时淡入磨砂（GPU 玻璃盖不住 DOM 文字），滚到底（.page 留出的底边）时淡出 */
       .tabbar {
         position: fixed;
         left: 50%;
@@ -572,7 +573,7 @@
       </p>
     </main>
 
-    <glass-tab-bar class="tabbar" id="tabbar" value="home" minimize="scroll" aria-label="主导航">
+    <glass-tab-bar class="tabbar" id="tabbar" value="home" minimize="scroll" scroll-edge="bottom" aria-label="主导航">
       <button value="home"><span class="icon" aria-hidden="true">⌂</span><span class="label">首页</span></button>
       <button value="discover"><span class="icon" aria-hidden="true">✦</span><span class="label">发现</span></button>
       <button value="saved"><span class="icon" aria-hidden="true">♡</span><span class="label">收藏</span></button>

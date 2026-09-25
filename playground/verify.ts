@@ -1758,6 +1758,81 @@ async function run(): Promise<void> {
     return ok ? pass(detail) : fail(detail)
   })
 
+  await check('scroll-edge', async () => {
+    // scroll-edge：浮在正文上的玻璃，正文滚到它底下时淡入磨砂（scroll-edge.ts）。两块 fixed 的卡片：
+    // bottom（浮在底边：下面还有内容时是 1，到底是 0）与 top（往下滚了才有）。
+    // 磨砂是 DOM，画布上的 GPU 玻璃照画（红色 tint 的中心 R − G 大）；去掉属性时磨砂层拿掉；层级检查没有问题
+    stage.debug.setBackdrop({ scene: 'flat' })
+    const rootStyle = document.documentElement.style
+    const scrollbar = rootStyle.scrollbarWidth
+    rootStyle.scrollbarWidth = 'none' // 撑高文档不冒滚动条，视口不变
+    const spacer = document.createElement('div')
+    spacer.style.height = '3000px'
+    const card = (edge: string, css: Partial<CSSStyleDeclaration>): HTMLElement => {
+      const el = document.createElement('glass-card')
+      el.setAttribute('scroll-edge', edge)
+      el.setAttribute('tint', 'rgba(255, 60, 60, 0.45)')
+      Object.assign(el.style, { position: 'fixed', left: '40px', width: '200px', height: '56px', ...css })
+      return el
+    }
+    const bottom = card('bottom', { bottom: '20px' })
+    const top = card('top', { top: '480px' })
+    document.body.append(spacer, bottom, top)
+    const scrollTo = async (y: number): Promise<void> => {
+      window.scrollTo(0, y)
+      window.dispatchEvent(new Event('scroll')) // 面板隐藏时滚动事件不一定来，这里直接派发
+      await sleep(0)
+    }
+    await scrollTo(0)
+    const frostOf = (el: HTMLElement): HTMLElement | null => el.shadowRoot!.querySelector<HTMLElement>("[part='frost']")
+    const read = (el: HTMLElement): string => {
+      const f = frostOf(el)
+      if (!f) return '没有'
+      const s = getComputedStyle(f)
+      return s.visibility === 'hidden' ? '0（hidden）' : s.opacity
+    }
+    const v = stage.debug.stats().viewport!
+    const s = v.compositeWidth / v.cssWidth
+    const canvasBox = stage.canvas.getBoundingClientRect()
+    const r = bottom.getBoundingClientRect()
+    const d = await readback({
+      x: Math.floor((r.left + r.width / 2 - canvasBox.left) * s),
+      y: Math.floor((r.top + r.height / 2 - canvasBox.top) * s),
+      width: 1,
+      height: 1
+    })
+    const center = [d[0]!, d[1]!, d[2]!]
+    const problems = stage.debug.checkLayers().filter((p) => p.panel === bottom || p.panel === top)
+    const end = (document.scrollingElement ?? document.documentElement).scrollHeight - window.innerHeight
+    const at0 = [read(bottom), read(top)]
+    await scrollTo(8)
+    const at8 = [read(bottom), read(top)]
+    await scrollTo(end - 8)
+    const nearEnd = [read(bottom), read(top)]
+    await scrollTo(end)
+    const atEnd = [read(bottom), read(top)]
+    bottom.removeAttribute('scroll-edge')
+    const removed = frostOf(bottom) === null
+    await scrollTo(0)
+    spacer.remove()
+    bottom.remove()
+    top.remove()
+    rootStyle.scrollbarWidth = scrollbar
+    calibrationScene()
+    stage.debug.renderNow()
+
+    const glass = center[0]! - center[1]! > 20
+    const detail =
+      `bottom / top 的磨砂：滚 0 ${at0.join(' / ')} · 滚 8 ${at8.join(' / ')} · 离底 8 ${nearEnd.join(' / ')} · ` +
+      `到底（${end}）${atEnd.join(' / ')} · 磨砂下面的 GPU 玻璃 ${center.join('/')} · 层级问题 ${problems.length} · ` +
+      `去掉属性：磨砂层${removed ? '拿掉了' : '还在'}`
+    const ok =
+      at0[0] === '1' && at0[1] === '0（hidden）' && at8[0] === '1' && at8[1] === '0.5' &&
+      nearEnd[0] === '0.5' && nearEnd[1] === '1' && atEnd[0] === '0（hidden）' && atEnd[1] === '1' &&
+      glass && problems.length === 0 && removed
+    return ok ? pass(detail) : fail(detail)
+  })
+
   await check('overlay', async () => {
     // 盖在 DOM 上的玻璃用 CSS 画（core/overlay.ts）：模态对话框里的卡片与开关、打开的 popover、写了 overlay 的卡片 ——
     // 都带上 data-glassium-overlay、不上 GPU（面板数不变），卡片的 backdrop-filter 是材质的 σ 与饱和度、背景是 tint，

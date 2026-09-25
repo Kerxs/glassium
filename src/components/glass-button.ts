@@ -35,7 +35,6 @@
 import type { GlassMaterial } from '../core/material.ts'
 import { OVERLAY_HOST_CSS } from '../core/overlay.ts'
 import { prefersReducedMotion } from '../renderer/stage.ts'
-import { MATERIAL_ATTRIBUTES } from './attributes.ts'
 import { GlassElement, sharedSheet } from './base.ts'
 import type { PanelLight } from '../renderer/panels.ts'
 import {
@@ -108,7 +107,7 @@ function submitWith(form: HTMLFormElement, host: HTMLElement): void {
 
 export class GlassButton extends GlassElement {
   static override get observedAttributes(): string[] {
-    return [...MATERIAL_ATTRIBUTES, 'disabled']
+    return [...super.observedAttributes, 'disabled']
   }
 
   /** 表单关联的自定义元素：有表单归属、响应 fieldset 的禁用、参与表单重置。 */

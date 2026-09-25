@@ -22,6 +22,7 @@ import { describeElement } from '../renderer/layering.ts'
 import type { GlassPanel, PanelLight } from '../renderer/panels.ts'
 import { currentStage, onStageChange, type GlassStage } from '../renderer/stage.ts'
 import { MATERIAL_ATTRIBUTES, parseMaterialAttributes } from './attributes.ts'
+import { ScrollEdgeLayer } from './scroll-edge.ts'
 
 /**
  * 玻璃生效时组件带上这个属性。glassium.css 里的兜底表面只在**没有**它的时候出现 ——
@@ -42,8 +43,9 @@ export class GlassElement extends HTMLElementBase {
   static readonly #live = new Set<GlassElement>()
   static #subscribed = false
 
+  /** 材质属性，加上 `scroll-edge`（浮在正文上时的磨砂，scroll-edge.ts）。子类在它后面接自己的。 */
   static get observedAttributes(): string[] {
-    return [...MATERIAL_ATTRIBUTES]
+    return [...MATERIAL_ATTRIBUTES, 'scroll-edge']
   }
 
   #stage: GlassStage | null = null
@@ -57,6 +59,8 @@ export class GlassElement extends HTMLElementBase {
    */
   #vars: CSSStyleSheet | null = null
   #varsRule = ''
+  /** 写了 scroll-edge 时影子树里的磨砂层。 */
+  readonly #scrollEdge = new ScrollEdgeLayer(this)
 
   /** 解析后的基础材质：组件默认值 ⊕ preset ⊕ 显式属性。不含交互调制。 */
   get material(): GlassMaterial {
@@ -83,16 +87,22 @@ export class GlassElement extends HTMLElementBase {
     GlassElement.#subscribe()
     this.#readAttributes()
     this.#sync(currentStage())
+    this.#scrollEdge.sync()
   }
 
   disconnectedCallback(): void {
     GlassElement.#live.delete(this)
     this.#detach()
     this.removeAttribute(ACTIVE_ATTRIBUTE)
+    this.#scrollEdge.sync()
   }
 
   attributeChangedCallback(name: string, oldValue: string | null, newValue: string | null): void {
     if (oldValue === newValue) return
+    if (name === 'scroll-edge') {
+      this.#scrollEdge.sync()
+      return
+    }
     if (!(MATERIAL_ATTRIBUTES as readonly string[]).includes(name)) return
     this.#readAttributes()
     this.refresh()

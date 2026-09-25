@@ -28,9 +28,10 @@
 
 import { MATERIAL_ATTRIBUTES } from './attributes.ts'
 import { HTMLElementBase, sharedSheet } from './base.ts'
+import { FROST_CSS, SCROLL_EDGE_RAMP } from './scroll-edge.ts'
 
-/** 模糊渐隐与磨砂从无到满要滚的距离，CSS 像素。 */
-export const NAV_EDGE_RAMP = 16
+/** 模糊渐隐与磨砂从无到满要滚的距离，CSS 像素（与 scroll-edge 的磨砂相同）。 */
+export const NAV_EDGE_RAMP = SCROLL_EDGE_RAMP
 
 const clamp01 = (x: number): number => (x > 0 ? (x < 1 ? x : 1) : 0)
 
@@ -107,17 +108,10 @@ const CSS = `
   grid-column: 3;
   justify-self: end;
 }
-/* 胶囊上的磨砂：正文压在底下时淡入（backdrop-filter 模糊下面的一切，GPU 玻璃与滚上来的文字都在内） */
-.frost {
-  position: absolute;
-  inset: 0;
-  border-radius: inherit;
-  pointer-events: none;
-  opacity: var(--_edge, 0);
-  background-color: rgba(255, 255, 255, 0.16);
-  box-shadow: inset 1px 1px 1px -0.5px rgba(255, 255, 255, 0.4), inset -1px -1px 1px -0.5px rgba(0, 0, 0, 0.12);
-  -webkit-backdrop-filter: blur(12px) saturate(1.4);
-  backdrop-filter: blur(12px) saturate(1.4);
+/* 胶囊上的磨砂：正文压在底下时淡入（backdrop-filter 模糊下面的一切，GPU 玻璃与滚上来的文字都在内）。
+   与 scroll-edge 的磨砂同一套样式 */
+.frost {${FROST_CSS}
+  --_frost: var(--_edge, 0);
 }
 .frost[data-off] {
   visibility: hidden;

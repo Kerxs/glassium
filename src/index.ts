@@ -182,6 +182,8 @@ export {
   inlineTitleOpacity,
   largeTitleProgress
 } from './components/glass-nav-bar.ts'
+// 浮在正文上的玻璃：正文滚到底下时淡入的磨砂（scroll-edge 属性）
+export { SCROLL_EDGE_RAMP, scrollEdgeProgress, type ScrollEdge } from './components/scroll-edge.ts'
 export { OVERLAY_HOST_CSS, overlayHostRule, overlayVars } from './core/overlay.ts'
 export { Segments, segmentValue, type SegmentsOptions } from './components/segments.ts'
 export {
