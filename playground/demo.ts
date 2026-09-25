@@ -5,7 +5,7 @@
 
 import '../src/components/glassium.css'
 
-import { createGlassStage, defineGlassElements } from 'glassium'
+import { createGlassStage, defineGlassElements, morphGlass } from 'glassium'
 
 import { makePhoto } from './scenes.ts'
 
@@ -32,6 +32,29 @@ async function main(): Promise<void> {
   })
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') setOpen(false)
+  })
+
+  // 按钮长成卡片：morphGlass(from, to) —— 一块过渡用的玻璃从按钮的位置、大小、材质变到卡片的，按钮淡出、卡片淡入。
+  // 收起的那个用 visibility: hidden 藏着（仍然排版，变形开始时要量它）；变形途中再按不理
+  const growOpen = document.getElementById('grow-open')!
+  const growCard = document.getElementById('grow-card')!
+  const growClose = document.getElementById('grow-close')!
+  let growing = false
+  const grow = async (open: boolean): Promise<void> => {
+    if (growing || (growOpen.getAttribute('aria-expanded') === 'true') === open) return
+    growing = true
+    const [from, to] = open ? [growOpen, growCard] : [growCard, growOpen]
+    to.classList.remove('collapsed')
+    growOpen.setAttribute('aria-expanded', String(open))
+    await morphGlass(from, to).finished
+    from.classList.add('collapsed')
+    growing = false
+    ;(open ? growClose : growOpen).focus()
+  }
+  growOpen.addEventListener('click', () => void grow(true))
+  growClose.addEventListener('click', () => void grow(false))
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') void grow(false)
   })
 
   // 订阅表单：<glass-button> 在表单里默认就是提交按钮，name / value 跟着进表单数据

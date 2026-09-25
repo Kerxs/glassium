@@ -60,6 +60,32 @@
   长到自己的位置（略微过冲）；`dismiss(member)` → `Promise<void>`：缩回离它最近的成员再从文档里拿掉。动的是成员的
   `translate` 与 `scale`，成员自己别再写这两个属性。减少动效时直接出现、直接拿掉。
 
+### `morphGlass(from, to, options?)` → `GlassMorph`
+
+这一块玻璃变成那一块（SwiftUI 的 `glassEffectID`）：按钮长成一张卡片、卡片缩回按钮。两头是任意两块玻璃
+（`<glass-*>` 组件，或 `stage.register` 注册的元素），不必在同一个容器里。
+
+```js
+import { morphGlass } from 'glassium'
+
+card.classList.remove('collapsed')          // 先让 to 排版、可见（visibility: hidden 可以，display: none 不行）
+await morphGlass(button, card).finished     // 按钮变成卡片；结束时按钮的 opacity 是 0
+button.classList.add('collapsed')           // 接着把 from 藏起来（或拿掉）
+```
+
+一块过渡用的玻璃从 from 的位置、大小、圆角、材质插值到 to 的（形状略微过冲，`MORPH_GLASS_EASE`），from 在开头
+30% 里淡出、to 在最后 30% 里淡入（`MORPH_GLASS_FADE`），投影交叉淡出淡入。
+
+| 选项 | 说明 | 默认 |
+|---|---|---|
+| `duration` | 毫秒 | 450（`MORPH_GLASS_MS`） |
+| `fromMaterial` / `toMaterial` | 两头的材质 | 元素的 `material`（组件有；`register` 注册的元素要自己传） |
+
+返回的 `GlassMorph`：`finished`（走完、`finish()`、`cancel()` 时 resolve）、`seek(p)`（停在进度 p、不再自己走 ——
+跟着手指拖，或者验证用）、`finish()`（跳到终点）、`cancel()`（拿掉过渡玻璃，两头回到开始之前的不透明度）。
+减少动效、没有 stage 时直接换。`cubicBezier(x1, y1, x2, y2)` 是 CSS 同名缓动的 JS 版（返回 `t => y`）。
+边界见 [limitations.md](limitations.md)。
+
 ### `<glass-fill>`
 
 画进场景的圆角矩形，纯色或渐变：玻璃看得见它（开关的轨道、滑块的进度条、卡片后面的色块、彩色的渐变底）。

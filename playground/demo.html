@@ -201,6 +201,51 @@
         outline-offset: -1.5px;
       }
 
+      /* 按钮长成卡片（morphGlass）：两个叠在同一个角上，收起的那个 visibility: hidden ——
+         它仍然排版（变形开始时要量它的矩形，display: none 量不到），玻璃不画、点不到、Tab 不到 */
+      .grow {
+        position: relative;
+        height: 148px;
+      }
+
+      .grow > * {
+        position: absolute;
+        left: 0;
+        top: 0;
+      }
+
+      .grow > glass-button {
+        height: 48px;
+        padding: 0 22px;
+        font-weight: 600;
+      }
+
+      .grow-card {
+        box-sizing: border-box;
+        width: min(100%, 320px);
+        display: grid;
+        gap: 4px;
+        padding: 18px 20px 16px;
+        border-radius: 24px; /* 兜底表面的圆角（与 corner-radius 对齐） */
+      }
+
+      .grow-card span {
+        font-size: 14px;
+        opacity: 0.85;
+      }
+
+      .grow-card glass-button {
+        justify-self: end;
+        height: 36px;
+        margin-top: 6px;
+        padding: 0 18px;
+        font-weight: 600;
+      }
+
+      .grow .collapsed {
+        visibility: hidden;
+      }
+
       /* 表单：输入框是普通 DOM（半透明底），提交按钮是玻璃 —— 它直接压在场景上，不在卡片里 */
       form {
         display: flex;
@@ -458,6 +503,26 @@
           <button role="menuitem">生成海报</button>
         </glass-card>
       </glass-container>
+
+      <p class="section-title">变形（按一下「新建提醒」：按钮长成一张卡片，按「完成」再缩回去 —— morphGlass）</p>
+      <div class="grow">
+        <glass-button preset="regular" type="button" id="grow-open" aria-expanded="false" aria-controls="grow-card">
+          ＋ 新建提醒
+        </glass-button>
+        <glass-card
+          class="grow-card collapsed"
+          id="grow-card"
+          preset="thick"
+          tint="rgba(255, 159, 10, 0.22)"
+          corner-radius="24"
+          role="group"
+          aria-label="新建提醒"
+        >
+          <strong>明天 08:00</strong>
+          <span>出门记得带伞 · 降水概率 70%</span>
+          <glass-button preset="thin" type="button" id="grow-close">完成</glass-button>
+        </glass-card>
+      </div>
 
       <p class="section-title">订阅</p>
       <form id="subscribe">

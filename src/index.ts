@@ -161,6 +161,16 @@ export { GlassElement } from './components/base.ts'
 export { GlassCard } from './components/glass-card.ts'
 export { GlassButton, type GlassButtonType } from './components/glass-button.ts'
 export { GlassContainer, MORPH_DROPLET, MORPH_EASING, MORPH_MS, dropletOffset } from './components/glass-container.ts'
+// 两块不相干的玻璃之间的变形（glassEffectID 那种「这一块变成那一块」）
+export {
+  cubicBezier,
+  morphGlass,
+  MORPH_GLASS_EASE,
+  MORPH_GLASS_FADE,
+  MORPH_GLASS_MS,
+  type GlassMorph,
+  type MorphGlassOptions
+} from './components/morph-glass.ts'
 export { GlassFill } from './components/glass-fill.ts'
 export { GlassSwitch } from './components/glass-switch.ts'
 export { GlassSegmented } from './components/glass-segmented.ts'

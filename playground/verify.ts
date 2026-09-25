@@ -19,6 +19,8 @@ import {
   GlassPresets,
   joinProbeAndColors,
   linearToSrgb,
+  morphGlass,
+  MORPH_GLASS_EASE,
   parseFillPaint,
   resolvePaint,
   simulateMoreContrast,
@@ -1930,6 +1932,107 @@ async function run(): Promise<void> {
     return stepOk && tintOk && adaptOk && layerOk && hashAfter === hashBefore && pipelinesAgain === pipelinesLinear
       ? pass(detail)
       : fail(detail)
+  })
+
+  await check('morph-glass', async () => {
+    // morphGlass(from, to)：按钮变成卡片。
+    // 1) 起点：seek(0) 时按钮那一块与变形之前逐位相同（过渡玻璃不画、卡片看不见）；
+    // 2) 途中：seek(0.5) 时过渡玻璃的矩形 = 两个矩形按缓动插值；它画着玻璃，按钮、卡片都看不见；
+    // 3) 终点：seek(1) 时卡片那一块与 finish 之后逐位相同；
+    // 4) 走完：过渡玻璃拿掉，按钮不透明度 0；再变回去（卡片 → 按钮），按钮回到原来的样子、卡片藏起来；
+    // 5) 减少动效：直接换，不出过渡玻璃；6) to 量不到矩形（display: none）：警告一句、直接换。
+    stage.debug.setBackdrop({ scene: 'flat' })
+    const from = document.createElement('glass-button')
+    from.setAttribute('type', 'button')
+    Object.assign(from.style, { position: 'absolute', left: '440px', top: '200px', width: '56px', height: '56px' })
+    const to = document.createElement('glass-card')
+    to.setAttribute('tint', 'rgba(255, 60, 60, 0.45)')
+    to.setAttribute('corner-radius', '24')
+    Object.assign(to.style, { position: 'absolute', left: '500px', top: '320px', width: '220px', height: '140px' })
+    document.body.append(from, to)
+    await sleep(0)
+    stage.debug.renderNow()
+    const fromRegion = regionOf([from], 24)
+    const toRegion = regionOf([to], 24)
+    const a = from.getBoundingClientRect()
+    const b = to.getBoundingClientRect()
+    const before = await sha(await readback(fromRegion))
+
+    const m = morphGlass(from, to)
+    m.seek(0)
+    const atStart = await sha(await readback(fromRegion))
+    const ghostAt = (): HTMLElement | null => document.querySelector<HTMLElement>('[data-glassium-morph]')
+    m.seek(0.5)
+    const ghost = ghostAt()
+    const g = MORPH_GLASS_EASE(0.5)
+    const want = { left: a.left + (b.left - a.left) * g, top: a.top + (b.top - a.top) * g, width: a.width + (b.width - a.width) * g }
+    const got = ghost ? ghost.getBoundingClientRect() : null
+    const rectOk = !!got && Math.abs(got.left - want.left) < 0.5 && Math.abs(got.top - want.top) < 0.5 && Math.abs(got.width - want.width) < 0.5
+    const v = stage.debug.stats().viewport!
+    const s = v.compositeWidth / v.cssWidth
+    const canvasBox = stage.canvas.getBoundingClientRect()
+    const pixel = async (x: number, y: number): Promise<[number, number, number]> => {
+      const d = await readback({ x: Math.floor((x - canvasBox.left) * s), y: Math.floor((y - canvasBox.top) * s), width: 1, height: 1 })
+      return [d[0]!, d[1]!, d[2]!]
+    }
+    const mid = got ? await pixel(got.left + got.width / 2, got.top + got.height / 2) : [0, 0, 0]
+    const scene = await pixel(a.left + a.width / 2, a.top + a.height / 2) // 按钮原来的地方：途中已经空了
+    const hiddenMid = from.style.opacity === '0' && to.style.opacity === '0'
+    m.seek(1)
+    const atEnd = await sha(await readback(toRegion))
+    m.finish()
+    await m.finished
+    stage.debug.renderNow()
+    const after = await sha(await readback(toRegion))
+    const ghostGone = ghostAt() === null
+    const fromHidden = from.style.opacity === '0'
+    // 变回去
+    const back = morphGlass(to, from)
+    back.finish()
+    await back.finished
+    const restored = from.style.opacity === '' && to.style.opacity === '0'
+    const backBefore = await sha(await readback(fromRegion))
+    // 减少动效
+    simulateReducedMotion(true)
+    const quick = morphGlass(from, to)
+    const noGhost = ghostAt() === null
+    await quick.finished
+    const quickLanded = from.style.opacity === '0' && to.style.opacity === ''
+    simulateReducedMotion(null)
+    // 量不到矩形：卡片 → display: none 的按钮
+    from.style.display = 'none'
+    const warnings: string[] = []
+    const realWarn = console.warn
+    console.warn = (...args: unknown[]): void => void warnings.push(String(args[0]))
+    let unmeasured: ReturnType<typeof morphGlass>
+    try {
+      unmeasured = morphGlass(to, from)
+    } finally {
+      console.warn = realWarn
+    }
+    const unmeasuredGhost = ghostAt() !== null
+    unmeasured.finish() // 真的变起来了（保护失效）就直接跳到终点，别等 rAF
+    await unmeasured.finished
+    const unmeasuredOk =
+      !unmeasuredGhost && warnings.length === 1 && warnings[0]!.includes('没有排版') && to.style.opacity === '0' && from.style.opacity === ''
+    from.remove()
+    to.remove()
+    calibrationScene()
+    stage.debug.renderNow()
+
+    const f = (c: readonly number[]): string => c.join('/')
+    const detail =
+      `起点 ${atStart === before ? '与变形之前逐位相同' : '不同'} · ` +
+      `途中过渡玻璃 ${got ? `${got.left.toFixed(1)}, ${got.top.toFixed(1)}, 宽 ${got.width.toFixed(1)}` : '没有'}` +
+      `（预期 ${want.left.toFixed(1)}, ${want.top.toFixed(1)}, 宽 ${want.width.toFixed(1)}）、中心 ${f(mid)}、按钮原处 ${f(scene)}、` +
+      `两头${hiddenMid ? '都看不见' : '还看得见'} · 终点 ${atEnd === after ? '与走完之后逐位相同' : '不同'} · ` +
+      `走完：过渡玻璃${ghostGone ? '拿掉了' : '还在'}、按钮${fromHidden ? '藏起来' : '还在'} · 变回去：${restored ? '按钮回来、卡片藏起来' : '没复原'}` +
+      `${backBefore === before ? '，按钮那一块与最初逐位相同' : '，按钮那一块与最初不同'} · 减少动效：${noGhost && quickLanded ? '直接换' : '没直接换'}` +
+      ` · 量不到矩形：${unmeasuredOk ? '警告一句、直接换' : `没按预期（警告 ${warnings.length} 条、过渡玻璃${unmeasuredGhost ? '出了' : '没出'}）`}`
+    const ok =
+      atStart === before && rectOk && mid[0]! - mid[1]! > 10 && Math.abs(scene[0]! - scene[1]!) <= 2 && hiddenMid &&
+      atEnd === after && ghostGone && fromHidden && restored && backBefore === before && noGhost && quickLanded && unmeasuredOk
+    return ok ? pass(detail) : fail(detail)
   })
 
   await check('component-equals-register', async () => {
