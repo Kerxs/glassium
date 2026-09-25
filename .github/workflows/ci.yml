@@ -32,6 +32,11 @@ jobs:
       - name: 构建
         run: npm run build
 
+      # 要发布的包里有什么：入口、类型、兜底样式、许可声明都在，测试与源码不在，
+      # package.json 的 exports 指向的文件真的在包里（npm ci 已经经 prepare 构建过 dist/）
+      - name: 打包内容
+        run: node scripts/check-pack.ts
+
       # 改了光学却没跑 gen:conformance 的话，签入的向量就和实现漂了，
       # 而那份向量是未来 Android / iOS 渲染器唯一的契约。
       - name: 符合性向量同一性

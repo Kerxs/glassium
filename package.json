@@ -1,18 +1,43 @@
 {
   "name": "glassium",
-  "version": "0.0.0",
-  "private": true,
-  "description": "Liquid Glass 渲染框架 —— Web/TypeScript 实现",
+  "version": "0.0.1",
+  "description": "Liquid Glass（液态玻璃）UI 的 Web 实现：GPU 渲染的折射、色散与融合的玻璃，以 Web Components 交付（WebGPU → WebGL2 → CSS 兜底）",
+  "keywords": [
+    "liquid-glass",
+    "glass",
+    "glassmorphism",
+    "webgpu",
+    "webgl2",
+    "web-components",
+    "custom-elements",
+    "refraction",
+    "ui"
+  ],
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Kerxs/glassium.git"
+  },
+  "homepage": "https://github.com/Kerxs/glassium#readme",
+  "bugs": {
+    "url": "https://github.com/Kerxs/glassium/issues"
+  },
   "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
     },
-    "./glassium.css": "./dist/glassium.css"
+    "./glassium.css": "./dist/glassium.css",
+    "./package.json": "./package.json"
   },
   "files": [
-    "dist"
+    "dist",
+    "NOTICE",
+    "THIRD-PARTY-NOTICES.md",
+    "CHANGELOG.md"
   ],
   "sideEffects": [
     "**/*.css"
@@ -20,13 +45,14 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "build:lib": "tsc -p tsconfig.build.json && node scripts/copy-css.ts",
+    "build:lib": "node scripts/clean-dist.ts && tsc -p tsconfig.build.json && node scripts/copy-css.ts",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
     "test": "node --test",
     "gen:conformance": "node scripts/gen-conformance.ts",
     "gen:glsl": "node scripts/gen-glsl.ts",
-    "prepare": "npm run build:lib"
+    "prepare": "npm run build:lib",
+    "prepublishOnly": "npm run typecheck && npm test && npm run build:lib"
   },
   "dependencies": {
     "@webgpu/types": "^0.1.60"

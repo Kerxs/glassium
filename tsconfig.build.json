@@ -6,8 +6,11 @@
   "compilerOptions": {
     "noEmit": false,
     "declaration": true,
-    "declarationMap": true,
+    // 发布的包里不带 src：JS 的 source map 把源码内联进去（调试时照样看得到 TS），声明文件的 map 指向不存在的
+    // 源码、没有用，不出
+    "declarationMap": false,
     "sourceMap": true,
+    "inlineSources": true,
     "outDir": "dist",
     "rootDir": "src",
     "rewriteRelativeImportExtensions": true,

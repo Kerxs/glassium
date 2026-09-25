@@ -438,21 +438,101 @@ reject 一个 `name === 'AbortError'` 的 DOMException。跨源的图片与视�
 | `describeElement(el)`、`describeProblem(problem, name)` | 把元素、层级问题写成一句话（`checkLayers()` 的结果） |
 | `simulateNoWebGpu(on)` | 让探测表现为 `navigator.gpu` 不存在，验降级阶梯 |
 | `simulateDeviceLoss()`、`deviceLossCount()` | 设备丢失的模拟与计数 |
-| `VERSION` | `'0.0.0'`（还没有发布） |
+| `VERSION` | 包的版本号，与 package.json 相同（现在是 `'0.0.1'`） |
 
 ---
 
-## 给渲染器实现者与验证用
+## 全部导出
 
-| 模块 | 导出 |
+包入口（`import … from 'glassium'`）的每一个导出都在这里，按模块分组。**稳定**的是 0.x 期间尽量不动的公开接口；
+*进阶*的给实现别的渲染器、写测试、调试用，签名可能随版本变。有一条测试（`src/api-docs.test.ts`）保证这一节不漏：
+新加了导出而这里没写，测试失败。
+
+### 组件（稳定）
+
+| 导出 | 说明 |
 |---|---|
-| 光学（`core/optics.ts`，移植自上游） | `sdRoundedRect`、`gradSdRoundedRect`、`radiusAt`、`refractionDirection`、`refractionProfile`、`circleMap`、`squircleMap`、`spectralWeights`、`highlightTerms`、`rimMask`、`smin`、`sminGradient`…… |
-| 合并 | `evalMergedOptics`、`memberOptics`、`mergeBleed`、`MAX_GROUP_MEMBERS` |
-| 管线 | `resolveMargins`、`sampleMargin`、`assertCanonicalOrder`、`EffectChain`、`GlassEffect` |
-| 单位与分辨率 | `resolveViewport`、`describeViewport`、`dpToCssPx`、`cssToDevicePx`…… |
-| 场景的铺法 | `sceneUvTransform`、`sceneBitmapSize`、`sceneCssBackground` |
-| 减少透明度 | `reduceTransparency`、`frostFor`、`frostForColor`、`relativeLuminance`、`FROST` |
-| 着色器源 | `OPTICS_WGSL`（唯一真源）、`OPTICS_GLSL`（机械生成） |
-| 验证 | `compareOptics`、`compareGroupOptics`、`joinProbeAndColors`、`summarizeBySector` |
+| `defineGlassElements(registry?)` | 注册全部组件与 `--glass-fill` 属性。幂等；没有 `customElements`（服务端）时什么都不做 |
+| `GlassElement` | 玻璃组件的基类：属性 → 材质、注册成面板、兜底表面的钩子、`scroll-edge` |
+| `GlassCard`、`GlassButton`、`GlassContainer`、`GlassFill`、`GlassSwitch`、`GlassSlider`、`GlassSegmented`、`GlassTabBar` | 各组件的类（`HTMLElementTagNameMap` 里也声明了，`document.createElement('glass-card')` 有类型） |
+| `GlassNavBar`、`GlassToolbar`、`GlassBar` | 导航栏、工具栏，与它们共用的实现（不单独注册） |
+| `GlassButtonType` | `<glass-button type>` 的取值：`'submit' \| 'reset' \| 'button'` |
+| `BarPlacement` | 栏贴在哪条边：`'top' \| 'bottom'` |
+| `morphGlass`、`GlassMorph`、`MorphGlassOptions` | 这一块玻璃变成那一块，见上面 |
+| `MORPH_GLASS_MS`、`MORPH_GLASS_FADE`、`MORPH_GLASS_EASE`、`cubicBezier` | 变形的默认时长、淡出淡入的比例、形状的缓动；CSS `cubic-bezier()` 的 JS 版 |
+| `MORPH_MS`、`MORPH_EASING`、`MORPH_DROPLET`、`dropletOffset` | `<glass-container morph>` 的时长、缓动、一滴的大小；一滴从哪里出来（纯函数） |
+| `NAV_EDGE_RAMP`、`edgeProgress`、`largeTitleProgress`、`inlineTitleOpacity` | 导航栏的滚动边缘与大标题的算法（纯函数） |
+| `ScrollEdge`、`SCROLL_EDGE_RAMP`、`scrollEdgeProgress` | `scroll-edge` 的取值与算法（纯函数） |
+| `VERSION` | 包的版本号 |
+
+### Stage（稳定）
+
+| 导出 | 说明 |
+|---|---|
+| `createGlassStage`、`GlassStage`、`GlassStageOptions` | 建 stage、它的成员与选项，见上面 |
+| `currentStage()`、`onStageChange(listener)` | 当前的 stage；订阅它的出现、销毁、降级、设置变化 |
+| `Backend`、`CanvasAlphaMode`、`DegradeReason` | `'webgpu' \| 'webgl2' \| 'none'`；画布的 alphaMode；`onDegrade` 的参数 |
+| `GlassSceneSource`、`SceneOptions`、`SceneFit`、`SceneKind` | `setScene` 的参数与选项、`object-fit` 的取值、当前场景的种类 |
+| `BlendSpace` | `'srgb' \| 'linear'` |
+| `GlassPanel`、`GlassGroup`、`SceneFill`、`PanelLight` | `register` / `group` / `registerFill` 的返回值；按压处的光 |
+| `GlassStats`、`BackendReport`、`Gl2Report`、`ProbeReport` | `debug.stats()` 的结果；后端、WebGL2、WebGPU 适配器的报告 |
+| `ReadbackRegion`、`ReadbackResult`、`PanelDebugMode`、`DEBUG_MODES` | `debug.readback` 的参数与结果；面板的调试视图 |
+| `prefersReducedMotion`、`prefersReducedTransparency`、`prefersMoreContrast` | 读系统设置（或下面的模拟值） |
+| `simulateReducedMotion`、`simulateReducedTransparency`、`simulateMoreContrast`、`simulateForcedColors` | 模拟系统设置；传 `null` 回到真实的媒体查询 |
+| `simulateNoWebGpu`、`simulateDeviceLoss`、`deviceLossCount` | 验降级阶梯：假装没有 WebGPU、假装设备丢失、丢失次数 |
+| `describeElement`、`describeProblem`、`LayerProblem` | 把元素、层级问题写成一句话（`debug.checkLayers()` 的结果） |
+
+### 材质（稳定）
+
+| 导出 | 说明 |
+|---|---|
+| `GlassMaterial`、`CornerRadius` | 材质（属性表的 camelCase 版）；圆角的写法 |
+| `GlassPresets`、`GlassPresetName`、`glass(preset, overrides?)`、`MATERIAL_DEFAULTS` | 五个预设、它们的名字、`{ ...preset, ...overrides }`、默认值 |
+| `lowerMaterial(material, [w, h])`、`EffectChain`、`GlassEffect` | 材质 → 有序效果管线（`colorFilter → blur → lens`） |
+| `parseTint(css)`、`resolveCornerRadii(radius, [w, h])` | tint 的解析（解析不了就抛）；圆角解算成四角绝对 dp |
+| `MATERIAL_ATTRIBUTES`、`parseMaterialAttributes(get)` | 组件认的材质属性名；从属性读出材质（组件内部用的同一个函数） |
+
+### 颜色、渐变、场景、磨砂（进阶：纯函数）
+
+| 导出 | 说明 |
+|---|---|
+| `srgbToLinear`、`linearToSrgb` | sRGB ↔ 线性光（单个通道，与着色器同一条公式） |
+| `parseFillPaint`、`resolvePaint`、`resolveStopOffsets`、`FillPaint`、`GradientStop`、`ResolvedPaint`、`MAX_GRADIENT_STOPS` | `--glass-fill` 与遮罩的渐变：解析计算值、按盒子解算几何、补色标位置；色标上限 |
+| `parseFillColor`、`FILL_PROPERTY` | CSS 颜色 → `[r, g, b, a]`（解析不了的交给浏览器换算）；`'--glass-fill'` |
+| `sceneUvTransform`、`UvTransform`、`sceneBitmapSize`、`sceneCssBackground` | 用户场景按 object-fit 铺进视口：UV 变换、预缩放的尺寸、没有 GPU 时的 CSS 背景 |
+| `reduceTransparency`、`REDUCED_TRANSPARENCY`、`FROST`、`Frost`、`frostFor`、`frostForColor`、`relativeLuminance` | 减少透明度时的材质变换与参数、两种磨砂、按文字颜色选磨砂、WCAG 相对亮度 |
+| `overlayVars`、`overlayHostRule`、`OVERLAY_HOST_CSS` | 用 CSS 画的玻璃：材质 → CSS 变量、`:host` 规则、组件影子样式里的那条规则 |
+| `OVERLAY_ATTRIBUTE`、`OVERLAY_OPT_IN` | stage 标在 CSS 画的玻璃上的属性（`data-glassium-overlay`）；作者写的 `overlay` |
+
+### 光学、合并、管线、单位（进阶：给实现别的渲染器的人）
+
+| 导出 | 说明 |
+|---|---|
+| `sdRoundedRect`、`gradSdRoundedRect`、`radiusAt`、`gradRadiusOf`、`clampRadii`、`safeNormalize` | 圆角矩形的 SDF 与梯度、按象限取角、梯度用的半径（放大 1.5 倍）、半径钳制、归一化的守卫 |
+| `refractionDirection`、`refractionProfile`、`circleMap`、`squircleMap` | 折射的方向与位移剖面 |
+| `spectralWeights`、`channelSampleOffsets`、`highlightTerms`、`rimMask` | 色散的三通道权重与采样偏移、不对称的亮边与暗边、亮边的范围 |
+| `smin`、`sminGradient`、`evalMergedOptics`、`memberOptics`、`mergeBleed`、`MAX_GROUP_MEMBERS`、`MemberGeometry`、`MergedOptics` | 合并：平滑并集与它的梯度、合并后的光学量、合并形状比并集大多少、一组最多几块 |
+| `Radii4`、`Vec2` | 四角半径、二维向量 |
+| `resolveMargins`、`sampleMargin`、`assertCanonicalOrder` | 效果管线的采样余量（按顺序累加）、校验顺序 |
+| `resolveViewport`、`ResolvedViewport`、`describeViewport`、`MAX_PIXELS`、`MIN_SCENE_RATIO` | 分辨率策略：画布与场景的像素数、启动时打印的那一行、像素预算与下限 |
+| `dpToCssPx`、`cssToDevicePx`、`deviceToCssPx`、`texelCenterUv`、`uvToTexelCoord` | 单位换算；像素 ↔ 纹素中心的 UV |
+| `DEFAULT_SMOOTHING_DP`、`LIGHT_GAIN`、`LIGHT_SIGMA_FRAC`、`MAX_GLASS_LAYER` | 合并的默认平滑半径、按压处光斑的强度与大小、玻璃最多叠几层 |
+| `OPTICS_WGSL`、`OPTICS_GLSL` | 光学的着色器源：WGSL 是唯一真源，GLSL 由它机械生成 |
+
+### 组件的内部件（进阶：可能变）
+
+| 导出 | 说明 |
+|---|---|
+| `Segments`、`SegmentsOptions`、`segmentValue` | 分段控件与标签栏共用的一排可选的段（选中、键盘、拖动）；一段的值 |
+| `PressTween`、`THUMB_REST`、`THUMB_PRESSED`、`thumbMaterial`、`ThumbParams`、`bubbleMaterial` | 旋钮按下变成透镜的缓动与两头的材质；标签栏气泡的材质 |
+| `sliderDefaultValue`、`parseSliderRange`、`sliderRatio`、`snapSliderValue`、`SliderRange` | 滑块的默认值、`min` / `max` / `step` 的解析、值 ↔ 比例、按步长规整（原生 range 的规则） |
+
+### 验证（进阶）
+
+| 导出 | 说明 |
+|---|---|
+| `compareOptics`、`compareGroupOptics`、`OpticsProbe`、`GroupOpticsProbe`、`OpticsComparison` | GPU 探针与 CPU 实现逐像素比对（单块面板、合并组） |
+| `joinProbeAndColors`、`JoinedPixel`、`SECTORS`、`Sector`、`sectorOf`、`summarizeBySector`、`SectorStat` | 探针与颜色回读按像素对齐；按外法线的扇区汇总 |
+| `gpuCreationCounts`、`gl2CreationCounts` | 本会话建过多少管线 / 程序与 GPU 对象（预热之后必须走平） |
 
 数学与管线的规格见 [../spec/optics.md](../spec/optics.md)、[../spec/pipeline.md](../spec/pipeline.md)。

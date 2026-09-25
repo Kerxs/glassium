@@ -14,7 +14,8 @@
  * defineGlassElements() 在没有 customElements 时什么都不做。
  */
 
-export const VERSION = '0.0.0'
+/** 与 package.json 的 version 相同（version.test.ts 核对）。 */
+export const VERSION = '0.0.1'
 
 // —— 光学核心（CPU 参考实现，与 WGSL 侧逐点一致）——
 export {

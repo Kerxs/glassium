@@ -1,0 +1,211 @@
+# 开发记录
+
+从第一期（T1–T12）到 0.0.1 的逐项记录，按做的顺序写（后来加的在「第一期之后加的」下面，越靠上越新）。
+每一项都是对照代码写的，实测的数字与反向对照在 [calibration.md](calibration.md)。使用说明见 [README](../README.md)，
+接口见 [api.md](api.md)。
+
+## 第一期明确不做
+
+- 盖在 DOM 内容**之上**的玻璃没有折射：对话框、popover 里的玻璃（以及写了 `overlay` 的）改用 CSS 画 ——
+  浏览器模糊下面的一切，材质的其余部分照搬（见下）。折射要读 DOM 的像素，平台不允许。
+- 逐面板不同的 backdrop。
+- Android / iOS 渲染器 —— 只交付 `spec/` 里的平台中立契约。
+- npm 发布、semver。（0.0.1 起发布，见 [CHANGELOG](../CHANGELOG.md)。）
+
+## CI 不覆盖像素
+
+CI 跑 `npm run typecheck`、`npm test`、生成物同一性与一次生产构建 —— 只证明数学、类型与打包是对的。
+GitHub runner 没有 GPU，软件 WebGPU 与真实驱动的像素差距大到任何阈值都失去意义，所以**没有 golden-image 测试**。
+GPU 输出由 `playground/verify.html` 在浏览器里逐项验证（光学探针与 CPU 实现逐像素比对、区域哈希的 A/B、
+颜色层面的性质），标题栏读作 `PASS n/n`，手工跑。视口（DPR、画布大小）在一轮中途变了的话那一轮不算数，
+页面自己重跑。绿色徽章不等于像素已验证 ——
+理由与将来要补什么见 [spec/golden/README.md](../spec/golden/README.md)。
+
+---
+
+## 现在能做到什么
+
+- [x] **T1** 仓库骨架、许可、类型与测试门禁
+- [x] **T2** 光学核心的 CPU 参考实现（`src/core/optics.ts`）与单位/分辨率策略
+      （`src/core/units.ts`），178 条平台中立符合性向量
+      （`spec/conformance/optics.json`）。实测数字见
+      [docs/calibration.md](calibration.md)
+- [x] **T3** 有序效果管线（`src/core/pipeline.ts`）与声明式材质立面
+      （`src/core/material.ts`）。内核是 `colorFilter → blur → lens` 的有序链并
+      协商采样余量，立面保留了 `blur/refraction/distortion/...` 那组参数名
+- [x] **T4** WGSL 唯一真源（`src/shaders/optics.wgsl.ts`）与 WGSL→GLSL ES 3.0
+      重写器（`src/shaders/translate-glsl.ts`）。生成物签入、CI 校验重生成同一性；
+      重写器**看不懂就抛**，不产出「能跑但微妙不对」的着色器
+
+- [x] **T5** 画布宿主、分辨率策略与帧循环（`src/renderer/stage.ts`）。三层宿主、
+      WebGPU device 单例、降级阶梯、`prefers-reduced-motion` 彻底停循环。
+      **还没有玻璃**——只有一层渐变场景，用来验证管线通不通
+
+- [x] **T6** 模糊金字塔与 colorFilter（`src/renderer/blur.ts`）。6 级 mip 链，
+      每帧 10 趟且**与面板数量无关**；σ 扫描实测单调、级边界无突变。
+      顺带把 calibration 场景（棋盘格 + 硬对角线 + 黑白阶跃）从 T12 提前过来 ——
+      线性渐变几乎是高斯模糊的不动点，没有高频图案就验不了模糊
+
+- [x] **T7** 第一块真正的玻璃（`src/shaders/glass.wgsl.ts`、`src/renderer/panels.ts`）。
+      `stage.register(element, material)` 把 DOM 元素注册成面板，逐面板 256B uniform、
+      动态偏移、一条管线一个 pass。几何折射，**还没有色散和高光**（T8）。
+      GPU 与 CPU 逐像素比对 23.8 万个纹素：**零个 NaN**，偏移 p99 在 1e-4 以下；
+      DOM 对齐误差 **0**（修掉了一个滚动条导致的 7.5px 错位）
+
+- [x] **T8** 色散与高光（重写版，不是移植）。色散在四个角上方向一致 —— 实测径向场上
+      R − B 四个角都是 +5.70/255，没有一个像素反向；高光只点亮朝光一侧并补上暗边 ——
+      右下扇区一个发亮的像素都没有。关掉两者时与 T7 **整帧逐位相同**（SHA-256 一致）
+
+- [x] **T9** `<glass-card>` / `<glass-button>` 组件（`src/components/`）与层级检查
+      （`src/renderer/layering.ts`）。材质写在 HTML 属性上，组件与手动 `stage.register()`
+      画出的整帧**逐位相同**；按钮的悬停与按压只改 uniform —— 实测动画全程管线与
+      bind group 一个都没新建，松开后画面逐位回到按下前。R1 被违反时控制台点名具体元素。
+      顺带撤回了一条错误的规划结论：画布从 `z-index: 0` 改回 `-1`，内容不再需要包进
+      `z-index: 1` 的容器，见 [docs/limitations.md](limitations.md)
+
+- [x] **T10** `<glass-container>`：几块玻璃用 smin 连成一个连续形状（`src/core/merge.ts`、
+      `src/shaders/glass-group.wgsl.ts`）。**一组一次 draw call**，与成员数无关；
+      GPU 与 CPU 逐像素比对 1.9 万个纹素，零个非有限值，采样偏移最大误差 1.4e-5 像素。
+      相距足够远的成员画出来与各自单独绘制**逐位相同**；颈部两侧方向相对处位移按一致度衰减，
+      不会在中线上翻出接缝。这是 backdrop-filter 结构上做不到的事（上游 issue #104）
+
+- [x] **T11** WebGL2 后端（`src/webgl2/`）。光学用 WGSL 真源生成的 GLSL，面板 uniform 用同一份字节
+      （std140 与 WGSL 布局逐字节相同，启动时核对）。**两个后端的整帧逐像素比对：96.6 万个像素里
+      只有 1 个差 1/255**；WebGL2 上的光学探针同样零个非有限值、p99 在 1e-5 像素量级。
+      后端阶梯 WebGPU → WebGL2 → CSS 兜底：启动时按这个顺序选，运行中 WebGPU 第二次丢失也降到 WebGL2
+
+- [x] **T12** 验证与文档。`playground/verify.html` 把前面手工做过的验证固化成一页，
+      WebGPU 上 **PASS 14/14**、WebGL2 上 **PASS 13/13**；它第一次跑就抓到校准场景的两条硬边
+      在某些视口尺寸下正好压着像素中心（与渲染器无关），已修。与上游 playground 做了源码与数学层面
+      的对照：默认配置下的折射**逐像素相同**，其余差异逐项列出（docs/calibration.md）。
+      数学规格 [spec/optics.md](../spec/optics.md)、管线规格 [spec/pipeline.md](../spec/pipeline.md)、
+      架构 [docs/architecture.md](architecture.md)
+
+第一期之后加的：
+
+- [x] **裁剪**（`src/renderer/clipping.ts`）。面板在滚动容器里被滚出可见区域时，玻璃跟着裁掉；
+      按包含块链找裁剪祖先，absolute / fixed 的规则与浏览器一致。容器的 `border-radius` 也跟：圆角外的玻璃
+      在着色器里抹掉（没有裁剪的面板逐位不变）。clip-path 的基本形状也跟（见下），近似之处见
+      [docs/limitations.md](limitations.md)
+- [x] **帧开销实测**。每多一块面板主线程约多 1.7 µs；GPU 每帧约 0.25 ms，与面板数基本无关（高端独显），
+      见 [docs/calibration.md](calibration.md)
+- [x] **用户场景**：`stage.setScene()`（`src/renderer/scene-source.ts`）。玻璃后面画你自己的图片、视频或画布，
+      按 `object-fit` 的语义（cover / contain / fill）铺满视口。静态图先由浏览器高质量缩放到场景分辨率、
+      **只上传一次**；视频用 `requestVideoFrameCallback` **只在出新帧时上传**（实测 240Hz 下 2 秒 481 帧、
+      上传 60 次，正好是视频的 30fps）；换场景时旧场景一直画到新的就绪，不闪。
+      没有 GPU 时 URL / `<img>` / Blob 场景退成画布的 CSS 背景，页面照样有这张图
+- [x] **静止时不画**（`src/renderer/idle.ts`）。每帧照样量面板，但这一帧画出来与上一帧逐像素相同时
+      就不提交，浏览器继续显示上一帧。静态背景加不动的卡片：实测 1.5 秒 **0 帧**；滚动一下画 2 帧，
+      按钮悬停只在补间期间画；视频场景只在出新帧时画
+- [x] **旋转**：自己或祖先 `rotate` 时玻璃跟着转（以前只能按轴对齐的包围盒画，还会报警告）。形状在面板自己的
+      坐标系里算，折射方向与法线转回屏幕。转 37° 的圆与不转的圆逐像素相同（12.96 万个像素里 12 个差 1/255）。
+      倾斜与 3D 变换仍然画不了，照旧警告
+- [x] **跟着 transform: scale 缩放**：自己或祖先缩放时，圆角、模糊、亮边、投影这些以 dp 计的量也跟着缩，
+      缩放动画里玻璃与 DOM 一致。`scale(0.5)` 里的大卡片与直接画的小卡片逐位相同
+- [x] **投影**：材质文档一直写着「玻璃越厚，投下的阴影越深」，渲染器却没有。现在玻璃往下投一圈柔和的影子
+      （`shadow`，预设从 ultraThin 0.15 到 thick 0.45，clear 为 0），跟着裁剪与不透明度走。实测纯白背景上
+      卡片正下方 255 → 220、正上方 255 → 236；`shadow="0"` 时与之前逐位相同
+- [x] **自适应**：Apple 的 Regular 玻璃会随背后内容调整、保证上面的内容可读，Glassium 之前只在文档里提过
+      「clear 没有自适应」，实际上谁都没有。现在默认守住与文字至少 3:1 的对比度：浅色字下背后太亮时整块玻璃压暗，
+      深色字下太暗时提亮（`adaptive`，clear 预设为 0）。实测白底白字 1.000 → 0.292、黑底深色字 0.027 → 0.095
+- [x] **玻璃跟着 CSS 的 opacity 淡**：元素（或它的祖先）的 opacity 乘进玻璃的不透明度，每帧读计算样式 ——
+      渐隐渐显的菜单、提示条、对话框直接可用。实测外层 opacity 0.5 时玻璃的改变量正好减半（0.500）
+- [x] **按压处的光**：Apple 玻璃 `.interactive()` 的那种反馈 —— 按下时从按下的地方亮起来，按住拖动时跟着走，
+      松开后随按压的补间淡掉（`GlassPanel.setLight()`，`<glass-button>` 自动用它）。没按下时逐位不变
+- [x] **`<glass-button>` 进表单**：表单关联的自定义元素，行为与原生 `<button>` 相同 —— 默认提交、
+      `name` / `value` 只在被按下时进表单数据、`type="reset"`、`formaction` 一类的覆盖属性、
+      祖先 `<fieldset disabled>`、click 里 `preventDefault()` 能拦下。两处例外见
+      [docs/limitations.md](limitations.md)
+- [x] **减少透明度、更高对比度**（`prefers-reduced-transparency`、`prefers-contrast: more`，`src/core/transparency.ts`）。
+      玻璃换成更实的磨砂：模糊至少 24dp、关掉色散、按文字颜色选深色或浅色磨砂（保证与文字的对比度 ≥ 4.5:1），
+      形状与高光保留；更高对比度时组件再描一圈边。实测卡片内部的图案起伏从 ±22.7 降到 ±0，关掉之后逐位复原。
+      加上减少动效与强制配色，四个系统设置都有反应
+- [x] **填充 `<glass-fill>`**（`src/renderer/fills.ts`、`src/shaders/fill.wgsl.ts`）：玻璃只折射场景，DOM 的背景它看不见 ——
+      开关的轨道、滑块的进度条这类「玻璃底下的纯色形状」一直没法做。填充是 CSS 摆位、Glassium 画进场景的纯色圆角矩形：
+      盒子、圆角、变换、裁剪、不透明度都来自 CSS，颜色来自 `--glass-fill`（注册成可以过渡的 `<color>`）。
+      玻璃折射它、模糊它、按它的亮度调自适应；直接看到的部分按画布分辨率另画一遍，边缘与 DOM 一样锐利 ——
+      场景压到画布 0.6 倍时，边缘 1 个像素以外与没有填充时逐像素相同。颜色过渡到一半时画出来的就是那一刻的计算值
+- [x] **开关 `<glass-switch>`**（`src/components/glass-switch.ts`）：iOS 26 的样子 —— 轨道是填充、旋钮是玻璃。
+      平时旋钮是白的，按下时鼓起来变成透明的透镜，透过它看得见底下的轨道（实测旋钮中心从 247/253/248 变成轨道的绿
+      29/212/75；轨道不是填充时只看得到灰色的场景），松开时切换。行为与原生 `<input type="checkbox" switch>` 相同：
+      `role="switch"`、空格切换、可以拖动旋钮、`input` / `change`、表单关联、`<label>`、fieldset 禁用、表单重置
+- [x] **滑块 `<glass-slider>`**（`src/components/glass-slider.ts`）：轨道与进度是填充、旋钮是玻璃，拖动时旋钮变成透镜，
+      左半边透出蓝色进度（0/132/255）、右半边透出轨道。行为与原生 `<input type="range">` 相同：`role="slider"`、
+      方向键 / PageUp / Home / End、按在轨道上跳过去、按在旋钮上不跳、拖动时 `input`、松手 `change`、
+      `min` / `max` / `step`（`any`）按原生的规则规整（小数档不带浮点尾巴）、表单关联与重置
+- [x] **玻璃叠玻璃**（`src/renderer/layers.ts`）：写在一块玻璃里面的玻璃看得见外面那块 —— 卡片里的按钮、
+      卡片里开关的旋钮不再在卡片上开洞。画这一层之前把画布上已经画好的那一块采回场景目标、只在那一块里重建模糊链。
+      实测红卡片里那块玻璃的中心是 236/89/89，不嵌套时是灰洞 149/149/149；没有嵌套的帧逐位不变（`8aca3e92…`）。
+      最多四层
+- [x] **变形：水滴一样分出来、融回去**（`<glass-container morph>`）：新加进来的成员从离它最近的成员边上、以一滴的大小
+      出现，一边长大一边移到自己的位置 —— 离得近时 smin 把它和邻居连着，颈部拉长、断开；`container.dismiss(member)`
+      反过来缩回去再拿掉。实测一滴的中心正落在邻居的边上（496.0, 528.0），那里画着玻璃。动的是 `translate` / `scale`，
+      玻璃跟得上；减少动效时直接出现、直接拿掉
+- [x] **遮罩 `mask-image`**（`src/renderer/mask.ts`）：面板自己或祖先的 `mask-image` 是渐变（linear / radial，
+      含 repeating，色标位置可以是 `calc(100% - 24px)`）时，玻璃与填充跟着淡 —— 横向滚动列表两头的淡出最常见；
+      `mask-mode: luminance` 按亮度。实测 to right 淡出 12.5% 处 0.500、径向 80% 处 0.489、亮度 25% 处 0.750，
+      与按 CSS 几何手算的一致到 0.012；没有遮罩的页面整帧逐位不变。demo 加了一排两头淡出的玻璃卡片
+- [x] **底部工具栏 `<glass-toolbar>`**（与导航栏同一个实现，`GlassBar`）：放在正文后面，`position: sticky; bottom: 0`
+      —— 下面还有正文时贴在视口底边、正文从它底下经过（模糊渐隐往上、胶囊上磨砂），滚到底时停在本来的位置。
+      实测离末尾 8px 时 0.5、到底 0；中间一格是 13px 的状态文字
+- [x] **浮在正文上的玻璃 `scroll-edge`**（`src/components/scroll-edge.ts`）：卡片、按钮、标签栏写 `scroll-edge="bottom"`
+      （浮在视口底边）或 `"top"`，正文从它底下经过时淡入一层磨砂 —— GPU 玻璃盖不住 DOM 文字，磨砂模糊下面的一切。
+      bottom 在下面还有内容时是 1、离文档末尾 16px 内淡出；top 往下滚了才有。demo 底部的标签栏用上了
+- [x] **导航栏 `<glass-nav-bar>`**（`src/components/glass-nav-bar.ts`）：两侧各一个玻璃胶囊装按钮（iOS 26 的分组），
+      中间是标题；`large-title` 时标题大字写在栏下面、跟着正文滚走，滚进栏底下时栏中间淡入一行小标题。栏那一行
+      sticky。正文滚到栏底下时 GPU 玻璃盖不住滚上来的 DOM 文字，所以按「底下压了多少正文」淡入一条模糊渐隐
+      （scroll edge effect）与胶囊上的磨砂 —— 实测贴住之后再滚 8px 到一半、16px 满，没贴住时（栏还在往上走）是 0；
+      滚回去又是有折射的 GPU 玻璃
+- [x] **clip-path 与裁剪的椭圆角**（`src/renderer/clip-path.ts`）：面板自己或祖先写了 `clip-path` 时玻璃跟着裁 ——
+      `inset()`（圆角、椭圆角）、`circle()`、`ellipse()`、`rect()`、`xywh()`、只写盒子关键字；`polygon()` 按外接矩形
+      近似，`url()` / `path()` 画不了（警告一次）。`overflow` 祖先的椭圆角（长方形上的 `border-radius: 50%`）不再按
+      短半径近似；被别的裁剪从中间截断的圆角区域整个交给着色器单独算。实测 300×100 的椭圆外、按短半径画成圆角时却在
+      里面的两点是场景 127，椭圆里是玻璃 185/97/97；没有这些的页面整帧逐位不变
+- [x] **变形：这一块变成那一块**（`morphGlass(from, to)`，`src/components/morph-glass.ts`）：SwiftUI `glassEffectID`
+      那种 —— 按钮长成一张卡片，再缩回去；两头是任意两块玻璃，不必在同一个容器里。一块过渡用的玻璃从 from 的位置、
+      大小、圆角、材质插值到 to 的，from 在开头 30% 里淡出、to 在最后 30% 里淡入，投影交叉淡出淡入。两头与只有
+      from、只有 to 时逐位相同；实测途中的矩形与按缓动插值的预期一致到 0.1px，中心已是两套材质之间的颜色。
+      可以 `seek()` 停在任意进度（跟着手指拖）；减少动效时直接换
+- [x] **标签栏滚动时缩起**（`<glass-tab-bar minimize="scroll">`，`src/components/minimize.ts`）：往下滚时缩成只剩
+      选中的那一格，往上滚展开（iOS 26 的 `tabBarMinimizeBehavior(.onScrollDown)`）。玻璃跟着栏变短 —— 实测栏
+      264 → 72（选中那一格 64 + 两侧 4），原来栏上那一点从玻璃 149 变回场景 127；缩着按一下只展开、不换选中
+- [x] **渐变填充**（`src/core/gradient.ts`）：`--glass-fill` 直接写 `linear-gradient()` / `radial-gradient()`（含
+      `repeating-`），画进场景、玻璃照样折射它。几何按 CSS 的规则解算（角度与 `to` 角、四种大小关键字、`at`、色标补位），
+      在预乘的 sRGB 里插值 —— 实测与按 CSS 几何算出来的值最多差 0.5；一头透明时半途是半透明的纯红，不发黑
+- [x] **线性光下模糊与调色（可选）**（`blendSpace: 'linear'`，`src/core/color.ts`）：模糊链改用 sRGB 格式的纹理存
+      （写入时硬件编码、采样时先解码再过滤），tint 先换成线性值，玻璃最后编码回 sRGB。黑白阶跃模糊之后中点从 128
+      变成 180，亮的一侧不再被压暗；自适应精确落到目标亮度。默认仍是 sRGB（已校准的数值都按它量），改动前后默认模式
+      整帧逐位不变；`stage.setBlendSpace()` 随时切，playground 侧栏有开关
+- [x] **盖在 DOM 上的玻璃**（`src/core/overlay.ts`）：模态 `<dialog>`、打开的 popover、全屏元素里的玻璃在浏览器的顶层，
+      画在整页之上 —— GPU 玻璃在那里被整页内容盖住，以前是一块透明的框。现在 stage 自动把它们（连同写了 `overlay`
+      属性的、以及它们里面的玻璃与填充）标成 `data-glassium-overlay`、改用 CSS 画：`backdrop-filter` 模糊下面的一切
+      （包括正文文字），材质的模糊（CSS 的 `blur()` 就是 σ）、饱和度（同一套亮度权重）、tint、亮边、投影照搬，没有折射。
+      原生的 `<dialog>` 里直接写 `<glass-card>` 就行。顺带修了：没打开的 `<glass-card popover>` 以前照样显示
+- [x] **标签栏 `<glass-tab-bar>`**（`src/components/glass-tab-bar.ts`）：iOS 26 那条浮着的玻璃胶囊。选中那一格下面的气泡
+      是写在栏里面的玻璃（第 1 层），看得见栏 —— 实测气泡中心 181 = 栏 149 × 0.7 + 白 × 0.3，不分层时是 165（它只看得到
+      场景）。按住变成透镜、可以拖到别的格上松手；`tablist` / `tab` 语义、roving tabindex、方向键回绕。选择逻辑与分段控件
+      共用（`segments.ts`）
+- [x] **分段控件 `<glass-segmented>`**（`src/components/glass-segmented.ts`）：底是填充，选中的段下面垫同一个玻璃旋钮，
+      换选中时滑过去、宽度跟着变；按住变成透镜，可以按住拖到别的段上松手。单选组语义（`radiogroup` / `radio`、
+      roving tabindex、方向键回绕、Home / End）、`input` / `change`、表单关联与重置
+
+GPU 设备丢失时会在新设备上整套重建（实测约 30 ms，恢复后画面逐位相同），第二次丢失则降到
+WebGL2（WebGL2 的上下文丢失同理，第二次降到 CSS 兜底）。T5 到 T8 期间这一点是坏的：
+日志说会重新初始化，实际上画布会冻住 —— 现已修复，见 [docs/limitations.md](limitations.md)。
+
+**269 条测试全绿**，playground 可跑（`npm run dev`），只用公开 API 搭的示例页在 `/demo.html`，
+逐项自动验证在 `/verify.html`
+（现在 WebGPU 上 **PASS 45/45**、WebGL2 上 **PASS 44/44**）。
+
+T5 顺带把两个计划阶段悬着的硬件问题测掉了，结果记在
+[docs/calibration.md](calibration.md)：`minUniformBufferOffsetAlignment` 实测 256
+（256B stride 假设成立），以及 WGSL 的**动态层索引采样可用**（模糊分档不必退回静态绑定）。
+
+第一期的十二项都在上面。还没做的（与上游渲染结果的像素级截图对比）列在
+[docs/calibration.md](calibration.md) 的「待补」里。
+
+与上游的偏离逐条记在 [docs/porting-notes.md](porting-notes.md)：色散的象限变号、
+高光缺暗边、以及 `radiusAt` 传错坐标系导致四角半径塌缩。规划阶段有两条结论后来被证明是错的，
+都在原处撤回并说明了原因：「上游的采样余量欠补 2 倍」（porting-notes）与
+「画布不能放在 z-index: -1」（limitations）。
+
