@@ -2974,6 +2974,8 @@ function finish(): void {
   }
   results.push({ name: 'viewport-stable', outcome: fail(`重跑 ${MAX_RETRIES} 次之后视口仍然在运行中变化`) })
   render(true)
+  // 这就是最终结果了：不清的话，同一个标签页里手动刷新会接着从「第 MAX_RETRIES 次重跑」算起、不再重跑
+  clearRetries()
 }
 
 /** 这一轮算数了：清掉重跑次数与作废原因。 */
