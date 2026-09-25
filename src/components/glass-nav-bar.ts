@@ -24,6 +24,9 @@
  * （底下压着正文）与 `data-collapsed`（大标题整个滚进了栏底下）给你写样式用。
  *
  * CSS：`--glass-nav-bar-height`（栏那一行的高，默认 52px）、`--glass-nav-bar-edge`（模糊渐隐往下多出来的一截，默认 24px）。
+ *
+ * `<glass-toolbar>` 是同一个东西贴在底边：放在正文**后面**，`position: sticky; bottom: 0` —— 下面还有正文时贴在视口
+ * 底边、正文从它底下经过（模糊渐隐往上），滚到底时停在它本来的位置。没有大标题；中间一格是状态文字（13px）。
  */
 
 import { MATERIAL_ATTRIBUTES } from './attributes.ts'
@@ -198,6 +201,23 @@ const CSS = `
 }`
 const sheet = { sheet: null as CSSStyleSheet | null }
 
+/** 贴在底边的栏（`<glass-toolbar>`）多出来的几条：贴底、渐隐往上、中间是小一号的状态文字。 */
+const BOTTOM_CSS = `
+[part='bar'] {
+  top: auto;
+  bottom: 0;
+}
+[part='edge'] {
+  inset: calc(-1 * var(--glass-nav-bar-edge, 24px)) 0 0 0;
+  -webkit-mask-image: linear-gradient(to top, #000 calc(100% - var(--glass-nav-bar-edge, 24px)), transparent);
+  mask-image: linear-gradient(to top, #000 calc(100% - var(--glass-nav-bar-edge, 24px)), transparent);
+}
+[part='title'] {
+  font-size: 13px;
+  font-weight: 500;
+}`
+const bottomSheet = { sheet: null as CSSStyleSheet | null }
+
 /** 两侧的胶囊：影子树里的 `<glass-card>`，按钮经它的 slot 排进去。 */
 function capsule(side: 'leading' | 'trailing'): { readonly card: HTMLElement; readonly frost: HTMLElement; readonly slot: HTMLSlotElement } {
   const card = document.createElement('glass-card')
@@ -214,9 +234,18 @@ function capsule(side: 'leading' | 'trailing'): { readonly card: HTMLElement; re
   return { card, frost, slot }
 }
 
-export class GlassNavBar extends HTMLElementBase {
+/** 栏贴在哪条边上。 */
+export type BarPlacement = 'top' | 'bottom'
+
+/** `<glass-nav-bar>`（顶）与 `<glass-toolbar>`（底）共用的实现。不单独注册。 */
+export class GlassBar extends HTMLElementBase {
   static get observedAttributes(): string[] {
     return [...MATERIAL_ATTRIBUTES, 'large-title']
+  }
+
+  /** 贴在哪条边上。子类覆盖；构造时就要用（决定影子树的顺序与样式），所以不能依赖子类的字段。 */
+  get placement(): BarPlacement {
+    return 'top'
   }
 
   readonly #sentinel: HTMLElement
@@ -236,7 +265,8 @@ export class GlassNavBar extends HTMLElementBase {
   constructor() {
     super()
     const root = this.attachShadow({ mode: 'open' })
-    root.adoptedStyleSheets = [sharedSheet(sheet, CSS)]
+    const bottom = this.placement === 'bottom'
+    root.adoptedStyleSheets = bottom ? [sharedSheet(sheet, CSS), sharedSheet(bottomSheet, BOTTOM_CSS)] : [sharedSheet(sheet, CSS)]
     this.#sentinel = document.createElement('div')
     this.#sentinel.setAttribute('part', 'sentinel')
     this.#bar = document.createElement('div')
@@ -255,7 +285,9 @@ export class GlassNavBar extends HTMLElementBase {
     this.#large.setAttribute('part', 'large-title')
     this.#sides = [capsule('leading'), capsule('trailing')]
     this.#bar.append(this.#edge, this.#sides[0]!.card, this.#titleCell, this.#sides[1]!.card)
-    root.append(this.#sentinel, this.#bar, this.#large)
+    // 哨兵标出栏本来的位置：顶上的栏看它前面的（栏的上沿），底下的栏看它后面的（栏的下沿）。底下的栏没有大标题
+    if (bottom) root.append(this.#bar, this.#sentinel)
+    else root.append(this.#sentinel, this.#bar, this.#large)
 
     for (const side of this.#sides) {
       side.slot.addEventListener('slotchange', () => {
@@ -311,9 +343,14 @@ export class GlassNavBar extends HTMLElementBase {
     this.#update()
   }
 
-  /** 标题（默认 slot）放在哪：large-title 时在栏下面的大字里，否则在栏中间。 */
+  /** 大标题：只有贴在顶上的栏写了 large-title 时才有。 */
+  #hasLargeTitle(): boolean {
+    return this.placement === 'top' && this.hasAttribute('large-title')
+  }
+
+  /** 标题（默认 slot）放在哪：有大标题时在栏下面的大字里，否则在栏中间。 */
   #placeTitle(): void {
-    const into = this.hasAttribute('large-title') ? this.#large : this.#titleCell
+    const into = this.#hasLargeTitle() ? this.#large : this.#titleCell
     if (this.#titleSlot.parentNode !== into) into.append(this.#titleSlot)
   }
 
@@ -331,8 +368,10 @@ export class GlassNavBar extends HTMLElementBase {
     if (!this.isConnected) return
     // 先读完（几个 getBoundingClientRect），再写（影子树里的样式，stage 的 MutationObserver 看不到，不惊动它）
     const bar = this.#bar.getBoundingClientRect()
-    const edge = edgeProgress(bar.top, this.#sentinel.getBoundingClientRect().top)
-    const large = this.hasAttribute('large-title')
+    const mark = this.#sentinel.getBoundingClientRect().top
+    // 顶上的栏：贴住之后本来的位置（哨兵）继续往上走；底下的栏：本来的位置（哨兵 − 栏高）还在视口下面
+    const edge = this.placement === 'bottom' ? edgeProgress(mark - bar.height, bar.top) : edgeProgress(bar.top, mark)
+    const large = this.#hasLargeTitle()
     let progress = 0
     if (large) {
       const t = this.#large.getBoundingClientRect()
@@ -353,5 +392,15 @@ export class GlassNavBar extends HTMLElementBase {
     if (this.hasAttribute('data-scrolled') !== edge > 0) this.toggleAttribute('data-scrolled', edge > 0)
     const collapsed = large && progress >= 1
     if (this.hasAttribute('data-collapsed') !== collapsed) this.toggleAttribute('data-collapsed', collapsed)
+  }
+}
+
+/** `<glass-nav-bar>`：贴在顶上的栏，可以有大标题。见文件头。 */
+export class GlassNavBar extends GlassBar {}
+
+/** `<glass-toolbar>`：贴在底边的栏，放在正文后面。见文件头。 */
+export class GlassToolbar extends GlassBar {
+  override get placement(): BarPlacement {
+    return 'bottom'
   }
 }

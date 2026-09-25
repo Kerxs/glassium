@@ -17,6 +17,13 @@ test('滚动边缘：栏还在本来的位置（没贴住、或刚贴住）时�
   assert.equal(edgeProgress(0, 0.3), 0)
 })
 
+test('贴在底边的栏（<glass-toolbar>）：参数反过来 —— 本来的位置（哨兵 − 栏高）还在视口下面时是 1', () => {
+  // 视口 1200、栏高 52：贴在底边时栏的上沿在 1148。文档还有 1800 没滚到：本来的位置在 1148 + 1800
+  assert.equal(edgeProgress(1148 + 1800, 1148), 1)
+  assert.equal(edgeProgress(1148 + NAV_EDGE_RAMP / 2, 1148), 0.5)
+  assert.equal(edgeProgress(1148, 1148), 0, '滚到底：停在本来的位置')
+})
+
 test('大标题：整个在栏下沿之下是 0，整个过了栏下沿是 1；小标题过一半开始淡入', () => {
   // 栏下沿 52，大标题 52–93（高 41）
   assert.equal(largeTitleProgress(52, 52, 41), 0)

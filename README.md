@@ -39,8 +39,6 @@ Glassium 自己渲染的纹理。**面板背后的正文文字、图片、iframe
 
 - 盖在 DOM 内容**之上**的玻璃没有折射：对话框、popover 里的玻璃（以及写了 `overlay` 的）改用 CSS 画 ——
   浏览器模糊下面的一切，材质的其余部分照搬（见下）。折射要读 DOM 的像素，平台不允许。
-- `GlassBottomBar`（底部工具栏）。（`<glass-switch>`、`<glass-slider>`、`<glass-segmented>`、`<glass-tab-bar>`、
-  `<glass-nav-bar>` 做了，见下。）
 - 逐面板不同的 backdrop。
 - Android / iOS 渲染器 —— 只交付 `spec/` 里的平台中立契约。
 - npm 发布、semver。（库的构建产物已经有了：ESM + 类型声明，见「用法」。）
@@ -174,6 +172,9 @@ GPU 输出由 `playground/verify.html` 在浏览器里逐项验证（光学探�
       出现，一边长大一边移到自己的位置 —— 离得近时 smin 把它和邻居连着，颈部拉长、断开；`container.dismiss(member)`
       反过来缩回去再拿掉。实测一滴的中心正落在邻居的边上（496.0, 528.0），那里画着玻璃。动的是 `translate` / `scale`，
       玻璃跟得上；减少动效时直接出现、直接拿掉
+- [x] **底部工具栏 `<glass-toolbar>`**（与导航栏同一个实现，`GlassBar`）：放在正文后面，`position: sticky; bottom: 0`
+      —— 下面还有正文时贴在视口底边、正文从它底下经过（模糊渐隐往上、胶囊上磨砂），滚到底时停在本来的位置。
+      实测离末尾 8px 时 0.5、到底 0；中间一格是 13px 的状态文字
 - [x] **浮在正文上的玻璃 `scroll-edge`**（`src/components/scroll-edge.ts`）：卡片、按钮、标签栏写 `scroll-edge="bottom"`
       （浮在视口底边）或 `"top"`，正文从它底下经过时淡入一层磨砂 —— GPU 玻璃盖不住 DOM 文字，磨砂模糊下面的一切。
       bottom 在下面还有内容时是 1、离文档末尾 16px 内淡出；top 往下滚了才有。demo 底部的标签栏用上了
@@ -219,9 +220,9 @@ GPU 设备丢失时会在新设备上整套重建（实测约 30 ms，恢复后�
 WebGL2（WebGL2 的上下文丢失同理，第二次降到 CSS 兜底）。T5 到 T8 期间这一点是坏的：
 日志说会重新初始化，实际上画布会冻住 —— 现已修复，见 [docs/limitations.md](docs/limitations.md)。
 
-**261 条测试全绿**，playground 可跑（`npm run dev`），只用公开 API 搭的示例页在 `/demo.html`，
+**262 条测试全绿**，playground 可跑（`npm run dev`），只用公开 API 搭的示例页在 `/demo.html`，
 逐项自动验证在 `/verify.html`
-（现在 WebGPU 上 **PASS 43/43**、WebGL2 上 **PASS 42/42**）。
+（现在 WebGPU 上 **PASS 44/44**、WebGL2 上 **PASS 43/43**）。
 
 T5 顺带把两个计划阶段悬着的硬件问题测掉了，结果记在
 [docs/calibration.md](docs/calibration.md)：`minUniformBufferOffsetAlignment` 实测 256

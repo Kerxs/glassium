@@ -225,6 +225,25 @@ button.classList.add('collapsed')           // 接着把 from 藏起来（或拿
 没有折射。组件把材质写成自己影子样式里的 CSS 变量：`--glassium-blur`、`--glassium-saturate`、`--glassium-tint`、
 `--glassium-rim-light`、`--glassium-rim-dark`、`--glassium-shadow`（`overlayVars(material)` 算的就是这些）。
 
+### `<glass-toolbar>`
+
+底部工具栏：`<glass-nav-bar>` 贴在底边的版本（同一个实现 `GlassBar`，`placement` 是 `'bottom'`）。放在正文**后面**：
+
+```html
+<main>…</main>
+<glass-toolbar>
+  <button slot="leading" aria-label="编辑">✎</button>
+  <span>12 张照片</span>
+  <button slot="trailing" aria-label="分享">⇪</button>
+  <button slot="trailing" aria-label="删除">✕</button>
+</glass-toolbar>
+```
+
+- 栏那一行 `position: sticky; bottom: 0`：下面还有正文时贴在视口底边、正文从它底下经过 —— 模糊渐隐（往上）与胶囊上的
+  磨砂按「本来的位置还在视口下面多远」淡入（16px 走完）；滚到底时停在本来的位置、淡出。
+- 胶囊、材质属性、`scrolled`、`update()`、CSS 变量与 `::part()` 都与导航栏相同。没有大标题（写了 `large-title` 也不管）；
+  中间一格是状态文字（13px）。
+
 ### 浮在正文上的玻璃（`scroll-edge`）
 
 卡片、按钮、标签栏写 `scroll-edge="bottom"`（浮在视口底边，比如底部的标签栏、右下角的浮动按钮）或 `scroll-edge="top"`

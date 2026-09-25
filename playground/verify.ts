@@ -1758,6 +1758,87 @@ async function run(): Promise<void> {
     return ok ? pass(detail) : fail(detail)
   })
 
+  await check('toolbar', async () => {
+    // <glass-toolbar>：贴在底边的栏，放在正文后面（sticky bottom）。下面还有正文时贴在视口底边、正文从它底下经过：
+    // 渐隐与磨砂是 1；离末尾 8px 时 0.5；滚到底停在本来的位置、是 0。胶囊照样是 GPU 玻璃（红色 tint），
+    // 层级检查没有问题；中间一格是小一号的状态文字，没有大标题
+    stage.debug.setBackdrop({ scene: 'flat' })
+    const rootStyle = document.documentElement.style
+    const scrollbar = rootStyle.scrollbarWidth
+    rootStyle.scrollbarWidth = 'none' // 撑高文档不冒滚动条，视口不变
+    const scrollTo = async (y: number): Promise<void> => {
+      window.scrollTo(0, y)
+      window.dispatchEvent(new Event('scroll')) // 面板隐藏时滚动事件不一定来，这里直接派发
+      await sleep(0)
+    }
+    const wrap = document.createElement('div')
+    Object.assign(wrap.style, { position: 'absolute', left: '20px', top: '0', width: '400px' })
+    wrap.innerHTML =
+      '<div style="height: 2948px"></div>' +
+      '<glass-toolbar tint="rgba(255, 60, 60, 0.45)">' +
+      '<button slot="leading" aria-label="编辑">✎</button><span>12 张照片</span>' +
+      '<button slot="trailing" aria-label="分享">⇪</button><button slot="trailing" aria-label="删除">✕</button>' +
+      '</glass-toolbar>'
+    document.body.append(wrap)
+    await sleep(0)
+    await scrollTo(0)
+    const toolbar = wrap.querySelector('glass-toolbar')! as HTMLElement & { scrolled: boolean }
+    const sr = toolbar.shadowRoot!
+    const part = (name: string): HTMLElement | null => sr.querySelector<HTMLElement>(`[part='${name}']`)
+    const state = (): { top: number; edge: string; frost: string } => {
+      const e = getComputedStyle(part('edge')!)
+      const f = getComputedStyle(sr.querySelector<HTMLElement>('.frost')!)
+      return {
+        top: Math.round(part('bar')!.getBoundingClientRect().top),
+        edge: e.visibility === 'hidden' ? '0' : e.opacity,
+        frost: f.visibility === 'hidden' ? '0' : f.opacity
+      }
+    }
+    const v = stage.debug.stats().viewport!
+    const s = v.compositeWidth / v.cssWidth
+    const canvasBox = stage.canvas.getBoundingClientRect()
+    const cap = part('leading')!.getBoundingClientRect()
+    const cy = cap.top + cap.height / 2
+    // 不在视口里（没贴住、停在文档末尾）：回读不了，记成「不是玻璃」
+    const d =
+      cy >= 0 && cy < v.cssHeight
+        ? await readback({
+            x: Math.floor((cap.left + cap.width / 2 - canvasBox.left) * s),
+            y: Math.floor((cy - canvasBox.top) * s),
+            width: 1,
+            height: 1
+          })
+        : [-1, -1, -1]
+    const center = [d[0]!, d[1]!, d[2]!]
+    const problems = stage.debug.checkLayers().filter((p) => p.panel === part('leading') || p.panel === part('trailing'))
+    const end = (document.scrollingElement ?? document.documentElement).scrollHeight - window.innerHeight
+    const atTop = { ...state(), scrolled: toolbar.scrolled }
+    await scrollTo(end - 8)
+    const nearEnd = state()
+    await scrollTo(end)
+    const atEnd = { ...state(), scrolled: toolbar.scrolled }
+    const titleSize = getComputedStyle(part('title')!).fontSize
+    const noLarge = part('large-title') === null
+    await scrollTo(0)
+    wrap.remove()
+    rootStyle.scrollbarWidth = scrollbar
+    calibrationScene()
+    stage.debug.renderNow()
+
+    const bottomTop = Math.round(window.innerHeight - 52)
+    const glass = center[0]! - center[1]! > 20
+    const detail =
+      `滚 0：栏在 ${atTop.top}（视口底边 ${bottomTop}）、渐隐 ${atTop.edge}、磨砂 ${atTop.frost}、胶囊 ${center.join('/')}、` +
+      `层级问题 ${problems.length} · 离末尾 8：${nearEnd.edge} / ${nearEnd.frost} · 到底（${end}）：栏在 ${atEnd.top}、` +
+      `${atEnd.edge} / ${atEnd.frost}、${atEnd.scrolled ? '标记没撤' : '标记撤了'} · 状态文字 ${titleSize}、${noLarge ? '没有大标题' : '有大标题'}`
+    const ok =
+      atTop.top === bottomTop && atTop.edge === '1' && atTop.frost === '1' && atTop.scrolled && glass && problems.length === 0 &&
+      nearEnd.edge === '0.5' && nearEnd.frost === '0.5' &&
+      atEnd.top === bottomTop && atEnd.edge === '0' && atEnd.frost === '0' && !atEnd.scrolled &&
+      titleSize === '13px' && noLarge
+    return ok ? pass(detail) : fail(detail)
+  })
+
   await check('scroll-edge', async () => {
     // scroll-edge：浮在正文上的玻璃，正文滚到它底下时淡入磨砂（scroll-edge.ts）。两块 fixed 的卡片：
     // bottom（浮在底边：下面还有内容时是 1，到底是 0）与 top（往下滚了才有）。

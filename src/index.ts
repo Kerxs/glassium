@@ -176,8 +176,11 @@ export { GlassSwitch } from './components/glass-switch.ts'
 export { GlassSegmented } from './components/glass-segmented.ts'
 export { GlassTabBar, bubbleMaterial } from './components/glass-tab-bar.ts'
 export {
+  GlassBar,
   GlassNavBar,
+  GlassToolbar,
   NAV_EDGE_RAMP,
+  type BarPlacement,
   edgeProgress,
   inlineTitleOpacity,
   largeTitleProgress
