@@ -128,6 +128,8 @@ button.classList.add('collapsed')           // 接着把 from 藏起来（或拿
 
 - CSS：`--glass-switch-on`（默认 `#34c759`）、`--glass-switch-off`（默认 `rgba(120, 120, 128, 0.32)`），可以写在任何祖先上。
   默认 64×28，宽高可以改（旋钮高 = 宿主高 − 4px，宽高比 13:8）。`::part(track)`、`::part(thumb)` 可以从外面选中。
+- 按住时旋钮放大到 `--glass-press-scale` 倍（默认 1.6）。用户切换（点、空格、拖完松手）时旋钮「飞」过去：先鼓起成透镜，
+  顺着速度拉长着飞到另一头，落地后缩回（飞行时宿主带 `data-flying`）。程序改 `checked` 与减少动效时直接过去。
 - 可以放进 `<glass-card>`（它在卡片上面一层，见 limitations.md 的 R2）；别放在不透明的 CSS 背景上（R1）。
   要一块纯色底板，用 `<glass-fill>`（它也在场景里，画在轨道下面）。
 
@@ -152,6 +154,7 @@ button.classList.add('collapsed')           // 接着把 from 藏起来（或拿
 
 - CSS：`--glass-slider-fill`（进度，默认 `#007aff`）、`--glass-slider-track`（默认 `rgba(120, 120, 128, 0.2)`）。
   默认 200×28，宽度可以改；轨道 6px 高、旋钮 38×24。`::part(track)`、`::part(progress)`、`::part(thumb)`。
+- 按住时旋钮放大到 `--glass-press-scale` 倍（默认 1.6），拖动时顺着速度拉长（果冻）。
 - 放在哪里与 `<glass-switch>` 相同：可以放进 `<glass-card>`，别放在不透明的 CSS 背景上。
 
 ### `<glass-segmented>`
@@ -173,14 +176,18 @@ button.classList.add('collapsed')           // 接着把 from 藏起来（或拿
   垫的那块，默认 `rgba(255, 255, 255, 0.7)`；深色主题可以换暗一点）。高 32px，段宽由内容决定（给宿主定宽时平分）。
   选中的段带 `aria-checked="true"`，可以据此换文字颜色（它压在白色旋钮上）。`::part(track)`、`::part(thumb)`、
   `::part(lens)`、`::part(labels)`、`::part(lens-labels)`。
-- 拖动选中块时透镜顺着速度横向拉长（果冻，jelly.ts），停下来平滑地回去、不晃；透镜里的字统一换成选中那一段的
-  计算颜色（`lens-labels`：同一份字只在透镜的窗口里露出来）。减少动效时没有果冻。
+- 按住时旋钮放大到 `--glass-press-scale` 倍（默认 1.6）。拖动选中块时透镜顺着速度横向拉长（果冻，jelly.ts：
+  慢拖只长一点、快甩最多 +45%），停下来平滑地回去、不晃；透镜里的字统一换成选中那一段的计算颜色（`lens-labels`：
+  同一份字只在透镜的窗口里露出来）。
+- 用户换选中（点别的段、方向键、拖完松手）时旋钮「飞」过去：先原地鼓起成透镜，拉长着飞到新的段上，落地后缩回
+  （飞行时宿主带 `data-flying`）。选中与事件立刻生效，只有画面在飞。程序改 `value` 时照旧滑过去；减少动效时
+  没有果冻、也不飞。
 - 放在哪里与 `<glass-switch>` 相同。
 
 ### `<glass-tab-bar value="home">`
 
 标签栏：一条玻璃胶囊（材质属性与 `<glass-card>` 相同，默认胶囊），选中那一格下面垫一个玻璃气泡。气泡写在栏里面，
-在栏的上面一层（见 limitations.md 的 R2），看得见栏；换选中时滑过去、宽度跟着变，按住时变成透镜，可以按住拖到别的格上
+在栏的上面一层（见 limitations.md 的 R2），看得见栏；点别的格时气泡鼓起、飞过去、落下（宽度跟着变），按住时变成透镜，可以按住拖到别的格上
 再松手。每个子元素是一格（按钮也行，默认外观会被去掉），值取它的 `value` 属性，没有就取文字。
 
 - 语义是标签页：宿主 `role="tablist"`，每一格 `role="tab"` 与 `aria-selected`，roving tabindex；方向键移动并选中
@@ -189,8 +196,8 @@ button.classList.add('collapsed')           // 接着把 from 藏起来（或拿
   属性访问器：`value`、`selectedIndex`、`tabs`。不是表单控件。
 - CSS：`--glass-tab-bar-selected`（选中那一格的文字颜色，默认 `#0a84ff`）、`--glass-tab-bar-lens`（按住时透镜下面
   垫的那块，默认 `rgba(255, 255, 255, 0.3)`）。`::part(bubble)`、`::part(lens)`、`::part(labels)`、`::part(lens-labels)`。
-- 气泡静止时是一层 0.2 的中灰；按住时变成 1.35 × 1.28 倍的透镜（比栏还高），拖动时顺着速度拉长，透镜里的图标与文字
-  换成选中那一格的颜色。
+- 气泡静止时是一层 0.2 的中灰；按住时变成透镜，宽放大到 `--glass-press-scale` 倍（默认 1.7）、高是它的 0.94（比栏还高），
+  拖动时顺着速度拉长，透镜里的图标与文字换成选中那一格的颜色。点别的格时气泡与分段控件一样「飞」过去。
 - 按住时格子里的图标与文字画进场景（写在栏里面、与气泡同一层），气泡的透镜放大它们、在边缘扭弯；DOM 的内容这时
   淡出，松手换回来。缩起来的栏（只剩一格）不这样做。
 - `minimize="scroll"`：页面往下滚时缩起来 —— 没选中的格收成 0 宽、淡出，栏只剩选中那一格，气泡淡出；往上滚、

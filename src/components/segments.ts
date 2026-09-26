@@ -2,12 +2,16 @@
  * 一排「段」里选一个：分段控件（`<glass-segmented>`）与标签栏（`<glass-tab-bar>`）共用。
  *
  * 管：各段的角色与选中标记（roving tabindex：只有选中的那段可以 Tab 到）、旋钮的位置（按选中那段的布局写成
- * 旋钮上的 `--_x` / `--_w`，过渡交给 CSS）、指针（点一段选中它；按住选中的那段可以拖动旋钮，松手时选中旋钮中心
- * 所在的段）、键盘（方向键在段之间移动并选中、到头回绕，Home / End，空格）。
+ * 旋钮上的 `--_x` / `--_w`，程序换选中时的过渡交给 CSS）、指针（点一段选中它；按住选中的那段可以拖动旋钮，松手时选中
+ * 旋钮中心所在的段）、键盘（方向键在段之间移动并选中、到头回绕，Home / End，空格）。
+ *
+ * 用户换选中（点、键盘、拖完松手）时旋钮「飞」过去（glide.ts）：宿主带 `data-flying`、按下（onPress(true)）—— 旋钮
+ * 鼓起成透镜，位置逐帧写、喂给果冻（顺着速度拉长），落地后松开（onPress(false)）缩回。选中与事件照旧立刻生效。
  *
  * 不管：表单、初始值、选中之后派发什么事件、旋钮的材质 —— 这些经回调交给组件。
  */
 
+import { Glide } from './glide.ts'
 import { Jelly } from './jelly.ts'
 
 /** 拖过这么多 CSS 像素才算拖动（否则是点击）。 */
@@ -44,6 +48,22 @@ export class Segments {
   #lastValue: string | null = null
   /** 旋钮放到过一个真实的位置没有。第一次放不走过渡 —— 否则页面一加载它就从宽 0 的地方「长」出来。 */
   #placed = false
+  /** 上一次 #mark 选中的段变没变。 */
+  #changed = false
+
+  /** 最后写到旋钮上的位置与宽度（飞行从这里起飞）。 */
+  #x = 0
+  #w = 0
+  /** 用户换选中之后正在飞（glide.ts）。 */
+  #flying = false
+  readonly #glide = new Glide(
+    (box, now) => {
+      this.#set('--_x', `${box.x}px`)
+      this.#set('--_w', `${box.w}px`)
+      this.#jelly.move(box.x, now, 0)
+    },
+    () => this.#land()
+  )
 
   #pointerId: number | null = null
   #startX = 0
@@ -87,6 +107,13 @@ export class Segments {
 
   /** 选中第 index 段（越界是都不选）：刷新各段的标记与 tabindex、放旋钮。返回选中的段变没变。 */
   select(index: number): boolean {
+    this.#mark(index)
+    this.place()
+    return this.#changed
+  }
+
+  /** 选中第 index 段的标记与 tabindex（不放旋钮）。 */
+  #mark(index: number): void {
     const items = this.items
     const i = index >= 0 && index < items.length ? index : -1
     const changed = i !== this.#selected
@@ -99,9 +126,8 @@ export class Segments {
       // roving tabindex：只有选中的那段（都没选时是第一段）可以 Tab 到
       s.tabIndex = !disabled && (k === i || (i < 0 && k === 0)) ? 0 : -1
     })
+    this.#changed = changed
     this.#o.onSelectionChange(this.#lastValue)
-    this.place()
-    return changed
   }
 
   /**
@@ -109,7 +135,7 @@ export class Segments {
    * 之后换选中才滑过去。段还没有布局（宽 0）时不算放过，等 ResizeObserver 下次再放。
    */
   place(): void {
-    if (this.#dragging) return
+    if (this.#dragging || this.#flying) return
     const s = this.items[this.#selected]
     if (!s) {
       this.#set('--_w', '0px')
@@ -134,20 +160,54 @@ export class Segments {
   }
 
   #set(name: '--_x' | '--_w', value: string): void {
+    const n = parseFloat(value)
+    if (name === '--_x') this.#x = n
+    else this.#w = n
     for (const el of this.#movers()) el.style.setProperty(name, value)
   }
 
   /** 松开指针、结束拖动（禁用、离开文档时）。 */
   release(): void {
     this.#jelly.reset()
-    const pressed = this.#pointerId !== null
+    const pressed = this.#pointerId !== null || this.#flying
+    this.#glide.stop()
+    this.#setFlying(false)
     this.#endPointer()
     if (pressed) this.#o.onPress(false)
+    this.place()
   }
 
-  /** 用户换选中：变了就通知组件派发事件。 */
+  /**
+   * 用户换选中（点、键盘、拖完松手）：旋钮从现在的位置飞过去，变了就通知组件派发事件。
+   * 旋钮还没放过（没有布局）时直接放，不飞；飞不了（减少动效）时 Glide 直接落地。
+   */
   #userSelect(index: number): void {
-    if (this.select(index)) this.#o.onUserSelect()
+    const s = this.items[index]
+    // 没放过（没有布局）、或者就在原地（空格键、点回选中的那段）：不飞
+    if (!s || !this.#placed || (index === this.#selected && Math.abs(s.offsetLeft - this.#x) < 0.5)) {
+      this.#o.onPress(false)
+      if (this.select(index)) this.#o.onUserSelect()
+      return
+    }
+    this.#setFlying(true)
+    this.#o.onPress(true)
+    this.#mark(index)
+    const changed = this.#changed
+    this.#glide.start({ x: this.#x, w: this.#w }, { x: s.offsetLeft, w: s.offsetWidth })
+    if (changed) this.#o.onUserSelect()
+  }
+
+  /** 落地：松开（透镜缩回），旋钮按选中的段放好（布局在飞的时候变过也对得上）。 */
+  #land(): void {
+    this.#setFlying(false)
+    this.#jelly.release()
+    this.#o.onPress(false)
+    this.place()
+  }
+
+  #setFlying(on: boolean): void {
+    this.#flying = on
+    this.#o.host.toggleAttribute('data-flying', on)
   }
 
   /** 指针下面是第几段（按水平位置，落在两段之间的缝里算离得近的那段）。 */
@@ -167,6 +227,8 @@ export class Segments {
 
   #onPointerDown = (e: PointerEvent): void => {
     if (e.button !== 0 || this.#o.isDisabled() || this.items.length === 0) return
+    // 正在飞：停在半路，接着按下 / 拖动（松手时再从这里飞）
+    if (this.#glide.cancel()) this.#setFlying(false)
     this.#pointerId = e.pointerId
     this.#startX = e.clientX
     this.#dragging = false
@@ -208,9 +270,12 @@ export class Segments {
     const t = this.#o.thumb.getBoundingClientRect()
     const target = dragged ? this.#segmentAt(t.left + t.width / 2) : this.#segmentAt(e.clientX)
     this.#endPointer()
-    this.#o.onPress(false)
-    if (target >= 0) this.#userSelect(target)
-    else this.place()
+    // 点了选中的那段（没拖）：松开就好；别的都飞过去（拖完松手也是从手指放下的地方飞到那一段）
+    if (target >= 0 && (dragged || target !== this.#selected)) this.#userSelect(target)
+    else {
+      this.#o.onPress(false)
+      this.place()
+    }
   }
 
   #onPointerCancel = (e: PointerEvent): void => {

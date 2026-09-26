@@ -1571,6 +1571,84 @@ async function run(): Promise<void> {
       : fail(detail)
   })
 
+  await check('glide', async () => {
+    // 用户换选中时旋钮「飞」过去（segments.ts + glide.ts）：点隔一段的那段 —— 飞到半路时宿主带 data-flying 与 data-pressed
+    // （鼓起成透镜）、旋钮顺着速度拉长（--_jx > 1.1）、位置在两段之间；落地后都撤了、--_jx 回到 1、旋钮在新的段上。
+    // 减少动效时直接落地、不拉长。rAF 换成手动的队列、按给定的时间出帧（不依赖面板可见）。
+    stage.debug.setBackdrop({ scene: 'flat' })
+    simulateReducedMotion(false)
+    const seg = document.createElement('glass-segmented') as HTMLElement & { value: string; segments: HTMLElement[] }
+    seg.setAttribute('value', 'a')
+    Object.assign(seg.style, { position: 'absolute', left: '440px', top: '500px', color: '#000' })
+    seg.innerHTML = '<span value="a">Alpha</span><span value="b">Bravo</span><span value="c">Charlie</span>'
+    document.body.append(seg)
+    const w = window as unknown as Record<string, unknown>
+    const saved = { raf: w.requestAnimationFrame, caf: w.cancelAnimationFrame }
+    let queue: FrameRequestCallback[] = []
+    w.requestAnimationFrame = (cb: FrameRequestCallback): number => {
+      queue.push(cb)
+      return queue.length
+    }
+    w.cancelAnimationFrame = (): void => {}
+    let now = performance.now()
+    const frame = (): void => {
+      now += 16
+      const q = queue
+      queue = []
+      for (const cb of q) cb(now)
+    }
+    try {
+      await sleep(0)
+      for (const a of seg.shadowRoot!.getAnimations()) a.finish()
+      const thumb = seg.shadowRoot!.querySelector<HTMLElement>('[part=thumb]')!
+      const [a, , c] = seg.segments as [HTMLElement, HTMLElement, HTMLElement]
+      const xOf = (): number => parseFloat(thumb.style.getPropertyValue('--_x'))
+      const jx = (): number => parseFloat(thumb.style.getPropertyValue('--_jx') || '1')
+      const tap = (el: HTMLElement, id: number): void => {
+        const r = el.getBoundingClientRect()
+        const o = { pointerId: id, button: 0, clientX: r.left + r.width / 2, clientY: r.top + r.height / 2, bubbles: true }
+        seg.dispatchEvent(new PointerEvent('pointerdown', o))
+        seg.dispatchEvent(new PointerEvent('pointerup', o))
+      }
+      const x0 = xOf()
+      tap(c, 21)
+      // 飞到半路：抬起 70ms + 飞行时长的一半（glide.ts）
+      const half = (70 + Math.min(560, Math.max(300, 280 + 0.5 * (c.offsetLeft - a.offsetLeft))) / 2) / 16
+      let peak = 1
+      for (let i = 0; i < half; i++) {
+        frame()
+        peak = Math.max(peak, jx())
+      }
+      const midX = xOf()
+      const midFlying = seg.hasAttribute('data-flying') && seg.hasAttribute('data-pressed')
+      stage.debug.renderNow()
+      for (let i = 0; i < 200 && queue.length > 0; i++) frame()
+      const landed = !seg.hasAttribute('data-flying') && !seg.hasAttribute('data-pressed')
+      const endX = xOf()
+      const endJx = jx()
+      // 减少动效：直接落地
+      simulateReducedMotion(true)
+      tap(a, 22)
+      const instant = !seg.hasAttribute('data-flying') && Math.abs(xOf() - a.offsetLeft) < 0.5 && jx() <= 1.0001
+      const value = seg.value
+      const detail =
+        `点「Charlie」：半路 data-flying+pressed ${midFlying}、x ${midX.toFixed(1)}（${x0.toFixed(1)} → ${c.offsetLeft}）、` +
+        `拉长最多 ${peak.toFixed(3)} 倍 · 落地 ${landed}、x ${endX.toFixed(1)}、--_jx ${endJx.toFixed(3)} · ` +
+        `减少动效时点回「Alpha」直接落地 ${instant} · value ${value}`
+      return midFlying && midX > x0 + 5 && midX < c.offsetLeft - 5 && peak > 1.1 && landed &&
+        Math.abs(endX - c.offsetLeft) < 0.5 && endJx <= 1.0001 && instant && value === 'a'
+        ? pass(detail)
+        : fail(detail)
+    } finally {
+      w.requestAnimationFrame = saved.raf
+      w.cancelAnimationFrame = saved.caf
+      seg.remove()
+      simulateReducedMotion(null)
+      calibrationScene()
+      stage.debug.renderNow()
+    }
+  })
+
   await check('scene-label', async () => {
     // 文字进场景（scene-label.ts）：分段控件按住时各段的字画进场景 —— 场景里的墨迹落在 DOM 文字的 Range 矩形里
     // （±1px）；按住的选中块（放大的透镜）下面的墨迹比 DOM 的字宽 ≥ 10%；DOM 的字这时透明。
@@ -1580,6 +1658,8 @@ async function run(): Promise<void> {
     const seg = document.createElement('glass-segmented') as HTMLElement & { segments: HTMLElement[] }
     seg.setAttribute('value', 'b')
     Object.assign(seg.style, { position: 'absolute', left: '440px', top: '500px', color: '#000', font: '600 15px system-ui, sans-serif' })
+    // 这一项量的是字画进场景的位置与颜色，不是透镜多大：按住的放大收回 1.15 倍，透镜不盖到旁边的「Week」「Year」上
+    seg.style.setProperty('--glass-press-scale', '1.15')
     // 选中的「Month」是红字，其余黑字：拖到「Year」上时，透镜里的「Year」要换成红的（选中色）
     seg.innerHTML =
       '<span value="a">Week</span><span value="b" style="color: rgb(220, 0, 0)">Month</span><span value="c">Year</span>'

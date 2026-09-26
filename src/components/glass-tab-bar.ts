@@ -10,8 +10,8 @@
  * ```
  *
  * 栏本身是一块玻璃（材质属性与 `<glass-card>` 相同，默认胶囊）。选中那一格下面的气泡是写在栏**里面**的玻璃 ——
- * 在栏的上面一层（layers.ts），看得见栏，不在栏上开洞。换选中时气泡滑过去、宽度跟着变；按住时它鼓起来变成透明的
- * 透镜，可以按住拖到别的格上再松手（iOS 26 的标签栏就是这样）。各格是普通的 DOM（图标、文字），画在最上面；
+ * 在栏的上面一层（layers.ts），看得见栏，不在栏上开洞。用户换选中时气泡鼓起、拉长着飞过去再落下（segments.ts），
+ * 宽度跟着变；按住时它鼓起来变成透明的透镜，可以按住拖到别的格上再松手（iOS 26 的标签栏就是这样）。各格是普通的 DOM（图标、文字），画在最上面；
  * 按住时它们的内容画进场景（scene-label.ts，写在栏里面、与气泡同一层），透镜把图标与文字放大、在边缘扭弯，
  * 透镜下面垫一块浅色（`--glass-tab-bar-lens`）。
  *
@@ -94,10 +94,14 @@ const CSS = `
     opacity 0.2s ease;
 }
 :host([data-pressed]) [part='bubble'] {
-  scale: calc(1.35 * var(--_jx, 1)) calc(1.28 * var(--_jy, 1));
+  scale: calc(var(--glass-press-scale, 1.7) * var(--_jx, 1)) calc(var(--glass-press-scale, 1.7) * 0.94 * var(--_jy, 1));
 }
 :host([data-dragging]) [part='bubble'] {
   transition: width 0.2s ease, scale 0.06s linear;
+}
+/* 用户换选中时飞过去（segments.ts）：位置与宽度逐帧由脚本写，不走过渡；鼓起、缩回与果冻走短的 scale 过渡 */
+:host([data-flying]) [part='bubble'] {
+  transition: scale 0.12s ease-out, opacity 0.2s ease;
 }
 /* 按住时透镜下面垫的那块：与气泡同一个位置、宽度、缩放（同样的过渡），画在图标与文字的下面 */
 [part='lens'],
@@ -118,11 +122,15 @@ const CSS = `
 }
 :host([data-pressed]) [part='lens'],
 :host([data-pressed]) [part='lens-labels'] {
-  scale: calc(1.35 * var(--_jx, 1)) calc(1.28 * var(--_jy, 1));
+  scale: calc(var(--glass-press-scale, 1.7) * var(--_jx, 1)) calc(var(--glass-press-scale, 1.7) * 0.94 * var(--_jy, 1));
 }
 :host([data-dragging]) [part='lens'],
 :host([data-dragging]) [part='lens-labels'] {
   transition: width 0.2s ease, scale 0.06s linear, opacity 0.12s ease;
+}
+:host([data-flying]) [part='lens'],
+:host([data-flying]) [part='lens-labels'] {
+  transition: scale 0.12s ease-out, opacity 0.12s ease;
 }
 /* 各格的内容画进场景的那一份（scene-label.ts）：平时透明（不画），按住时换上、DOM 的内容淡出 */
 [part='labels'] {

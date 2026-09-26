@@ -10,7 +10,8 @@
  * ```
  *
  * 每个子元素是一段（值取它的 `value` 属性，没有就取文字）。选中的那一段下面是与开关、滑块同一个玻璃旋钮：
- * 平时是白色的胶囊，换选中时滑过去（宽度跟着变）；按住时变成透明的透镜，可以按住拖到别的段上再松手。
+ * 平时是白色的胶囊；用户换选中时鼓起成透镜、拉长着飞过去再落下（segments.ts），程序换选中时滑过去（宽度跟着变）；
+ * 按住时变成透明的透镜，可以按住拖到别的段上再松手。
  * 底是一块填充（在场景里），旋钮的透镜看得见它。
  *
  * 按住时各段的文字（与图标）画进场景（scene-label.ts），透镜把它们放大、在边缘扭弯 —— iOS 26 拖动选中块时就是
@@ -74,10 +75,14 @@ const CSS = `
   transition: translate 0.35s cubic-bezier(0.3, 1.2, 0.5, 1), width 0.35s cubic-bezier(0.3, 1.2, 0.5, 1), scale 0.2s ease;
 }
 :host([data-pressed]) [part='thumb'] {
-  scale: calc(1.15 * var(--_jx, 1)) calc(1.15 * var(--_jy, 1));
+  scale: calc(var(--glass-press-scale, 1.6) * var(--_jx, 1)) calc(var(--glass-press-scale, 1.6) * var(--_jy, 1));
 }
 :host([data-dragging]) [part='thumb'] {
   transition: width 0.2s ease, scale 0.06s linear;
+}
+/* 用户换选中时飞过去（segments.ts）：位置与宽度逐帧由脚本写，不走过渡；鼓起、缩回与果冻走短的 scale 过渡 */
+:host([data-flying]) [part='thumb'] {
+  transition: scale 0.12s ease-out;
 }
 /* 按住时透镜下面垫的那块白：与旋钮同一个位置、宽度、缩放（同样的过渡），画在字的下面 */
 [part='lens'],
@@ -98,11 +103,15 @@ const CSS = `
 }
 :host([data-pressed]) [part='lens'],
 :host([data-pressed]) [part='lens-labels'] {
-  scale: calc(1.15 * var(--_jx, 1)) calc(1.15 * var(--_jy, 1));
+  scale: calc(var(--glass-press-scale, 1.6) * var(--_jx, 1)) calc(var(--glass-press-scale, 1.6) * var(--_jy, 1));
 }
 :host([data-dragging]) [part='lens'],
 :host([data-dragging]) [part='lens-labels'] {
   transition: width 0.2s ease, scale 0.06s linear, opacity 0.12s ease;
+}
+:host([data-flying]) [part='lens'],
+:host([data-flying]) [part='lens-labels'] {
+  transition: scale 0.12s ease-out, opacity 0.12s ease;
 }
 /* 各段的字画进场景的那一份（scene-label.ts）：平时透明（不画），按住时换上、DOM 的字淡出 */
 [part='labels'] {

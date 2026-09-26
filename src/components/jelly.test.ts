@@ -3,16 +3,23 @@ import assert from 'node:assert/strict'
 
 import { JELLY_MAX, Jelly, jellyScale, jellyTarget } from './jelly.ts'
 
-test('速度 → 拉长量：随速度单调增加、有上限；方向无关', () => {
+test('速度 → 拉长量：随速度严格单调增加、平滑地趋近上限；方向无关', () => {
   assert.equal(jellyTarget(0), 0)
   let prev = -1
-  for (let v = 0; v <= 5; v += 0.1) {
+  for (let v = 0; v <= 8; v += 0.1) {
     const t = jellyTarget(v)
-    assert.ok(t >= prev && t <= JELLY_MAX)
+    assert.ok(t > prev && t < JELLY_MAX, `v = ${v}`)
     prev = t
   }
-  assert.equal(jellyTarget(100), JELLY_MAX)
+  assert.ok(Math.abs(jellyTarget(100) - JELLY_MAX) < 1e-12)
   assert.equal(jellyTarget(-0.5), jellyTarget(0.5))
+  // 看得出快慢：慢拖（0.3 px/ms）只长一点，快甩（3 px/ms）长得多
+  const slow = jellyTarget(0.3)
+  const medium = jellyTarget(1)
+  const fast = jellyTarget(3)
+  assert.ok(slow > 0.08 && slow < 0.16, `慢拖 ${slow}`)
+  assert.ok(medium > slow * 2, `中速 ${medium}`)
+  assert.ok(fast > 0.4, `快甩 ${fast}`)
 })
 
 test('缩放：横向拉长，纵向按 1/√sx 收一点；不拉长时正好是 (1, 1)', () => {
@@ -53,7 +60,7 @@ test('拖得快就拉长；松手后单调地回到 (1, 1)，不过冲、不晃'
       frame()
     }
     const peak = Math.max(...seen.map((s) => s[0]))
-    assert.ok(peak > 1.15, `拖动中拉长了（${peak}）`)
+    assert.ok(peak > 1.25, `拖动中拉长了（${peak}）`)
     assert.ok(peak <= 1 + JELLY_MAX + 1e-9)
     // 松手：之后每一帧的 sx 都不增加、不小于 1，最后正好落在 (1, 1)，rAF 停了
     jelly.release()

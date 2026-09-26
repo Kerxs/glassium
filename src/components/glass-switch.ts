@@ -22,6 +22,7 @@
 
 import type { GlassPanel } from '../renderer/panels.ts'
 import { HTMLElementBase, sharedSheet } from './base.ts'
+import { Glide } from './glide.ts'
 import { Jelly } from './jelly.ts'
 import { StageLink } from './stage-link.ts'
 import { PressTween, thumbMaterial } from './thumb.ts'
@@ -83,12 +84,17 @@ const CSS = `
   translate: calc(100cqw - 100% - ${2 * INSET}px) 0;
 }
 :host([data-pressed]) [part='thumb'] {
-  scale: calc(1.25 * var(--_jx, 1)) calc(1.25 * var(--_jy, 1));
+  scale: calc(var(--glass-press-scale, 1.6) * var(--_jx, 1)) calc(var(--glass-press-scale, 1.6) * var(--_jy, 1));
 }
 /* 拖动时旋钮直接跟着手指，不走过渡 */
 :host([data-dragging]) [part='thumb'] {
   translate: var(--glass-switch-drag, 0px) 0;
   transition: scale 0.06s linear;
+}
+/* 用户切换时旋钮飞过去（glide.ts）：鼓起成透镜，位置逐帧由脚本写，落地后交回上面按 checked 放的位置 */
+:host([data-flying]) [part='thumb'] {
+  translate: var(--_fx, 0px) 0;
+  transition: scale 0.12s ease-out;
 }
 /* 没有玻璃时（stage 没建好、没有 GPU、高对比度），或者在对话框 / popover 里用 CSS 画（data-glassium-overlay）：
    CSS 画轨道与白色旋钮 */
@@ -148,6 +154,14 @@ export class GlassSwitch extends HTMLElementBase {
     this.#thumb.style.setProperty('--_jx', String(sx))
     this.#thumb.style.setProperty('--_jy', String(sy))
   })
+  /** 用户切换时的飞行：位置写成旋钮上的 --_fx，喂给果冻。 */
+  readonly #glide = new Glide(
+    (box, now) => {
+      this.#thumb.style.setProperty('--_fx', `${box.x}px`)
+      this.#jelly.move(box.x, now, 0)
+    },
+    () => this.#land()
+  )
   #panel: GlassPanel | null = null
   readonly #link = new StageLink(this, (stage) => {
     const panel = stage.register(this.#thumb, thumbMaterial(this.#tween.energy))
@@ -261,6 +275,8 @@ export class GlassSwitch extends HTMLElementBase {
   disconnectedCallback(): void {
     this.#link.disconnect()
     this.#tween.reset()
+    this.#glide.stop()
+    this.#endFlight()
     this.toggleAttribute('data-pressed', false)
     this.#endPointer()
     this.#jelly.reset()
@@ -312,11 +328,12 @@ export class GlassSwitch extends HTMLElementBase {
 
   #onPointerDown = (e: PointerEvent): void => {
     if (e.button !== 0 || this.#isDisabled()) return
+    // 正在飞：直接落到 checked 的位置（CSS 过渡接过去），接着按下 / 拖动
+    if (this.#glide.cancel()) this.#endFlight()
     this.#suppressClick = false
     this.#pointerId = e.pointerId
     this.#startX = e.clientX
-    // 旋钮能走多远：宿主宽 − 旋钮宽 − 两边的间隙（布局尺寸，不受按压时的 scale 影响）
-    this.#travel = Math.max(0, this.clientWidth - this.#thumb.offsetWidth - 2 * INSET)
+    this.#travel = this.#travelPx()
     this.#startOffset = this.checked ? this.#travel : 0
     this.#offset = this.#startOffset
     this.#dragging = false
@@ -344,11 +361,15 @@ export class GlassSwitch extends HTMLElementBase {
     if (e.pointerId !== this.#pointerId) return
     const dragged = this.#dragging
     const next = this.#offset > this.#travel / 2
+    const offset = this.#offset
     this.#endPointer()
-    this.#press(false)
-    if (!dragged) return // 点击：交给随后的 click
-    // 拖动：按旋钮停在哪一半决定，随后那次 click 不再切换
+    if (!dragged) {
+      this.#press(false)
+      return // 点击：交给随后的 click
+    }
+    // 拖动：按旋钮停在哪一半决定，随后那次 click 不再切换；旋钮从手指放下的地方飞到那一头
     this.#suppressClick = true
+    this.#fly(offset, next ? this.#travel : 0)
     if (next !== this.checked) {
       this.checked = next
       this.#emit()
@@ -416,13 +437,43 @@ export class GlassSwitch extends HTMLElementBase {
     if (e.defaultPrevented) return
     const was = this.checked
     this.checked = !was
+    const travel = this.#travelPx()
+    this.#fly(was ? travel : 0, was ? 0 : travel)
     setTimeout(() => {
       if (e.defaultPrevented) {
+        // 被拦下：切回来，不飞了（落到原来的位置）
+        this.#glide.stop()
+        this.#endFlight()
+        this.#jelly.reset()
+        this.#press(false)
         this.checked = was
         return
       }
       this.#emit()
     }, 0)
+  }
+
+  /** 旋钮能走多远：宿主宽 − 旋钮宽 − 两边的间隙（布局尺寸，不受按压时的 scale 影响）。 */
+  #travelPx(): number {
+    return Math.max(0, this.clientWidth - this.#thumb.offsetWidth - 2 * INSET)
+  }
+
+  /** 旋钮从 from 飞到 to（离左边的距离，CSS 像素）：鼓起成透镜、飞、落地后缩回（#land）。 */
+  #fly(from: number, to: number): void {
+    this.toggleAttribute('data-flying', true)
+    this.#press(true)
+    this.#glide.start({ x: from, w: 0 }, { x: to, w: 0 })
+  }
+
+  #land(): void {
+    this.#endFlight()
+    this.#jelly.release()
+    if (this.#pointerId === null && !this.#keyPressed) this.#press(false)
+  }
+
+  #endFlight(): void {
+    this.removeAttribute('data-flying')
+    this.#thumb.style.removeProperty('--_fx')
   }
 
   #emit(): void {

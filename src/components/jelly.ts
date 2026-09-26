@@ -1,6 +1,6 @@
 /**
- * 拖动时的果冻：透镜顺着拖动的速度横向拉长、纵向收一点，停下来平滑地回到原样 —— **不晃**（iOS 27 的样子：
- * 拖得快就扁长，手一停就慢慢圆回去，没有来回的弹跳）。
+ * 移动时的果冻：透镜顺着移动的速度横向拉长、纵向收一点，停下来平滑地回到原样 —— **不晃**（iOS 27 的样子：
+ * 拖得快就扁长，手一停就慢慢圆回去，没有来回的弹跳）。拖动时喂手指的位置，点击切换时喂飞行的位置（glide.ts）。
  *
  * 速度先做指数平滑（手指的采样有抖动），形变再一阶趋近按速度算出的目标（motion.ts 的 approach）。一阶趋近
  * 只会单调地走向目标，所以回到原样的路上不会过冲。结果交给回调（组件把它写成旋钮与跟随者上的
@@ -10,9 +10,12 @@
 import { prefersReducedMotion } from '../renderer/stage.ts'
 import { approach } from './motion.ts'
 
-/** 横向最多拉长这么多（+22%）；每 CSS px/ms 的速度拉长这么多。 */
-export const JELLY_MAX = 0.22
-export const JELLY_GAIN = 0.2
+/**
+ * 横向最多拉长这么多（+45%）；速度到 JELLY_V0（CSS px/ms）时拉长到上限的 63%。拉长量随速度平滑地饱和：
+ * 慢拖只长一点（0.3 px/ms ≈ +14%），快甩接近上限 —— 不像线性再封顶那样一般的拖动全都顶在上限上、看不出快慢。
+ */
+export const JELLY_MAX = 0.45
+export const JELLY_V0 = 0.8
 /** 速度的平滑、形变的趋近，时间常数（ms）。 */
 export const JELLY_VELOCITY_TAU = 50
 export const JELLY_SHAPE_TAU = 80
@@ -25,9 +28,9 @@ export function jellyScale(stretch: number): readonly [number, number] {
   return [sx, 1 / Math.sqrt(sx)]
 }
 
-/** 速度（CSS px/ms）对应的拉长量。 */
+/** 速度（CSS px/ms）对应的拉长量：JELLY_MAX·(1 − e^(−|v| / JELLY_V0))。 */
 export function jellyTarget(velocity: number): number {
-  return Math.min(Math.abs(velocity) * JELLY_GAIN, JELLY_MAX)
+  return JELLY_MAX * (1 - Math.exp(-Math.abs(velocity) / JELLY_V0))
 }
 
 export class Jelly {
@@ -44,12 +47,16 @@ export class Jelly {
     this.#apply = apply
   }
 
-  /** 拖动中的一次移动：x 是 CSS 像素，t 是毫秒（事件的 timeStamp）。 */
-  move(x: number, t: number): void {
+  /**
+   * 一次移动：x 是 CSS 像素，t 是毫秒（事件的 timeStamp，或者飞行那一帧的时间）。velocityTau 是速度的平滑：
+   * 手指的采样有抖动，默认平滑一下；飞行（glide.ts）的位置是算出来的、没有抖动，传 0 —— 拉得最长的时候正好在中段，
+   * 不拖到落地。
+   */
+  move(x: number, t: number, velocityTau = JELLY_VELOCITY_TAU): void {
     if (prefersReducedMotion()) return
     if (this.#lastT >= 0 && t > this.#lastT) {
       const dt = t - this.#lastT
-      this.#velocity = approach(this.#velocity, (x - this.#lastX) / dt, dt, JELLY_VELOCITY_TAU)
+      this.#velocity = approach(this.#velocity, (x - this.#lastX) / dt, dt, velocityTau)
     }
     this.#lastX = x
     this.#lastT = t

@@ -140,7 +140,7 @@ const CSS = `
   transition: scale 0.2s ease;
 }
 :host([data-pressed]) [part='thumb'] {
-  scale: calc(1.25 * var(--_jx, 1)) calc(1.25 * var(--_jy, 1));
+  scale: calc(var(--glass-press-scale, 1.6) * var(--_jx, 1)) calc(var(--glass-press-scale, 1.6) * var(--_jy, 1));
 }
 /* 拖动时缩放由果冻（jelly.ts）逐帧驱动，过渡只留一点平滑 */
 :host([data-dragging]) [part='thumb'] {
