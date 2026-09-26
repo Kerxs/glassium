@@ -9,15 +9,7 @@
 import '../src/components/glassium.css'
 import './showcase.css'
 
-import {
-  createGlassStage,
-  defineGlassElements,
-  MATERIAL_DEFAULTS,
-  morphGlass,
-  simulateNoWebGpu,
-  type CornerRadius,
-  type GlassMaterial
-} from 'glassium'
+import { createGlassStage, defineGlassElements, morphGlass, simulateNoWebGpu } from 'glassium'
 
 import { fillIcons, icon } from './showcase-icons.ts'
 
@@ -139,18 +131,6 @@ function fitDevices(): void {
 /** 元素所在设备此刻的缩放：屏幕上的宽 ÷ 布局宽。 */
 function scaleOf(device: HTMLElement): number {
   return device.getBoundingClientRect().width / device.offsetWidth || 1
-}
-
-/**
- * morphGlass 的过渡玻璃画在文档最外层、按屏幕像素算：按 dp 写的圆角与模糊不会跟着设备的 transform: scale 缩。
- * 两头的材质先乘上缩放系数传进去，变形结束的那一刻才与缩放后的面板对得上（'frac' 圆角按短边的比例，本来就跟着缩）。
- */
-function scaledMaterial(el: HTMLElement, k: number): GlassMaterial {
-  const m = { ...MATERIAL_DEFAULTS, ...(el as HTMLElement & { material: GlassMaterial }).material }
-  const r = m.cornerRadius
-  const cornerRadius: CornerRadius =
-    typeof r === 'number' ? r * k : Array.isArray(r) ? [r[0]! * k, r[1]! * k, r[2]! * k, r[3]! * k] : r
-  return { ...m, cornerRadius, blur: m.blur * k }
 }
 
 // —— 时间与日期 ——
@@ -482,10 +462,9 @@ function setupMac(): void {
     if (busy || (btn.getAttribute('aria-expanded') === 'true') === open) return
     busy = true
     btn.setAttribute('aria-expanded', String(open))
-    const k = scaleOf(mac)
     const [from, to] = open ? [btn, panel] : [panel, btn]
     to.classList.remove('collapsed')
-    await morphGlass(from, to, { fromMaterial: scaledMaterial(from, k), toMaterial: scaledMaterial(to, k) }).finished
+    await morphGlass(from, to).finished
     if (open) {
       btn.style.opacity = '' // 变形把按钮留在不透明度 0；它还是开关，淡回来
       btn.setAttribute('tint', 'rgba(255, 255, 255, 0.4)')

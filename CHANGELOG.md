@@ -3,6 +3,12 @@
 格式按 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号按 [语义化版本](https://semver.org/lang/zh-CN/)。
 0.x 期间次版本号的变化也可能不兼容。
 
+## [未发布]
+
+### 修复
+
+- `morphGlass`：两头在 `transform: scale` 的祖先里时，结束的那一刻圆角、模糊、亮边不再跳（按两头各自的视觉缩放换算）。
+
 ## [0.0.1] — 2026-09-25
 
 第一个公开版本。
@@ -35,4 +41,5 @@
 玻璃折射的是 Glassium 自己画的场景，不是它背后的 DOM；盖在 DOM 上的玻璃没有折射。完整的列表在
 [docs/limitations.md](docs/limitations.md)，先读开头那三条编写规则。
 
+[未发布]: https://github.com/Kerxs/glassium/compare/v0.0.1...HEAD
 [0.0.1]: https://github.com/Kerxs/glassium/releases/tag/v0.0.1

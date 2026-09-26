@@ -12,14 +12,20 @@
  * 同样的玻璃叠在一起，只有抗锯齿的那一圈略厚一点。投影跟着交叉淡出淡入，不叠出双影。结束之后过渡玻璃拿掉，
  * from 停在不透明度 0（通常接着隐藏或移除它），to 回到原来的不透明度。
  *
+ * 两头在 `transform: scale` 的祖先里（视觉缩放不是 1）时，按 dp 写的量要像真正的面板那样乘上缩放：两头的视觉缩放
+ * 与 panels.ts 同一个算法（量到的盒子 ÷ offsetWidth / offsetHeight），数值与四个数的圆角、模糊按各自的缩放换成屏幕
+ * 像素再插值；过渡玻璃自己带着两头之间插出来的缩放（`transform: scale`，布局尺寸 = 屏幕尺寸 ÷ 缩放），投影的 σ、
+ * 偏移与够及的范围、亮边这些渲染器按 dp 定的形状跟着它缩。所以换成真正的面板的那一刻，圆角、模糊都不跳。
+ *
  * 边界：过渡玻璃画在文档最外层（position: fixed，玻璃的第 0 层）—— from / to 写在别的玻璃里面时，途中看不见外面
  * 那块玻璃；起止的矩形在开始时量一次，途中页面滚动不跟；to 必须排了版（别用 display: none —— 量不到矩形时
  * 警告一句、直接换）。减少动效时直接换：from 不透明度 0、to 显示，没有过渡。
  */
 
 import { MATERIAL_DEFAULTS, parseTint, resolveCornerRadii, type GlassMaterial } from '../core/material.ts'
-import type { Radii4 } from '../core/optics.ts'
+import type { Radii4, Vec2 } from '../core/optics.ts'
 import { describeElement } from '../renderer/layering.ts'
+import { visualScaleOf } from '../renderer/panels.ts'
 import { currentStage, prefersReducedMotion } from '../renderer/stage.ts'
 
 /** 默认时长，毫秒。与 `<glass-container morph>` 的水滴一样。 */
@@ -86,11 +92,36 @@ export interface GlassMorph {
   cancel(): void
 }
 
-interface Box {
+/** 屏幕上的矩形，CSS 像素（getBoundingClientRect 的那几项）。 */
+export interface MorphBox {
   readonly left: number
   readonly top: number
   readonly width: number
   readonly height: number
+}
+
+/** 变形的一头，换算到屏幕上。 */
+export interface MorphEnd {
+  readonly box: MorphBox
+  /** 视觉缩放：屏幕上的尺寸 ÷ 布局尺寸（见 panels.ts 的 visualScaleOf）。 */
+  readonly scale: number
+  readonly material: Required<GlassMaterial>
+  /** 圆角，屏幕像素。 */
+  readonly radii: Radii4
+  /** 模糊 σ，屏幕像素。 */
+  readonly blur: number
+}
+
+/** 过渡玻璃在某个进度上的样子。 */
+export interface MorphFrame {
+  readonly box: MorphBox
+  /** 过渡玻璃自己的视觉缩放（它的 transform: scale）：两头的缩放之间插值。 */
+  readonly scale: number
+  /** 材质，按过渡玻璃自己的 dp —— 渲染器画它时乘上 scale。 */
+  readonly material: GlassMaterial
+  /** from、to 此刻的不透明度。 */
+  readonly fromAlpha: number
+  readonly toAlpha: number
 }
 
 /** 被变形碰过的元素原来的内联不透明度 —— 连着变形（变过去再变回来）时认得出「是变形设的 0」。 */
@@ -109,28 +140,31 @@ function materialOf(el: HTMLElement): GlassMaterial {
 const lerp = (a: number, b: number, t: number): number => a * (1 - t) + b * t
 const clamp01 = (x: number): number => Math.min(1, Math.max(0, x))
 
-/** 两套材质之间的第 t 处（t 钳在 0–1）。圆角按各自的尺寸解算成像素再插；shadowScale 乘在投影上（交叉淡出淡入）。 */
-function materialBetween(
-  from: Required<GlassMaterial>,
-  to: Required<GlassMaterial>,
-  fromRadii: Radii4,
-  toRadii: Radii4,
-  t: number,
-  shadowScale: number
-): GlassMaterial {
-  const k = clamp01(t)
-  const [r0, g0, b0, a0] = parseTint(from.tint)
-  const [r1, g1, b1, a1] = parseTint(to.tint)
-  const radii: Radii4 = [
-    lerp(fromRadii[0], toRadii[0], k),
-    lerp(fromRadii[1], toRadii[1], k),
-    lerp(fromRadii[2], toRadii[2], k),
-    lerp(fromRadii[3], toRadii[3], k)
-  ]
-  const n = (key: keyof typeof MATERIAL_DEFAULTS): number => lerp(from[key] as number, to[key] as number, k)
+/**
+ * 一头换算到屏幕上：与 panels.ts 量真正的面板时一样，没有缩放时按量到的尺寸解算圆角，有缩放时按布局尺寸（dp）
+ * 解算、再乘缩放。按 dp 写的圆角（数值、四个数）与模糊跟着缩；'frac' 圆角按短边的比例，本来就跟着缩。
+ */
+export function morphEnd(el: HTMLElement, box: MorphBox, material: GlassMaterial): MorphEnd {
+  const m = { ...MATERIAL_DEFAULTS, ...material }
+  const scale = visualScaleOf(box.width, box.height, el.offsetWidth, el.offsetHeight)
+  const size: Vec2 = scale === 1 ? [box.width, box.height] : [el.offsetWidth, el.offsetHeight]
+  const [r0, r1, r2, r3] = resolveCornerRadii(m.cornerRadius, size)
+  return { box, scale, material: m, radii: [r0 * scale, r1 * scale, r2 * scale, r3 * scale], blur: m.blur * scale }
+}
+
+/**
+ * 两头之间的第 k 处（k 在 0–1）的材质，按过渡玻璃自己的 dp：圆角与模糊在屏幕像素里插、再除以过渡玻璃的缩放 scale
+ * （渲染器画它时乘回去）；shadowScale 乘在投影上（交叉淡出淡入）。
+ */
+function materialBetween(from: MorphEnd, to: MorphEnd, k: number, scale: number, shadowScale: number): GlassMaterial {
+  const [r0, g0, b0, a0] = parseTint(from.material.tint)
+  const [r1, g1, b1, a1] = parseTint(to.material.tint)
+  const radius = (i: 0 | 1 | 2 | 3): number => lerp(from.radii[i], to.radii[i], k) / scale
+  const n = (key: keyof typeof MATERIAL_DEFAULTS): number =>
+    lerp(from.material[key] as number, to.material[key] as number, k)
   return {
-    cornerRadius: radii,
-    blur: n('blur'),
+    cornerRadius: [radius(0), radius(1), radius(2), radius(3)],
+    blur: lerp(from.blur, to.blur, k) / scale,
     refraction: n('refraction'),
     distortion: n('distortion'),
     highlight: n('highlight'),
@@ -142,6 +176,32 @@ function materialBetween(
     adaptive: n('adaptive'),
     shadow: n('shadow') * shadowScale,
     tint: `rgba(${lerp(r0, r1, k) * 255}, ${lerp(g0, g1, k) * 255}, ${lerp(b0, b1, k) * 255}, ${lerp(a0, a1, k)})`
+  }
+}
+
+/**
+ * 过渡玻璃在进度 p（0–1）处：矩形按略微回弹的缓动插值；缩放与材质按同一个缓动、钳在 0–1 插值（两头缩放相同时
+ * 就是它，一点不差）。from 在开头的 MORPH_GLASS_FADE 里淡出，to 在最后的 MORPH_GLASS_FADE 里淡入。
+ */
+export function morphFrame(from: MorphEnd, to: MorphEnd, p: number): MorphFrame {
+  const g = MORPH_GLASS_EASE(p) // 形状略微回弹
+  const k = clamp01(g)
+  const a = from.box
+  const b = to.box
+  const scale = from.scale === to.scale ? to.scale : lerp(from.scale, to.scale, k)
+  const fromAlpha = clamp01(1 - p / MORPH_GLASS_FADE)
+  const toAlpha = clamp01((p - (1 - MORPH_GLASS_FADE)) / MORPH_GLASS_FADE)
+  return {
+    box: {
+      left: lerp(a.left, b.left, g),
+      top: lerp(a.top, b.top, g),
+      width: Math.max(0, lerp(a.width, b.width, g)),
+      height: Math.max(0, lerp(a.height, b.height, g))
+    },
+    scale,
+    material: materialBetween(from, to, k, scale, (1 - fromAlpha) * (1 - toAlpha)),
+    fromAlpha,
+    toAlpha
   }
 }
 
@@ -168,44 +228,50 @@ export function morphGlass(from: HTMLElement, to: HTMLElement, options: MorphGla
   const stage = currentStage()
   if (prefersReducedMotion() || !stage || !stage.active) return swap()
 
-  const a: Box = from.getBoundingClientRect()
-  const b: Box = to.getBoundingClientRect()
+  const a = from.getBoundingClientRect()
+  const b = to.getBoundingClientRect()
   const empty = a.width <= 0 || a.height <= 0 ? from : b.width <= 0 || b.height <= 0 ? to : null
   if (empty) {
     // 量不到矩形（display: none、不在文档里）：不知道从哪里变到哪里，直接换
     console.warn(`[Glassium] morphGlass：${describeElement(empty)} 没有排版（display: none？），直接换、不做变形`, empty)
     return swap()
   }
-  const fromMat = { ...MATERIAL_DEFAULTS, ...(options.fromMaterial ?? materialOf(from)) }
-  const toMat = { ...MATERIAL_DEFAULTS, ...(options.toMaterial ?? materialOf(to)) }
-  const fromRadii = resolveCornerRadii(fromMat.cornerRadius, [a.width, a.height])
-  const toRadii = resolveCornerRadii(toMat.cornerRadius, [b.width, b.height])
+  const fromEnd = morphEnd(from, a, options.fromMaterial ?? materialOf(from))
+  const toEnd = morphEnd(to, b, options.toMaterial ?? materialOf(to))
   const duration = Math.max(1, options.duration ?? MORPH_GLASS_MS)
 
   const ghost = document.createElement('div')
   ghost.setAttribute('data-glassium-morph', '')
   ghost.setAttribute('aria-hidden', 'true')
-  Object.assign(ghost.style, { position: 'fixed', margin: '0', padding: '0', border: '0', pointerEvents: 'none', opacity: '0' })
+  Object.assign(ghost.style, {
+    position: 'fixed',
+    margin: '0',
+    padding: '0',
+    border: '0',
+    pointerEvents: 'none',
+    opacity: '0',
+    transformOrigin: '0 0'
+  })
   document.body.append(ghost)
-  const panel = stage.register(ghost, materialBetween(fromMat, toMat, fromRadii, toRadii, 0, 0))
+  const panel = stage.register(ghost, morphFrame(fromEnd, toEnd, 0).material)
 
   let rafId = 0
   let done = false
   const apply = (p: number): void => {
-    const g = MORPH_GLASS_EASE(p) // 形状略微回弹
+    const f = morphFrame(fromEnd, toEnd, p)
     Object.assign(ghost.style, {
-      left: `${lerp(a.left, b.left, g)}px`,
-      top: `${lerp(a.top, b.top, g)}px`,
-      width: `${Math.max(0, lerp(a.width, b.width, g))}px`,
-      height: `${Math.max(0, lerp(a.height, b.height, g))}px`,
+      left: `${f.box.left}px`,
+      top: `${f.box.top}px`,
+      // 缩放交给 transform：布局尺寸 = 屏幕上的尺寸 ÷ 缩放，渲染器量它的视觉缩放，与量两头时一样
+      width: `${f.box.width / f.scale}px`,
+      height: `${f.box.height / f.scale}px`,
+      transform: f.scale === 1 ? '' : `scale(${f.scale})`,
       // 两头不画：与只有 from、只有 to 时逐位相同
       opacity: p > 0 && p < 1 ? '1' : '0'
     })
-    const fromAlpha = clamp01(1 - p / MORPH_GLASS_FADE)
-    const toAlpha = clamp01((p - (1 - MORPH_GLASS_FADE)) / MORPH_GLASS_FADE)
-    from.style.opacity = String(fromAlpha)
-    to.style.opacity = String(toAlpha)
-    panel.setMaterial(materialBetween(fromMat, toMat, fromRadii, toRadii, g, (1 - fromAlpha) * (1 - toAlpha)))
+    from.style.opacity = String(f.fromAlpha)
+    to.style.opacity = String(f.toAlpha)
+    panel.setMaterial(f.material)
   }
   const teardown = (): void => {
     if (rafId !== 0) cancelAnimationFrame(rafId)

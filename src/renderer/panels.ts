@@ -323,6 +323,17 @@ function roundBox(b: Box): Box {
   return { x0: r(b.x0), y0: r(b.y0), x1: r(b.x1), y1: r(b.y1) }
 }
 
+/**
+ * 视觉缩放：getBoundingClientRect 量的是变换之后的盒子（width × height），offsetWidth / offsetHeight 是布局尺寸，
+ * 两个轴的比取平均。offsetWidth 取整过，所以差不到 1% 时当作没有缩放（正好 1）；布局尺寸是 0 时也是 1。
+ * morphGlass 量两头用的也是它：过渡玻璃结束时要与真正的面板对得上。
+ */
+export function visualScaleOf(width: number, height: number, layoutW: number, layoutH: number): number {
+  if (!(layoutW > 0 && layoutH > 0)) return 1
+  const s = (width / layoutW + height / layoutH) / 2
+  return Math.abs(s - 1) > 0.01 ? s : 1
+}
+
 /** 抗锯齿需要在面板矩形外多画的像素。sd 的覆盖率过渡宽 1px，留 2px 足够。 */
 const AA_MARGIN_PX = 2
 
@@ -537,16 +548,11 @@ export class PanelRegistry {
       let w = r.width * sx
       let h = r.height * sy
 
-      // 视觉缩放：getBoundingClientRect 量的是变换之后的盒子，offsetWidth 是布局尺寸。
-      // offsetWidth 取整过，所以差不到 1% 时当作没有缩放（仍按量到的尺寸降级，结果与之前逐位相同）；
+      // 视觉缩放（见 visualScaleOf）：没有缩放时仍按量到的尺寸降级，结果与之前逐位相同；
       // 真有缩放时按布局尺寸降级、打包时乘上缩放 —— 缩放动画期间也不必每帧重新降级。
       const layoutW = record.element.offsetWidth
       const layoutH = record.element.offsetHeight
-      let visualScale = 1
-      if (layoutW > 0 && layoutH > 0) {
-        const s = (r.width / layoutW + r.height / layoutH) / 2
-        if (Math.abs(s - 1) > 0.01) visualScale = s
-      }
+      let visualScale = visualScaleOf(r.width, r.height, layoutW, layoutH)
 
       // 旋转：自己与祖先的变换合起来是「转过的矩形」时，包围盒的中心就是它的中心，尺寸是布局尺寸 × 缩放。
       // 读的是不透明度那一串的计算样式（活对象，同一批祖先），不多读样式。
