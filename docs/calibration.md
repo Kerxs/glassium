@@ -1511,3 +1511,26 @@ playground 上实测（`?scene=user:photo` 等），画布 1207×1800 @1.5（场
 - 切换时的飞行（glide.ts）：抬起 70ms，之后 ease-in-out 飞 `clamp(280 + 0.5·距离, 300, 560)` ms，落地后松开。首页标签栏
   实测：跳一格（85px）最多拉长 1.18 倍，跳两格（169px）1.26 倍；开关（21px）1.06 倍。验证页 `glide`：隔一段飞过去最多 1.17 倍，
   反向对照（飞行不喂果冻）1.00，判据失败。
+
+## WebGL2 帧间差 1 级：未解决的一例（DPR 1、1280×720）
+
+verify.html 在 WebGL2、1280×720、DPR 1 上 **deterministic** 失败：v-card 底边往里 4px 的 (82, 256) 一个像素的 R 在
+184 / 185 之间跳（21 帧里 3–4 帧）。fd48b86 上一样，与最近几轮的改动无关；WebGPU、DPR 1.5（1920×1080）、820×1200
+都不跳，别的检查都过。
+
+查到的：
+
+- 帧与帧之间唯一变的输入是场景的 time uniform（calibration 场景不用它）；把 `performance.now` 冻住照样跳 ——
+  uniform 逐字节相同（`bufferSubData`、`uniform*` 全部挂钩比对过），输出仍然不同。
+- 灵敏的探测法：glass FS 最后接一句 `outColor = vec4(fract(outColor.rgb * 65280.0), 1.0)`，最低位的抖动放大成
+  满量程。DPR 1 时 v-card 的折射带（离边 0–16px，1px 处最多）每帧上百个像素在跳，内部不跳；DPR 1.5 时一个都不跳。
+- 按「DPR 2 下的实测」的经验，把 `refractionProfile`（÷ heightPx、1 ÷ squircle）与 `lightAt`（÷ 2σ²）改成乘 CPU
+  算好的倒数：**没用**，撤回了。
+- 各项单独输出（采样坐标、displacement、dir、红通道的采样值）都不跳；dispersion / adaptive / refraction / highlight
+  任一设 0 都不跳，blur 0 照跳；采样换成 texelFetch 照跳。但每改一次着色器编译结果就变，只改参数又会把那个像素挪开
+  舍入边界，这些结论互相打架，没能定位到是哪一步。
+- 浏览器面板的 DPR 会自己在 1 与 1.5 之间换，失败条件时有时无。复查时 resize 到 1100 再到 1280、刷新，趁 DPR 1
+  在同一次调用里跑完。
+
+影响：肉眼看不出（一个像素差 1 级）；只有 deterministic 这一项在这台机器的这个分辨率上失败。
+

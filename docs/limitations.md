@@ -490,6 +490,12 @@ T11 起这一级有了（`src/webgl2/`）：同一套光学（GLSL 由 WGSL 真�
 WebGL2 这一级的代价：光学探针要 `EXT_color_buffer_float`（渲进 RGBA32F），没有它就只能回读
 颜色、不能逐像素验光学；UBO 的偏移对齐值不整除 256 时退回逐次上传（结果一样，慢一点）。
 
+### WebGL2 在个别机器、个别分辨率上帧与帧之间差 1 级
+
+NVIDIA RTX 4070 Laptop + ANGLE（D3D11）上，静止的画面连着画，玻璃折射带里偶尔有个别像素在两帧之间差 1/255
+（验证页 deterministic，WebGL2、1280×720、DPR 1）。输入逐字节相同、只在这个组合上出现，没查到原因；肉眼看不出。
+WebGPU 没有。排查记录见 docs/calibration.md「WebGL2 帧间差 1 级：未解决的一例」。
+
 ### CI 不覆盖像素
 
 见 [../spec/golden/README.md](../spec/golden/README.md)。
