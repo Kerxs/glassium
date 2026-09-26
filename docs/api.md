@@ -451,7 +451,7 @@ reject 一个 `name === 'AbortError'` 的 DOMException。跨源的图片与视�
 | `describeElement(el)`、`describeProblem(problem, name)` | 把元素、层级问题写成一句话（`checkLayers()` 的结果） |
 | `simulateNoWebGpu(on)` | 让探测表现为 `navigator.gpu` 不存在，验降级阶梯 |
 | `simulateDeviceLoss()`、`deviceLossCount()` | 设备丢失的模拟与计数 |
-| `VERSION` | 包的版本号，与 package.json 相同（现在是 `'0.0.1'`） |
+| `VERSION` | 包的版本号，与 package.json 相同（现在是 `'0.1.0'`） |
 
 ---
 

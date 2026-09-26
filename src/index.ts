@@ -15,7 +15,7 @@
  */
 
 /** 与 package.json 的 version 相同（version.test.ts 核对）。 */
-export const VERSION = '0.0.1'
+export const VERSION = '0.1.0'
 
 // —— 光学核心（CPU 参考实现，与 WGSL 侧逐点一致）——
 export {

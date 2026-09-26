@@ -5,6 +5,8 @@
 
 ## [未发布]
 
+## [0.1.0] — 2026-09-26
+
 外观按 iOS 26 真机截图重调（docs/calibration.md「质感对照」）。**默认外观变了**，升级之后玻璃会与 0.0.1 不一样 ——
 要回到原来的样子，按下面「变化」一节里的旧值把材质写出来。
 
@@ -64,5 +66,6 @@
 玻璃折射的是 Glassium 自己画的场景，不是它背后的 DOM；盖在 DOM 上的玻璃没有折射。完整的列表在
 [docs/limitations.md](docs/limitations.md)，先读开头那三条编写规则。
 
-[未发布]: https://github.com/Kerxs/glassium/compare/v0.0.1...HEAD
+[未发布]: https://github.com/Kerxs/glassium/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/Kerxs/glassium/releases/tag/v0.1.0
 [0.0.1]: https://github.com/Kerxs/glassium/releases/tag/v0.0.1
