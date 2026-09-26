@@ -21,9 +21,11 @@ import {
   clampRadii,
   gradRadiusOf,
   gradSdRoundedRect,
-  highlightTerms,
+  bodyLight,
+  magnifyFactor,
   radiusAt,
   refractionProfile,
+  rimLight,
   rimMask,
   sdRoundedRect,
   smin,
@@ -140,16 +142,26 @@ function buildMergeCases(): Case[] {
 
 function buildLightingCases(): Case[] {
   const cases: Case[] = []
-  const light: Vec2 = [-Math.SQRT1_2, -Math.SQRT1_2]
-  for (let deg = 0; deg < 360; deg += 30) {
-    const a = (deg * Math.PI) / 180
-    const n: Vec2 = [Math.cos(a), Math.sin(a)]
-    for (const gloss of [1, 2]) {
-      cases.push({ input: { n, lightDir: light, gloss }, expect: highlightTerms(n, light, gloss) })
+  // 亮边的角度因子：光竖直（着色器里的 RIM_LIGHT_DIR），另加一个斜着的方向，两种 base 与 gloss
+  for (const light of [[0, -1], [-Math.SQRT1_2, -Math.SQRT1_2]] as Vec2[]) {
+    for (let deg = 0; deg < 360; deg += 30) {
+      const a = (deg * Math.PI) / 180
+      const n: Vec2 = [Math.cos(a), Math.sin(a)]
+      for (const [base, gloss] of [[0.5, 1], [0, 2]]) {
+        cases.push({ input: { n, lightDir: light, base, gloss }, expect: { rim: rimLight(n, light, base!, gloss!) } })
+      }
     }
   }
   for (const sd of [0.5, 0, -0.3, -1, -1.5, -2.25, -4]) {
     cases.push({ input: { sd, rimPx: 2.25 }, expect: { rimMask: rimMask(sd, 2.25) } })
+  }
+  // 体光：竖直位置从顶到底
+  for (const t of [0, 0.05, 0.1, 0.17, 0.3, 0.5, 0.8, 1]) {
+    cases.push({ input: { t, shade: 0.05, light: 0.05 }, expect: { body: bodyLight(t, 0.05, 0.05) } })
+  }
+  // 放大系数
+  for (const m of [0, 0.1, 0.2, 1]) {
+    cases.push({ input: { magnify: m }, expect: { factor: magnifyFactor(m) } })
   }
   return cases
 }

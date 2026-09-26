@@ -1,5 +1,5 @@
 /**
- * 填充（`<glass-fill>`）：CSS 摆位、Glassium 画进场景的圆角矩形，纯色或渐变。
+ * 填充（`<glass-fill>`）：CSS 摆位、Glassium 画进场景的圆角矩形，纯色、渐变或位图。
  *
  * 玻璃只折射场景（R2），DOM 的背景它看不见。开关的轨道、滑块的进度条、页面上的彩色渐变块这类
  * 「玻璃底下的形状」写成填充就进了场景：玻璃折射它、模糊它、按它的亮度调自适应。怎么画见 shaders/fill.wgsl.ts。
@@ -16,6 +16,7 @@
 
 import { MAX_GRADIENT_STOPS, type FillPaint, type ResolvedPaint } from '../core/gradient.ts'
 import { parseTint } from '../core/material.ts'
+import type { AtlasCell } from './atlas.ts'
 import { FILL_STRIDE_FLOATS } from '../shaders/fill.wgsl.ts'
 import { packMask, type DeviceMask } from './mask.ts'
 import {
@@ -140,9 +141,38 @@ export function fillRadii(radii: readonly string[], width: number, height: numbe
   return { x: along(0, width / 2), y: along(1, height / 2) }
 }
 
+/**
+ * 位图填充的内容：把元素里的东西画进 ctx。原点是元素盒子的左上角（变换之前），单位是 CSS 像素 ——
+ * ctx 已经按设备像素缩放、裁到盒子里、清空。width、height 是盒子的 CSS 尺寸（变换之前）。
+ */
+export type BitmapPainter = (
+  ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D,
+  width: number,
+  height: number
+) => void
+
+/** 位图填充的状态（注册表维护）。 */
+export interface BitmapState {
+  readonly painter: BitmapPainter
+  /** 图集里的那一格；还没分配、或者图集清空过是 null / 过期的。 */
+  cell: AtlasCell | null
+  /** 画的时候格子的像素尺寸与缩放（一个 CSS 像素是几个图集像素）：变了要重新分配、重画。 */
+  pxW: number
+  pxH: number
+  scale: number
+  /** 内容过期（invalidate 过）：下次看得见时重画。 */
+  dirty: boolean
+  /** 画过几次：内容变一次加一（idle.ts 比它）。 */
+  version: number
+  /** painter 抛过错：只警告一次。 */
+  warned: boolean
+}
+
 /** 一块注册过的填充。 */
 export interface FillRecord {
   readonly element: HTMLElement
+  /** 位图填充（registerBitmapFill）才有：颜色不从 `--glass-fill` 来，由 painter 画。 */
+  bitmap?: BitmapState
   /** 与面板相同的几何缓存（panels.ts 的测量读写它们）。 */
   clips?: readonly ClipEntry[]
   clipGeneration?: number
@@ -199,11 +229,21 @@ export interface MeasuredFill {
   readonly color: Rgba
   /** 渐变（纯色是 null）。几何已换算到画布设备像素：盒子左上角为原点、转之前。 */
   readonly gradient: ResolvedPaint | null
+  /** 位图（纯色、渐变是 null 或没有）：在图集里取样，color 只用 alpha。 */
+  readonly bitmap?: FillBitmap | null
   /**
    * 在第几层（见 panels.ts 的 MAX_GLASS_LAYER）：0 是场景里、所有玻璃之下；写在一块玻璃里面的填充在那块玻璃之上，
    * 是它的层号加一 —— 同一层的玻璃看得见它，下面那层的玻璃看不见。
    */
   readonly layer: number
+}
+
+/** 位图填充这一帧在图集里的位置。 */
+export interface FillBitmap {
+  /** 图集 uv = geom.xy + 盒子里的位置（画布设备像素，盒子左上角为原点、转之前）× geom.zw。 */
+  readonly geom: readonly [number, number, number, number]
+  /** 这一格画过几次（BitmapState.version）：内容变了它就变。 */
+  readonly version: number
 }
 
 /**
@@ -250,6 +290,16 @@ export function packFill(data: Float32Array, index: number, fill: MeasuredFill):
   packClipExtras(data, o + 76, o + 88, fill.clipRadii, fill.clipRadiiY, fill.clipShape)
   // 遮罩 @ 432
   packMask(data, o + 108, fill.mask)
+  const bitmap = fill.bitmap
+  if (bitmap) {
+    // paint @ 96：种类 3 是位图；geom @ 112：图集 uv 的原点与每个画布设备像素走多少 uv
+    data[o + 24] = 3
+    data[o + 28] = bitmap.geom[0]
+    data[o + 29] = bitmap.geom[1]
+    data[o + 30] = bitmap.geom[2]
+    data[o + 31] = bitmap.geom[3]
+    return
+  }
   const g = fill.gradient
   if (!g) return
   const n = Math.min(g.colors.length, MAX_GRADIENT_STOPS)

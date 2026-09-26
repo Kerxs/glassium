@@ -221,6 +221,20 @@ test('填充：值相同算相同；颜色（过渡中）、位置、圆角、�
     '换了一个渐变对象'
   )
   assert.equal(unchangedFrame(frame({ fills: [fill()] }), frame({ fills: [] })), false)
+  // 位图：同一格、画过的次数相同算相同；重画一次（version）、换了格子（geom）都要画
+  const bm = { geom: [0.1, 0.2, 0.001, 0.001] as const, version: 2 }
+  assert.equal(unchangedFrame(frame({ fills: [fill({ bitmap: bm })] }), frame({ fills: [fill({ bitmap: { ...bm } })] })), true, '同一格')
+  assert.equal(
+    unchangedFrame(frame({ fills: [fill({ bitmap: bm })] }), frame({ fills: [fill({ bitmap: { ...bm, version: 3 } })] })),
+    false,
+    '重画过'
+  )
+  assert.equal(
+    unchangedFrame(frame({ fills: [fill({ bitmap: bm })] }), frame({ fills: [fill({ bitmap: { ...bm, geom: [0.3, 0.2, 0.001, 0.001] } })] })),
+    false,
+    '换了格子'
+  )
+  assert.equal(unchangedFrame(frame({ fills: [fill({ bitmap: bm })] }), frame({ fills: [fill()] })), false, '不再是位图')
   assert.equal(
     unchangedFrame(frame({ fills: [fill()] }), frame({ fills: [fill({ record: { element: {} } as unknown as FillRecord })] })),
     false,

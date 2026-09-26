@@ -11,14 +11,16 @@
  *
  * 栏本身是一块玻璃（材质属性与 `<glass-card>` 相同，默认胶囊）。选中那一格下面的气泡是写在栏**里面**的玻璃 ——
  * 在栏的上面一层（layers.ts），看得见栏，不在栏上开洞。换选中时气泡滑过去、宽度跟着变；按住时它鼓起来变成透明的
- * 透镜，可以按住拖到别的格上再松手（iOS 26 的标签栏就是这样）。各格是普通的 DOM（图标、文字），画在最上面 ——
- * 透镜放大不了它们，只放大底下的玻璃。
+ * 透镜，可以按住拖到别的格上再松手（iOS 26 的标签栏就是这样）。各格是普通的 DOM（图标、文字），画在最上面；
+ * 按住时它们的内容画进场景（scene-label.ts，写在栏里面、与气泡同一层），透镜把图标与文字放大、在边缘扭弯，
+ * 透镜下面垫一块浅色（`--glass-tab-bar-lens`）。
  *
  * 语义是标签页：宿主 `role="tablist"`，每一格 `role="tab"` 与 `aria-selected`，roving tabindex；方向键在格之间
  * 移动并选中（到头回绕），Home / End。用户换选中时派发 `input` 与 `change`；`value` 是选中那一格的值（它的 `value`
  * 属性，没有就是文字），`value` 属性是初始值。不是表单控件。
  *
- * CSS：`--glass-tab-bar-selected`（选中那一格的文字颜色，默认 #0a84ff）。各格的 `aria-controls` 之类由你写。
+ * CSS：`--glass-tab-bar-selected`（选中那一格的文字颜色，默认 #0a84ff）、`--glass-tab-bar-lens`（按住时透镜下面
+ * 垫的那块，默认 rgba(255, 255, 255, 0.3)，与静止时的气泡一样亮）。各格的 `aria-controls` 之类由你写。
  *
  * `minimize="scroll"`：页面往下滚时缩起来 —— 没选中的格收成 0 宽、淡出，只留选中的那一格，栏跟着变短，气泡淡出；
  * 往上滚或回到顶部时展开（iOS 26 的 `tabBarMinimizeBehavior(.onScrollDown)`，判断在 minimize.ts）。缩着的时候
@@ -31,30 +33,35 @@ import { OVERLAY_HOST_CSS } from '../core/overlay.ts'
 import type { GlassPanel } from '../renderer/panels.ts'
 import { GlassElement, sharedSheet } from './base.ts'
 import { initialMinimize, nextMinimize, type MinimizeState } from './minimize.ts'
+import { SceneLabels } from './scene-label.ts'
 import { Segments, segmentValue } from './segments.ts'
 import { StageLink } from './stage-link.ts'
-import { PressTween } from './thumb.ts'
+import { PressTween, SEGMENT_THUMB_PRESSED } from './thumb.ts'
 
 /** 气泡与栏边缘的间隙（栏的内边距），CSS 像素。 */
 const INSET = 4
 
 /**
  * 气泡的材质：静止时是一块比栏亮一点的玻璃（它看得见栏，所以自己不用再模糊）；按下时变成透明的透镜 ——
- * 与开关、滑块的旋钮按下时同一套数（thumb.ts）。按压能量 0–1 之间线性插值，两头精确落在端点上。
+ * 与分段控件的选中块按下时同一套数（thumb.ts 的 SEGMENT_THUMB_PRESSED：放大底下的图标与文字）。
+ * 按压能量 0–1 之间线性插值，两头精确落在端点上。
  */
 export function bubbleMaterial(energy: number): GlassMaterial {
   const e = Math.min(Math.max(energy, 0), 1)
   const mix = (a: number, b: number): number => a * (1 - e) + b * e
+  const p = SEGMENT_THUMB_PRESSED
   return {
     cornerRadius: '1frac',
     blur: 0,
-    refraction: mix(0.15, 0.7),
-    distortion: mix(0.1, 0.4),
-    saturation: mix(1, 1.3),
-    highlight: mix(0.35, 1),
-    dispersion: mix(0, 0.2),
+    refraction: mix(0.15, p.refraction),
+    distortion: mix(0.1, p.distortion),
+    saturation: mix(1, p.saturation),
+    highlight: mix(0.35, p.highlight),
+    dispersion: mix(0, p.dispersion),
     shadow: mix(0, 0.15),
-    tint: `rgba(255, 255, 255, ${mix(0.3, 0.04)})`,
+    tint: `rgba(255, 255, 255, ${mix(0.3, p.whiteness)})`,
+    magnify: mix(0, p.magnify),
+    bodyLight: mix(0, p.bodyLight),
     adaptive: 0,
     depthEffect: 1
   }
@@ -90,6 +97,43 @@ const CSS = `
 :host([data-dragging]) [part='bubble'] {
   transition: width 0.2s ease, scale 0.2s ease;
 }
+/* 按住时透镜下面垫的那块：与气泡同一个位置、宽度、缩放（同样的过渡），画在图标与文字的下面 */
+[part='lens'] {
+  position: absolute;
+  top: ${INSET}px;
+  bottom: ${INSET}px;
+  left: 0;
+  width: var(--_w, 0px);
+  border-radius: 999px;
+  translate: var(--_x, 0px) 0;
+  scale: 1;
+  opacity: 0;
+  pointer-events: none;
+  --glass-fill: var(--glass-tab-bar-lens, rgba(255, 255, 255, 0.3));
+  transition: translate 0.35s cubic-bezier(0.3, 1.2, 0.5, 1), width 0.35s cubic-bezier(0.3, 1.2, 0.5, 1), scale 0.2s ease,
+    opacity 0.12s ease;
+}
+:host([data-pressed]) [part='lens'] {
+  scale: 1.12;
+}
+:host([data-dragging]) [part='lens'] {
+  transition: width 0.2s ease, scale 0.2s ease, opacity 0.12s ease;
+}
+/* 各格的内容画进场景的那一份（scene-label.ts）：平时透明（不画），按住时换上、DOM 的内容淡出 */
+[part='labels'] {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.12s ease;
+}
+:host([data-lensing]) [part='lens'],
+:host([data-lensing]) [part='labels'] {
+  opacity: 1;
+}
+:host([data-lensing]) ::slotted(*) {
+  opacity: 0;
+}
 /* 各格：内容在上面（DOM 在画布之上）。按钮的默认外观去掉 */
 ::slotted(*) {
   position: relative;
@@ -106,6 +150,7 @@ const CSS = `
   font-size: 11px;
   line-height: 1.2;
   white-space: nowrap;
+  transition: opacity 0.12s ease;
 }
 ::slotted(button) {
   background: none;
@@ -148,7 +193,11 @@ const CSS = `
 }
 @media (prefers-reduced-motion: reduce) {
   [part='bubble'],
+  [part='lens'],
+  [part='labels'],
+  ::slotted(*),
   :host([data-dragging]) [part='bubble'],
+  :host([data-dragging]) [part='lens'],
   :host([minimize]) ::slotted(*) {
     transition: none;
   }
@@ -168,14 +217,21 @@ export class GlassTabBar extends GlassElement {
   }
 
   readonly #bubble: HTMLElement
+  readonly #lens: HTMLElement
+  readonly #labels: SceneLabels
   #bubblePanel: GlassPanel | null = null
   readonly #tween = new PressTween((energy) => this.#bubblePanel?.setMaterial(bubbleMaterial(energy)))
-  // 气泡单独注册（栏本身由 GlassElement 注册）：它写在栏里面，自然就在栏的上面一层
+  // 气泡单独注册（栏本身由 GlassElement 注册）：它写在栏里面，自然就在栏的上面一层。
+  // 透镜下面那块与画进场景的内容也写在栏里面 —— 与气泡同一层，气泡看得见它们（按注册的顺序画：先那块，再内容）
   readonly #link = new StageLink(this, (stage) => {
+    const lens = stage.registerFill(this.#lens)
+    const detachLabels = this.#labels.attach(stage)
     const panel = stage.register(this.#bubble, bubbleMaterial(this.#tween.energy))
     this.#bubblePanel = panel
     return () => {
       panel.unregister()
+      detachLabels()
+      lens.unregister()
       this.#bubblePanel = null
     }
   })
@@ -200,19 +256,30 @@ export class GlassTabBar extends GlassElement {
     root.adoptedStyleSheets = [sharedSheet(sheet, CSS)]
     this.#bubble = document.createElement('div')
     this.#bubble.setAttribute('part', 'bubble')
+    this.#lens = document.createElement('div')
+    this.#lens.setAttribute('part', 'lens')
+    const labels = document.createElement('div')
+    labels.setAttribute('part', 'labels')
+    this.#labels = new SceneLabels(this, labels, () => this.tabs.map((element) => ({ element })))
     const slot = document.createElement('slot')
-    slot.addEventListener('slotchange', () => this.#syncTabs())
-    root.append(this.#bubble, slot)
+    slot.addEventListener('slotchange', () => {
+      this.#syncTabs()
+      this.#labels.invalidate()
+    })
+    root.append(this.#lens, labels, this.#bubble, slot)
 
     this.#segments = new Segments({
       host: this,
       thumb: this.#bubble,
+      followers: [this.#lens],
       role: 'tab',
       selectedAttribute: 'aria-selected',
       inset: INSET,
       isDisabled: () => false,
       onPress: (pressed) => {
         this.toggleAttribute('data-pressed', pressed)
+        // 内容画进场景只在镜像能用时（见 SceneLabels.ready）；缩起来的栏只剩一格，不用
+        this.toggleAttribute('data-lensing', pressed && this.#labels.ready && !this.minimized)
         this.#tween.press(pressed)
       },
       onUserSelect: () => {
@@ -220,10 +287,16 @@ export class GlassTabBar extends GlassElement {
         this.dispatchEvent(new Event('input', { bubbles: true, composed: true }))
         this.dispatchEvent(new Event('change', { bubbles: true }))
       },
-      onSelectionChange: () => {}
+      onSelectionChange: () => this.#labels.invalidate() // 选中的那一格换了颜色
     })
-    // 各格的宽度变了（字体加载、栏定宽变化、缩起与展开的过渡）气泡要跟上
-    this.#resize = typeof ResizeObserver === 'function' ? new ResizeObserver(() => this.#segments.place()) : null
+    // 各格的宽度变了（字体加载、栏定宽变化、缩起与展开的过渡）气泡要跟上，画进场景的内容也要重画
+    this.#resize =
+      typeof ResizeObserver === 'function'
+        ? new ResizeObserver(() => {
+            this.#segments.place()
+            this.#labels.invalidate()
+          })
+        : null
 
     // 缩着的时候点一下：先展开，这一下不算按压（捕获阶段截住，Segments 收不到，不会选到别的格）。
     // 键盘焦点移进来也展开 —— 焦点不该停在一格看不见的上面
@@ -293,6 +366,7 @@ export class GlassTabBar extends GlassElement {
     if (!this.hasAttribute('role')) this.setAttribute('role', 'tablist')
     this.#resize?.observe(this)
     this.#syncTabs()
+    this.#labels.connect()
     this.#link.connect()
     this.#syncMinimize()
   }
@@ -300,10 +374,12 @@ export class GlassTabBar extends GlassElement {
   override disconnectedCallback(): void {
     super.disconnectedCallback()
     this.#link.disconnect()
+    this.#labels.disconnect()
     this.#syncMinimize()
     this.#resize?.disconnect()
     this.#tween.reset()
     this.toggleAttribute('data-pressed', false)
+    this.toggleAttribute('data-lensing', false)
     this.#segments.release()
   }
 

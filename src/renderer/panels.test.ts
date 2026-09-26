@@ -15,10 +15,12 @@ import {
   CLIP_UNBOUNDED_PX,
   MAX_GLASS_LAYER,
   PanelRegistry,
+  RIM_MIN_PX,
   RIM_WIDTH_DP,
-  SHADOW_OFFSET_DP,
+  SHADOW_OFFSET_MAX_DP,
   SHADOW_OPACITY,
-  SHADOW_SIGMA_DP,
+  SHADOW_SIGMA_MAX_DP,
+  shadowShapeDp,
   packPanel,
   type MeasuredPanel
 } from './panels.ts'
@@ -92,7 +94,9 @@ test('packPanel 写入的每个字段都落在 WGSL struct 的对应偏移上', 
       depthEffect: 0.7,
       dispersion: 0.2,
       highlight: 0.55,
-      opacity: 0.9
+      opacity: 0.9,
+      magnify: 0.25,
+      bodyLight: 0.4
     },
     [240, 160]
   )
@@ -156,7 +160,7 @@ test('packPanel 写入的每个字段都落在 WGSL struct 的对应偏移上', 
   near(at('highlight'), 0.55, 'highlight')
   near(at('opacity'), 0.9 * 0.5, 'opacity（材质 0.9 × CSS 上的 0.5）')
   near(at('debugMode'), 3, 'debugMode（grad 在 DEBUG_MODES 里排第 3）')
-  near(at('rimPx'), RIM_WIDTH_DP * scale, 'rimPx')
+  near(at('rimPx'), Math.max(RIM_WIDTH_DP * scale, RIM_MIN_PX), 'rimPx')
   near(at('adapt'), -1, 'adapt（默认自适应 1 × 深色文字 −1）')
   near(at('clip', 0), 5, 'clip.x0')
   near(at('clip', 1), -CLIP_UNBOUNDED_PX, 'clip.y0（−∞ → −65536）')
@@ -171,11 +175,17 @@ test('packPanel 写入的每个字段都落在 WGSL struct 的对应偏移上', 
   near(at('light', 1), 60, 'light.y')
   near(at('light', 2), 25, 'light.σ')
   near(at('light', 3), 0.15, 'light.strength')
-  near(at('shadow', 0), 0.3 * SHADOW_OPACITY, 'shadow.alpha（默认深浅 0.3）')
-  near(at('shadow', 1), SHADOW_SIGMA_DP * scale, 'shadow.σ')
-  near(at('shadow', 2), SHADOW_OFFSET_DP * scale, 'shadow.offset')
+  near(at('shadow', 0), 0.35 * SHADOW_OPACITY, 'shadow.alpha（默认深浅 0.35）')
+  const shadowShape = shadowShapeDp(222 / scale)
+  near(at('shadow', 1), shadowShape.sigma * scale, 'shadow.σ')
+  near(at('shadow', 2), shadowShape.offset * scale, 'shadow.offset')
+  near(at('shadow', 3), shadowShape.inset * scale, 'shadow.inset')
   near(at('pose', 0), 0.6, 'pose.cos')
   near(at('pose', 1), 0.8, 'pose.sin')
+  near(at('pose', 2), 0.25 / 1.25, 'pose.z：放大系数 m / (1 + m)')
+  near(at('pose', 3), 1 / 222, 'pose.w：1 ÷ 面板的高')
+  near(at('extra', 0), 0.4, 'extra.x：体光')
+  near(at('extra', 1), 0, 'extra 其余空')
   // 裁剪的后半截：竖直半径、倒数（半径 0 写 0），单独算的那个形状
   near(at('clipRadiiY', 1), 5, 'clipRadiiY.TR')
   near(at('clipInv', 1), 1 / 2, '1 / 水平半径 TR')
@@ -197,7 +207,8 @@ test('packPanel 写入的每个字段都落在 WGSL struct 的对应偏移上', 
   near(at('maskAt', 2), 0.9, '第 2 个位置')
   near(at('maskSpan', 0), 10, '第 0 段：1 ÷ 0.1')
   near(at('maskSpan', 1), 1 / 0.8, '第 1 段')
-  assert.equal(fields.get('maskSpan')! + 16, PANEL_STRUCT_BYTES, 'maskSpan 是最后一项')
+  assert.equal(fields.get('extra')! + 16, PANEL_STRUCT_BYTES, 'extra 是最后一项')
+  assert.equal(fields.get('maskSpan'), 400, '遮罩的布局没挪')
   assert.equal(fields.get('maskPaint'), 304, '遮罩接在裁剪后面：前面的布局没挪')
   assert.equal(fields.get('clipRadiiY'), 176, '裁剪的后半截接在原来的 176B 后面：前面的布局没挪')
 
@@ -260,14 +271,27 @@ test('measure 的裁剪矩形外扩 2px 抗锯齿余量，并与画布求交', (
   assert.equal(y + h, 600, '下侧被画布钳住')
 })
 
-test('有投影时裁剪矩形再往外扩到影子够得着的地方（2.5σ + 偏移）', () => {
+test('投影的形状随短边：比例、有上下限；inset 不为负', () => {
+  const small = shadowShapeDp(24)
+  assert.ok(Math.abs(small.sigma - 2.16) < 1e-12 && Math.abs(small.offset - 3.84) < 1e-12 && Math.abs(small.inset - 2.4) < 1e-12)
+  const big = shadowShapeDp(400)
+  assert.deepEqual(big, { sigma: SHADOW_SIGMA_MAX_DP, offset: SHADOW_OFFSET_MAX_DP, inset: 4 })
+  const tiny = shadowShapeDp(0)
+  assert.equal(tiny.inset, 0)
+  assert.ok(tiny.sigma > 0 && tiny.offset > 0)
+})
+
+test('有投影时裁剪矩形再往外扩到影子够得着的地方（2.5σ + 偏移，按形状的上限）', () => {
   const viewport = resolveViewport(800, 600, 1)
   const registry = new PanelRegistry(() => {})
   registry.register(fakeElement(300, 200, 200, 100), { shadow: 0.5 })
   const [m] = registry.measure(viewport).panels
   assert.ok(m)
-  const reach = 2 + 2.5 * SHADOW_SIGMA_DP + SHADOW_OFFSET_DP // 抗锯齿 2px + 29
-  assert.deepEqual(m.scissor, [300 - reach, 200 - reach, 200 + 2 * reach, 100 + 2 * reach])
+  const reach = 2 + 2.5 * SHADOW_SIGMA_MAX_DP + SHADOW_OFFSET_MAX_DP // 抗锯齿 2px + 影子够得着的地方
+  // 裁剪矩形向外取整到整像素（只会多画，不会少画）
+  const x0 = Math.floor(300 - reach)
+  const y0 = Math.floor(200 - reach)
+  assert.deepEqual(m.scissor, [x0, y0, Math.ceil(500 + reach) - x0, Math.ceil(300 + reach) - y0])
 })
 
 test('完全在屏外的面板被剔除，不占 draw call', () => {

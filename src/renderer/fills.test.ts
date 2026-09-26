@@ -103,6 +103,16 @@ test('packFill 写入的每个字段都落在 WGSL struct 的对应偏移上', (
   near(at('maskAt', 4 + 2), 0.5, '遮罩周期')
   assert.ok(data.subarray(0, base).every((v) => v === 0), '写越界到了前一个槽位')
 
+  // 位图：种类 3，geom 是图集 uv 的原点与每个画布设备像素走多少 uv；色标那一段清零
+  packFill(data, 2, { ...fill, bitmap: { geom: [0.25, 0.5, 1 / 1024, 1 / 2048], version: 3 } })
+  near(at('paint', 0), 3, '位图：种类 3')
+  near(at('geom', 0), 0.25, '图集 u 原点')
+  near(at('geom', 1), 0.5, '图集 v 原点')
+  near(at('geom', 2), 1 / 1024, '每像素的 u')
+  near(at('geom', 3), 1 / 2048, '每像素的 v')
+  near(at('stops', 0), 0, '色标清零')
+  near(at('maskPaint', 0), 2, '位图照样有遮罩')
+
   // 渐变：线性（方向除以长度²）、位置、重复的周期、相邻两个位置之差的倒数（重合的是 0）
   const linear: MeasuredFill = {
     ...fill,
@@ -229,6 +239,29 @@ test('measure：填充按画布设备像素量、圆角乘 DPR；屏外的、透
   // currentcolor：用元素的 color
   styles.set(track, { color: 'currentcolor', currentColor: 'rgb(255, 255, 255)', radii: ['0px', '0px', '0px', '0px'] })
   assert.deepEqual(registry.measure(viewport).fills[0]!.color, [1, 1, 1, 1])
+})
+
+test('registerBitmapFill：没有 2D 画布（Node）时不画、不抛；invalidate 请求一帧；unregister 之后不再量', () => {
+  const style: FillStyle = { color: '', currentColor: 'rgb(0, 0, 0)', radii: ['0px', '0px', '0px', '0px'] }
+  let changes = 0
+  const registry = new PanelRegistry(() => changes++, { readFillStyle: () => style })
+  const viewport = resolveViewport(800, 600, 1)
+  const el = fakeElement(10, 10, 50, 20)
+  let painted = 0
+  const fill = registry.registerBitmapFill(el, () => painted++)
+  assert.equal(registry.fillCount, 1)
+  const { fills } = registry.measure(viewport)
+  if (typeof OffscreenCanvas === 'undefined' && typeof document === 'undefined') {
+    assert.equal(fills.length, 0, '拿不到图集就不画')
+    assert.equal(painted, 0)
+    assert.equal(registry.atlas, null)
+  }
+  const before = changes
+  fill.invalidate()
+  fill.invalidate()
+  assert.ok(changes >= before, 'invalidate 请求重画')
+  fill.unregister()
+  assert.equal(registry.fillCount, 0)
 })
 
 test('registerFill：同一个元素重复注册是同一块；unregister 之后不再画', () => {

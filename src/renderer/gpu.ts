@@ -48,6 +48,7 @@ import {
   sourceReady
 } from './backend.ts'
 import { BACKDROP_FORMAT, backdropFormat, BlurChain, levelForSigma } from './blur.ts'
+import type { LabelAtlas } from './atlas.ts'
 import { CANVAS_DEST, packFill, sceneDest, sceneScissor, type MeasuredFill } from './fills.ts'
 import { layerRegion, splitLayers, type LayerItems } from './layers.ts'
 import {
@@ -115,6 +116,11 @@ export class GpuRenderer implements Renderer {
   readonly #fillCanvasPipeline: GPURenderPipeline
   readonly #fillSceneDest: GPUBuffer
   readonly #fillCanvasDest: GPUBuffer
+  // 位图填充的图集（atlas.ts）：一张纹理，版本或画布变了整张重传。没有位图填充时是 1×1 的透明占位
+  #atlasTexture: GPUTexture
+  readonly #atlasSampler: GPUSampler
+  #atlasSource: LabelAtlas['canvas'] | null = null
+  #atlasVersion = -1
   // 玻璃的层（layers.ts）：画布上已经画好的那一块拷进 layerSource，再重采样回场景目标。
   // 重采样用背景视图的着色器（原样参数），只是目标格式换成场景目标的（见 ChainPipelines.resample）
   readonly #resampleUniforms: GPUBuffer
@@ -356,9 +362,19 @@ export class GpuRenderer implements Renderer {
           visibility: GPUShaderStage.FRAGMENT,
           buffer: { type: 'uniform', hasDynamicOffset: true, minBindingSize: FILL_STRUCT_BYTES }
         },
-        { binding: 1, visibility: GPUShaderStage.FRAGMENT, buffer: { type: 'uniform' } }
+        { binding: 1, visibility: GPUShaderStage.FRAGMENT, buffer: { type: 'uniform' } },
+        { binding: 2, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: 'float' } },
+        { binding: 3, visibility: GPUShaderStage.FRAGMENT, sampler: { type: 'filtering' } }
       ]
     })
+    this.#atlasSampler = device.createSampler({
+      label: 'glassium:atlas',
+      magFilter: 'linear',
+      minFilter: 'linear',
+      addressModeU: 'clamp-to-edge',
+      addressModeV: 'clamp-to-edge'
+    })
+    this.#atlasTexture = this.#makeAtlasTexture(1, 1)
     this.#fillPipelineLayout = device.createPipelineLayout({
       label: 'glassium:fill',
       bindGroupLayouts: [this.#fillLayout]
@@ -509,25 +525,65 @@ export class GpuRenderer implements Renderer {
     let next = Math.max(4, this.#fillCapacity)
     while (next < count) next *= 2
     this.#fillBuffer?.destroy()
-    const buffer = this.device.createBuffer({
+    this.#fillBuffer = this.device.createBuffer({
       label: 'glassium:fills',
       size: next * FILL_STRIDE,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
     })
-    this.#fillBuffer = buffer
     this.#fillData = new Float32Array(next * FILL_STRIDE_FLOATS)
     this.#fillCapacity = next
+    this.#rebuildFillBindGroups()
+  }
+
+  /** 填充的两个 bind group（场景目标、画布）：uniform buffer 或图集纹理换了之后重建。 */
+  #rebuildFillBindGroups(): void {
+    const buffer = this.#fillBuffer
+    if (!buffer) return
+    const atlas = this.#atlasTexture.createView()
     const bindGroup = (label: string, dest: GPUBuffer): GPUBindGroup =>
       this.device.createBindGroup({
         label,
         layout: this.#fillLayout,
         entries: [
           { binding: 0, resource: { buffer, size: FILL_STRUCT_BYTES } },
-          { binding: 1, resource: { buffer: dest } }
+          { binding: 1, resource: { buffer: dest } },
+          { binding: 2, resource: atlas },
+          { binding: 3, resource: this.#atlasSampler }
         ]
       })
     this.#fillSceneBindGroup = bindGroup('glassium:fill-scene', this.#fillSceneDest)
     this.#fillCanvasBindGroup = bindGroup('glassium:fill-canvas', this.#fillCanvasDest)
+  }
+
+  #makeAtlasTexture(width: number, height: number): GPUTexture {
+    return this.device.createTexture({
+      label: 'glassium:atlas',
+      size: [width, height],
+      format: 'rgba8unorm',
+      // copyExternalImageToTexture 要求目标带 RENDER_ATTACHMENT
+      usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST | GPUTextureUsage.RENDER_ATTACHMENT
+    })
+  }
+
+  /**
+   * 位图填充的图集变了（画了新的一格、清空、长大）就整张重新传：预乘（与图集着色器的约定一致），
+   * 第 0 行是图集顶部。尺寸变了先换纹理、重建填充的 bind group。
+   */
+  #syncAtlas(atlas: LabelAtlas | null): void {
+    if (!atlas || (atlas.canvas === this.#atlasSource && atlas.version === this.#atlasVersion)) return
+    const { width, height } = atlas
+    if (this.#atlasTexture.width !== width || this.#atlasTexture.height !== height) {
+      this.#atlasTexture.destroy()
+      this.#atlasTexture = this.#makeAtlasTexture(width, height)
+      this.#rebuildFillBindGroups()
+    }
+    this.device.queue.copyExternalImageToTexture(
+      { source: atlas.canvas },
+      { texture: this.#atlasTexture, premultipliedAlpha: true },
+      [width, height]
+    )
+    this.#atlasSource = atlas.canvas
+    this.#atlasVersion = atlas.version
   }
 
   #rebuildGlassBindGroups(): void {
@@ -672,6 +728,7 @@ export class GpuRenderer implements Renderer {
 
     const fills = input.fills
     this.#ensureFillCapacity(fills.length)
+    this.#syncAtlas(input.atlas)
     for (let i = 0; i < fills.length; i++) packFill(this.#fillData, i, fills[i]!)
     if (fills.length > 0 && this.#fillBuffer) {
       device.queue.writeBuffer(this.#fillBuffer, 0, this.#fillData, 0, fills.length * FILL_STRIDE_FLOATS)
@@ -1218,6 +1275,7 @@ export class GpuRenderer implements Renderer {
     this.#fillBuffer?.destroy()
     this.#fillSceneDest.destroy()
     this.#fillCanvasDest.destroy()
+    this.#atlasTexture.destroy()
     this.#layerSource?.destroy()
     this.#resampleUniforms.destroy()
     this.#imageTexture?.destroy()

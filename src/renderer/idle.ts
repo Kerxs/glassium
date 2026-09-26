@@ -17,7 +17,7 @@
  * - 面板：同一块面板、同样的矩形 / 裁剪、同一个降级结果（材质或尺寸变了会重新降级，换一个新对象）
  * - 合并组：成员逐个同上，外加 smoothing 与裁剪矩形
  * - 填充：同一块、同样的矩形 / 裁剪 / 圆角 / 颜色（颜色的 CSS 过渡期间每帧都不同）/ 渐变（解算结果缓存在记录上，
- *   渐变或尺寸没变就是同一个对象）
+ *   渐变或尺寸没变就是同一个对象）/ 位图（图集里同一格、画过的次数相同 —— 重画一次就算变了）
  */
 
 import type { BlendSpace } from '../core/color.ts'
@@ -26,7 +26,7 @@ import type { PanelDebugMode } from '../shaders/glass.wgsl.ts'
 import type { BackdropState, SceneImage } from './backend.ts'
 import type { RoundedBox } from './clipping.ts'
 import { sameMask } from './mask.ts'
-import type { MeasuredFill } from './fills.ts'
+import type { FillBitmap, MeasuredFill } from './fills.ts'
 import type { MeasuredGroup, MeasuredPanel } from './panels.ts'
 
 /** 决定一帧像素的全部输入（FrameInput 去掉回读与探针请求）。 */
@@ -138,6 +138,11 @@ function sameGroups(a: readonly MeasuredGroup[], b: readonly MeasuredGroup[]): b
   return true
 }
 
+function sameBitmap(a: FillBitmap | null | undefined, b: FillBitmap | null | undefined): boolean {
+  if (!a || !b) return !a && !b
+  return a.version === b.version && sameTuple(a.geom, b.geom)
+}
+
 function sameFill(a: MeasuredFill, b: MeasuredFill): boolean {
   return (
     a.record === b.record &&
@@ -159,6 +164,7 @@ function sameFill(a: MeasuredFill, b: MeasuredFill): boolean {
     sameTuple(a.radiiY, b.radiiY) &&
     sameTuple(a.color, b.color) &&
     a.gradient === b.gradient &&
+    sameBitmap(a.bitmap, b.bitmap) &&
     a.layer === b.layer
   )
 }

@@ -69,6 +69,13 @@ export interface EffectChain {
   readonly adaptive: number
   /** 投影深浅，0–1（见 GlassMaterial.shadow）。画在玻璃外面，不是采样背景的效果。 */
   readonly shadow: number
+  /**
+   * 放大，≥ 0（见 GlassMaterial.magnify）：内容看起来放大 1 + magnify 倍。不挂在 lens 上 ——
+   * 折射为 0（lens 被省略）的玻璃照样可以放大。
+   */
+  readonly magnify: number
+  /** 体光，0–1（见 GlassMaterial.bodyLight）。 */
+  readonly bodyLight: number
 }
 
 /**

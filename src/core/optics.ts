@@ -5,7 +5,7 @@
    commit 65ab177e90e5c1d8c62e70cf7755841982da65f6
 
    已修改：重写为 TypeScript；修正 radiusAt 的坐标系；色散改为径向、蓝光位移大于
-   红光；高光改为不对称并新增暗边。逐条说明见 docs/porting-notes.md。
+   红光；高光保留双面并加上侧面的基础亮度；新增体光与放大。逐条说明见 docs/porting-notes.md。
 
    上游未附带 NOTICE 文件，故本项目不承担 Apache-2.0 §4(d) 的转载义务；
    §4(a)–(c) 仍然适用。
@@ -220,6 +220,13 @@ export function spectralWeights(k: number): { r: number; g: number; b: number } 
   return { r: 1 - k, g: 1, b: 1 + k }
 }
 
+/** GLSL / WGSL 的 smoothstep：e0 到 e1 之间 t²(3 − 2t)，两端钳住。e0 = e1 时按阶跃处理（不产生 NaN）。 */
+export function smoothstep(e0: number, e1: number, x: number): number {
+  const span = e1 - e0
+  const t = span === 0 ? (x < e0 ? 0 : 1) : Math.min(Math.max((x - e0) / span, 0), 1)
+  return t * t * (3 - 2 * t)
+}
+
 /**
  * 边缘高光的范围：边界处（sd = 0）为 1，深入面板 rimPx 之后为 0，中间是 smoothstep。
  * 与 WGSL 侧逐点一致（smoothstep 展开为 t²(3 − 2t)）。
@@ -231,25 +238,37 @@ export function rimMask(sd: number, rimPx: number): number {
 }
 
 /**
- * 高光：返回受光强度与背光强度。
+ * 亮边的角度因子：一整圈都亮 —— 朝着 lightDir 与背着它的两侧最亮（双面），与它垂直的两侧是 base。
  *
- * 上游是 `pow(abs(dot(n, L)), falloff)`。abs() 让朝光和背光两条边**等亮** ——
- * 那等于两个光源，不是一个；而且没有暗边（上游 issue #118 在要这个）。
- * 这里拆成两项：只有朝光一侧发亮（lit），背光一侧给出暗边强度（dark），
- * 两者在任何一点上至多一个非零。
+ * iOS 26 截图的实测（docs/calibration.md「质感对照」）：圆形按钮上缘 +68、下缘 +73、左右 +30..36，
+ * 面板四边 +39..+68 —— 上下两侧最亮、左右约一半，没有暗边。移植的时候我们把上游的 `abs(dot(n, L))`
+ * 改成了只在受光一侧亮、背光一侧一道暗边（理由是 abs() 等于两个光源）；对着截图看，Apple 的就是双面的，
+ * 所以改回 abs()，再加上 base 让侧面也亮（上游的 abs() 在与 L 垂直的两侧是 0）。
  *
- * @param lightDir 指向光源的单位向量，屏幕坐标（y 向下）。
+ * @param n 外法线（单位向量）；@param lightDir 单位向量，屏幕坐标（y 向下）。
  */
-export function highlightTerms(
-  n: Vec2,
-  lightDir: Vec2,
-  gloss: number
-): { lit: number; dark: number } {
-  const ndl = n[0] * lightDir[0] + n[1] * lightDir[1]
-  return {
-    lit: Math.pow(Math.max(ndl, 0), gloss),
-    dark: Math.pow(Math.max(-ndl, 0), gloss)
-  }
+export function rimLight(n: Vec2, lightDir: Vec2, base: number, gloss: number): number {
+  const ndl = Math.abs(n[0] * lightDir[0] + n[1] * lightDir[1])
+  return base + (1 - base) * Math.pow(ndl, gloss)
+}
+
+/**
+ * 体光：玻璃里面随竖直位置 t（0 顶、1 底）的亮度增减 —— 顶上暗，往下平滑地变亮，40% 往下满亮。
+ *
+ * 截图实测（浅灰底上按住的滑块旋钮，背景 236，旋钮中线）：8% 处 −9，22% 处 +2，40% 处 +11，80% 处 +13；
+ * 分段控件的选中块同样是上面暗、下面亮。`shade` 是顶上的暗度，`light` 是下面的亮度。
+ * 着色器只给放大的透镜（按住的旋钮、选中块）用 —— 大面板里面截图上没有这道渐变。
+ */
+export function bodyLight(t: number, shade: number, light: number): number {
+  return (light + shade) * smoothstep(0, 0.4, t) - shade
+}
+
+/**
+ * 放大：采样点往中心缩的系数。内容看起来放大 1 + m 倍 —— 离中心 v 的像素采 v / (1 + m) 处，
+ * 也就是往里挪 v · m / (1 + m)。m = 0 时恰好是 0（乘上去逐位不变）。
+ */
+export function magnifyFactor(m: number): number {
+  return m > 0 ? m / (1 + m) : 0
 }
 
 /**

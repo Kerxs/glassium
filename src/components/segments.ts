@@ -20,6 +20,8 @@ export interface SegmentsOptions {
   readonly host: HTMLElement
   /** 垫在选中的段下面的那一块（玻璃旋钮或气泡）。 */
   readonly thumb: HTMLElement
+  /** 与旋钮同一个位置、宽度的元素（按住时垫在透镜下面的那块白）：`--_x` / `--_w` 同样写给它们。 */
+  readonly followers?: readonly HTMLElement[]
   /** 段的角色与表示选中的属性：分段控件是 radio / aria-checked，标签栏是 tab / aria-selected。 */
   readonly role: 'radio' | 'tab'
   readonly selectedAttribute: 'aria-checked' | 'aria-selected'
@@ -99,21 +101,31 @@ export class Segments {
    */
   place(): void {
     if (this.#dragging) return
-    const thumb = this.#o.thumb
     const s = this.items[this.#selected]
     if (!s) {
-      thumb.style.setProperty('--_w', '0px')
+      this.#set('--_w', '0px')
       return
     }
     const first = !this.#placed && s.offsetWidth > 0
-    if (first) thumb.style.transition = 'none'
-    thumb.style.setProperty('--_x', `${s.offsetLeft}px`)
-    thumb.style.setProperty('--_w', `${s.offsetWidth}px`)
+    const movers = this.#movers()
+    if (first) for (const el of movers) el.style.transition = 'none'
+    this.#set('--_x', `${s.offsetLeft}px`)
+    this.#set('--_w', `${s.offsetWidth}px`)
     if (first) {
-      void thumb.offsetWidth // 先让没有过渡的位置生效，再把过渡还回去
-      thumb.style.removeProperty('transition')
+      void this.#o.thumb.offsetWidth // 先让没有过渡的位置生效，再把过渡还回去
+      for (const el of movers) el.style.removeProperty('transition')
       this.#placed = true
     }
+  }
+
+  /** 旋钮与跟随者。 */
+  #movers(): readonly HTMLElement[] {
+    const f = this.#o.followers
+    return f && f.length > 0 ? [this.#o.thumb, ...f] : [this.#o.thumb]
+  }
+
+  #set(name: '--_x' | '--_w', value: string): void {
+    for (const el of this.#movers()) el.style.setProperty(name, value)
   }
 
   /** 松开指针、结束拖动（禁用、离开文档时）。 */
@@ -176,7 +188,7 @@ export class Segments {
     const center = (e.clientX - this.#grab - r.left) / scale
     const inset = this.#o.inset
     const x = Math.min(host.offsetWidth - inset - w, Math.max(inset, center - w / 2))
-    this.#o.thumb.style.setProperty('--_x', `${x}px`)
+    this.#set('--_x', `${x}px`)
   }
 
   #onPointerUp = (e: PointerEvent): void => {

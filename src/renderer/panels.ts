@@ -9,6 +9,7 @@
 import { lowerMaterial, type GlassMaterial } from '../core/material.ts'
 import { frostForColor } from '../core/transparency.ts'
 import { MAX_GROUP_MEMBERS, mergeBleed } from '../core/merge.ts'
+import { magnifyFactor } from '../core/optics.ts'
 import type { EffectChain } from '../core/pipeline.ts'
 import type { ResolvedViewport } from '../core/units.ts'
 import { GROUP_STRIDE_FLOATS } from '../shaders/glass-group.wgsl.ts'
@@ -20,11 +21,14 @@ import {
 } from '../shaders/glass.wgsl.ts'
 import { levelForSigma } from './blur.ts'
 import { parseFillPaint, resolvePaint, type FillPaint, type ResolvedPaint } from '../core/gradient.ts'
+import { LabelAtlas } from './atlas.ts'
 import {
   fillRadii,
   parseFillColor,
   readFillStyle,
   scaleGradient,
+  type BitmapPainter,
+  type FillBitmap,
   type FillRecord,
   type FillStyle,
   type MeasuredFill,
@@ -66,6 +70,14 @@ export interface SceneFill {
   unregister(): void
 }
 
+/** 一块注册过的位图填充（见 registerBitmapFill）。 */
+export interface SceneBitmapFill extends SceneFill {
+  /** 内容变了（文字、颜色、字体）：下次看得见时重画。 */
+  invalidate(): void
+}
+
+export type { BitmapPainter }
+
 export { CLIP_UNBOUNDED_PX }
 
 /** 按压处的光。x、y 是相对面板元素左上角的 CSS 像素；strength 0–1。 */
@@ -75,13 +87,36 @@ export interface PanelLight {
   readonly strength: number
 }
 
-/** 投影的形状：高斯 σ 与向下的偏移，dp。深浅由材质的 shadow 定。 */
-export const SHADOW_SIGMA_DP = 10
-export const SHADOW_OFFSET_DP = 4
-/** shadow = 1 时影子最深处的不透明度。 */
-export const SHADOW_OPACITY = 0.5
-/** 影子伸出去多远还要画：2.5σ 之外不到峰值的 5%。 */
-const SHADOW_REACH_DP = 2.5 * SHADOW_SIGMA_DP + SHADOW_OFFSET_DP
+/**
+ * 投影的形状随面板的短边（dp）定：高斯 σ、向下的偏移、四周往里缩的量，都是短边的比例、有上下限。
+ * 深浅由材质的 shadow 定。
+ *
+ * 按 iOS 26 截图定（docs/calibration.md「质感对照」）：按住的滑块旋钮（短边约 30pt）的影子往下约 4pt、σ 约 2.5pt、
+ * 两侧往里缩约 3pt，深 7–8 级 —— 只在玻璃正下方露出来，两侧没有。大面板按比例放大、封顶。
+ * 颜色是玻璃背后的平均色压暗（着色器的 SHADOW_TINT）。
+ */
+export const SHADOW_SIGMA_FRAC = 0.09
+export const SHADOW_SIGMA_MIN_DP = 2
+export const SHADOW_SIGMA_MAX_DP = 8
+export const SHADOW_OFFSET_FRAC = 0.16
+export const SHADOW_OFFSET_MIN_DP = 3
+export const SHADOW_OFFSET_MAX_DP = 6
+export const SHADOW_INSET_FRAC = 0.1
+export const SHADOW_INSET_MAX_DP = 4
+/** shadow = 1 时影子最深处的不透明度（影子的颜色是背后平均色的一半，所以实际压暗约是它的一半）。 */
+export const SHADOW_OPACITY = 0.3
+/** 影子伸出去多远还要画（按形状的上限算）：2.5σ 之外不到峰值的 5%。 */
+const SHADOW_REACH_DP = 2.5 * SHADOW_SIGMA_MAX_DP + SHADOW_OFFSET_MAX_DP
+
+/** 短边 sideDp 的面板的投影形状，dp。 */
+export function shadowShapeDp(sideDp: number): { readonly sigma: number; readonly offset: number; readonly inset: number } {
+  const clamp = (v: number, lo: number, hi: number): number => Math.min(Math.max(v, lo), hi)
+  return {
+    sigma: clamp(SHADOW_SIGMA_FRAC * sideDp, SHADOW_SIGMA_MIN_DP, SHADOW_SIGMA_MAX_DP),
+    offset: clamp(SHADOW_OFFSET_FRAC * sideDp, SHADOW_OFFSET_MIN_DP, SHADOW_OFFSET_MAX_DP),
+    inset: Math.min(SHADOW_INSET_FRAC * Math.max(sideDp, 0), SHADOW_INSET_MAX_DP)
+  }
+}
 
 /** 光斑的高斯 σ 占面板短边的比例。 */
 export const LIGHT_SIGMA_FRAC = 0.4
@@ -341,9 +376,11 @@ const AA_MARGIN_PX = 2
  * 边缘高光的宽度，dp。
  *
  * 上游 Highlight 默认 0.5dp、再按宽度的一半模糊 —— 那基本就是抗锯齿那一个像素。
- * Apple 的高光是细线但肉眼能分辨，这里取 1.5dp。
+ * iOS 26 截图上亮边峰值在最外一个像素、往里约 1pt 衰减完（面板、圆按钮、选中块都是），这里取 1dp；
+ * 但不窄于 RIM_MIN_PX 个设备像素，否则 DPR 1 的屏幕上只剩抗锯齿那半个像素，看不见。
  */
-export const RIM_WIDTH_DP = 1.5
+export const RIM_WIDTH_DP = 1
+export const RIM_MIN_PX = 1.5
 
 /** 读一块填充的样式。默认从元素的计算样式读；单元测试（没有 DOM）换成假的。 */
 export type FillStyleReader = (record: FillRecord) => FillStyle | null
@@ -365,6 +402,8 @@ export class PanelRegistry {
   /** 树代数：DOM 变了、或者注册的玻璃变了（多一块少一块）就加一。玻璃祖先（层号）据此重找。 */
   #treeGeneration = 0
   #filter: MaterialFilter | null = null
+  /** 位图填充的图集：第一块位图填充画的时候才建（拿不到 2D 画布时是 null，位图填充就不画）。 */
+  #atlas: LabelAtlas | null | undefined
 
   constructor(onChange: () => void, options: { readonly readFillStyle?: FillStyleReader } = {}) {
     this.#onChange = onChange
@@ -378,6 +417,11 @@ export class PanelRegistry {
   /** 注册过的填充数（含不在屏上的）。 */
   get fillCount(): number {
     return this.#fills.length
+  }
+
+  /** 位图填充的图集（后端上传它）；还没有位图填充画过时是 null。 */
+  get atlas(): LabelAtlas | null {
+    return this.#atlas ?? null
   }
 
   /**
@@ -399,6 +443,79 @@ export class PanelRegistry {
         if (i >= 0) this.#fills.splice(i, 1)
         this.#onChange()
       }
+    }
+  }
+
+  /**
+   * 把一个元素注册成**位图**填充：它的盒子（圆角、变换、裁剪、不透明度与普通填充相同）里画 painter 画的内容 ——
+   * 分段控件、标签栏把文字画进场景用它，玻璃就能折射、放大那些字。
+   *
+   * 内容按需画：只有看得见（不透明度 > 0、在屏上）的时候才画，画一次缓存在图集里；尺寸、缩放变了，或者
+   * invalidate() 之后，下次看得见时重画。painter 在测量阶段调用，可以读布局（这一帧已经量过了，不会多一次重排）。
+   */
+  registerBitmapFill(element: HTMLElement, painter: BitmapPainter): SceneBitmapFill {
+    let record = this.#fills.find((r) => r.element === element)
+    if (!record) {
+      record = { element }
+      this.#fills.push(record)
+    }
+    record.bitmap = { painter, cell: null, pxW: 0, pxH: 0, scale: 0, dirty: true, version: 0, warned: false }
+    this.#onChange()
+    const r = record
+    return {
+      element,
+      invalidate: (): void => {
+        if (!r.bitmap || r.bitmap.dirty) return
+        r.bitmap.dirty = true
+        this.#onChange()
+      },
+      unregister: (): void => {
+        const i = this.#fills.indexOf(r)
+        if (i >= 0) this.#fills.splice(i, 1)
+        this.#onChange()
+      }
+    }
+  }
+
+  /**
+   * 位图填充这一帧的图集位置：格子没有、过期、尺寸或缩放变了就重新分配；内容过期就重画。
+   * deviceW / deviceH 是盒子的画布设备像素尺寸（转之前），cssW / cssH 是 CSS 尺寸，scale 是一个 CSS 像素几个设备像素。
+   */
+  #bitmapOf(record: FillRecord, deviceW: number, deviceH: number, cssW: number, cssH: number, scale: number): FillBitmap | null {
+    const b = record.bitmap
+    if (!b || !(deviceW > 0 && deviceH > 0)) return null
+    if (this.#atlas === undefined) this.#atlas = LabelAtlas.create()
+    const atlas = this.#atlas
+    if (!atlas) return null
+    // 按设备像素画（与旁边的 DOM 一样锐利）；比图集一格的上限还大就整体缩小
+    const fit = Math.min(1, atlas.maxCell / deviceW, atlas.maxCell / deviceH)
+    const pxW = Math.max(1, Math.ceil(deviceW * fit))
+    const pxH = Math.max(1, Math.ceil(deviceH * fit))
+    const rasterScale = scale * fit
+    if (!atlas.holds(b.cell) || pxW !== b.pxW || pxH !== b.pxH || rasterScale !== b.scale) {
+      b.cell = atlas.allocate(pxW, pxH)
+      b.pxW = pxW
+      b.pxH = pxH
+      b.scale = rasterScale
+      b.dirty = true
+    }
+    const cell = b.cell
+    if (!cell) return null
+    if (b.dirty) {
+      b.dirty = false
+      b.version++
+      try {
+        atlas.draw(cell, rasterScale, (ctx) => b.painter(ctx, cssW, cssH))
+      } catch (err) {
+        if (!b.warned) {
+          b.warned = true
+          console.warn('[Glassium] 位图填充画不出来，这一块留空：', record.element, err)
+        }
+      }
+    }
+    return {
+      geom: [cell.x / atlas.width, cell.y / atlas.height, fit / atlas.width, fit / atlas.height],
+      version: b.version
     }
   }
 
@@ -795,8 +912,13 @@ export class PanelRegistry {
       panels.push(m)
     }
 
-    // 4) 填充：几何与面板同一套，颜色每帧读（CSS 过渡要逐帧跟上），圆角、渐变按变换之前的尺寸解算
+    // 4) 填充：几何与面板同一套，颜色每帧读（CSS 过渡要逐帧跟上），圆角、渐变按变换之前的尺寸解算。
+    //    位图填充按需在图集里画（看得见才画）；画的过程中图集满了清空重排时，排在前面的位图填充的格子作废，
+    //    量完再把它们补一遍（见下面）
     const fills: MeasuredFill[] = []
+    const atlasGeneration = this.#atlas?.generation
+    /** 这一帧量到的位图填充的 CSS 尺寸与缩放：图集清空过时拿它们补画。 */
+    const bitmapArgs = new Map<FillRecord, readonly [number, number, number]>()
     for (const record of this.#fills) {
       const overlay = isOverlay(record)
       markOverlay(record.element, overlay)
@@ -807,19 +929,28 @@ export class PanelRegistry {
       if (scissor[2] === 0 || scissor[3] === 0) continue
       const style = this.#readFillStyle(record)
       if (!style) continue
-      const paint = fillPaintOf(record, style)
-      if (!paint) continue // 解析不了：按透明处理（已警告）
       const k = sx * g.visualScale
       let color: Rgba
       let gradient: ResolvedPaint | null = null
-      if (paint.kind === 'solid') {
-        const alpha = paint.color[3] * g.fade
-        if (!(alpha > 0)) continue
-        color = [paint.color[0], paint.color[1], paint.color[2], alpha]
-      } else {
+      let bitmap: FillBitmap | null = null
+      if (record.bitmap) {
         if (!(g.fade > 0)) continue
+        bitmapArgs.set(record, [g.cssW, g.cssH, k])
+        bitmap = this.#bitmapOf(record, g.w, g.h, g.cssW, g.cssH, k)
+        if (!bitmap) continue
         color = [0, 0, 0, g.fade]
-        gradient = gradientOf(record, paint, g.cssW, g.cssH, k)
+      } else {
+        const paint = fillPaintOf(record, style)
+        if (!paint) continue // 解析不了：按透明处理（已警告）
+        if (paint.kind === 'solid') {
+          const alpha = paint.color[3] * g.fade
+          if (!(alpha > 0)) continue
+          color = [paint.color[0], paint.color[1], paint.color[2], alpha]
+        } else {
+          if (!(g.fade > 0)) continue
+          color = [0, 0, 0, g.fade]
+          gradient = gradientOf(record, paint, g.cssW, g.cssH, k)
+        }
       }
       const corners = fillRadii(style.radii, g.cssW, g.cssH)
       const scale = (r: readonly number[], cap: number): [number, number, number, number] => {
@@ -843,8 +974,22 @@ export class PanelRegistry {
         radiiY: scale(corners.y, g.h / 2),
         color,
         gradient,
+        bitmap,
         layer: layerOf(record)
       })
+    }
+    // 图集在这一帧里清空过：之前量到的位图填充的格子作废，在新图集里重新分配、重画（还放不下的这一帧不画）
+    const atlas = this.#atlas
+    if (atlas && atlasGeneration !== undefined && atlas.generation !== atlasGeneration) {
+      for (let i = fills.length - 1; i >= 0; i--) {
+        const f = fills[i]!
+        const b = f.record.bitmap
+        const args = bitmapArgs.get(f.record)
+        if (!f.bitmap || !b || !args || atlas.holds(b.cell)) continue
+        const again = this.#bitmapOf(f.record, f.w, f.h, args[0], args[1], args[2])
+        if (again) fills[i] = { ...f, bitmap: again }
+        else fills.splice(i, 1)
+      }
     }
     return { panels, groups, fills }
   }
@@ -1026,7 +1171,7 @@ function writePanel(
   data[o + 19] = highlight
   data[o + 20] = chain.opacity * panel.fade // 材质的 opacity × CSS 上的实际不透明度
   data[o + 21] = DEBUG_MODES.indexOf(debugMode)
-  data[o + 22] = RIM_WIDTH_DP * scale
+  data[o + 22] = Math.max(RIM_WIDTH_DP * scale, RIM_MIN_PX)
   // adapt @ 92：自适应强度带上文字深浅的符号（> 0 浅色文字，< 0 深色文字，0 关掉）
   data[o + 23] = chain.adaptive * panel.tone
   // clip: vec4f @ 96 —— 可见区域 x0, y0, x1, y1
@@ -1045,18 +1190,24 @@ function writePanel(
   data[o + 33] = panel.light[1]
   data[o + 34] = panel.light[2]
   data[o + 35] = panel.light[3]
-  // shadow: vec4f @ 144 —— 峰值 alpha、σ、向下的偏移（画布设备像素）、空
+  // shadow: vec4f @ 144 —— 峰值 alpha、σ、向下的偏移、形状往里缩的量（画布设备像素）
+  const shadowShape = shadowShapeDp(scale > 0 ? Math.min(panel.w, panel.h) / scale : 0)
   data[o + 36] = chain.shadow * SHADOW_OPACITY
-  data[o + 37] = SHADOW_SIGMA_DP * scale
-  data[o + 38] = SHADOW_OFFSET_DP * scale
-  data[o + 39] = 0
-  // pose: vec4f @ 160 —— 旋转的 cos θ、sin θ，空，空
+  data[o + 37] = shadowShape.sigma * scale
+  data[o + 38] = shadowShape.offset * scale
+  data[o + 39] = shadowShape.inset * scale
+  // pose: vec4f @ 160 —— 旋转的 cos θ、sin θ；放大系数 m / (1 + m)；1 ÷ 面板的高（体光用，着色器里不除以 uniform）
   data[o + 40] = panel.rotation[0]
   data[o + 41] = panel.rotation[1]
-  data[o + 42] = 0
-  data[o + 43] = 0
+  data[o + 42] = magnifyFactor(chain.magnify)
+  data[o + 43] = panel.h > 0 ? 1 / panel.h : 0
   // clipRadiiY @ 176、clipInv @ 192；shapeBox @ 224、shapeRadii @ 240、shapeRadiiY @ 256、shapeInv @ 272
   packClipExtras(data, o + 44, o + 56, panel.clipRadii, panel.clipRadiiY, panel.clipShape)
   // 遮罩 @ 304：maskPaint、maskGeom、maskAlpha[2]、maskAt[2]、maskSpan
   packMask(data, o + 76, panel.mask)
+  // extra @ 416：体光的强度；其余空
+  data[o + 104] = chain.bodyLight
+  data[o + 105] = 0
+  data[o + 106] = 0
+  data[o + 107] = 0
 }

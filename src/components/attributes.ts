@@ -32,7 +32,9 @@ export const MATERIAL_ATTRIBUTES = [
   'squircle',
   'depth-effect',
   'adaptive',
-  'shadow'
+  'shadow',
+  'magnify',
+  'body-light'
 ] as const
 
 type NumericKey =
@@ -47,6 +49,8 @@ type NumericKey =
   | 'depthEffect'
   | 'adaptive'
   | 'shadow'
+  | 'magnify'
+  | 'bodyLight'
 
 const NUMERIC: ReadonlyArray<readonly [string, NumericKey]> = [
   ['blur', 'blur'],
@@ -59,7 +63,9 @@ const NUMERIC: ReadonlyArray<readonly [string, NumericKey]> = [
   ['squircle', 'squircle'],
   ['depth-effect', 'depthEffect'],
   ['adaptive', 'adaptive'],
-  ['shadow', 'shadow']
+  ['shadow', 'shadow'],
+  ['magnify', 'magnify'],
+  ['body-light', 'bodyLight']
 ]
 
 /** 预设名，同时接受 camelCase 与 kebab-case（`ultraThin` / `ultra-thin`）。 */

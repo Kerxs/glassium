@@ -7,6 +7,7 @@
  * 在这些结构体上逐字节相同），吐同样格式的回读与探针，于是验证代码不用知道底下是谁。
  */
 
+import type { LabelAtlas } from './atlas.ts'
 import type { BlendSpace } from '../core/color.ts'
 import type { ResolvedViewport } from '../core/units.ts'
 import type { PanelDebugMode } from '../shaders/glass.wgsl.ts'
@@ -122,6 +123,11 @@ export interface FrameInput {
   readonly groups: readonly MeasuredGroup[]
   /** 填充：先画进场景（玻璃看得见），再按画布分辨率画到画布上（见 fill.wgsl.ts）。 */
   readonly fills: readonly MeasuredFill[]
+  /**
+   * 位图填充的图集（atlas.ts）：后端把它传成一张纹理，版本（version）或画布变了就重新传。
+   * 没有位图填充时是 null（着色器绑一张 1×1 的占位纹理）。
+   */
+  readonly atlas: LabelAtlas | null
   readonly panelDebugMode: PanelDebugMode
   readonly probe: ProbeRequest | null
   readonly groupProbe: GroupProbeRequest | null

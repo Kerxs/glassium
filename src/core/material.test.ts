@@ -162,8 +162,8 @@ test('lowerMaterial 省略无操作的效果', () => {
 
   const noLens = lowerMaterial({ refraction: 0, distortion: 0 }, size)
   assert.ok(!noLens.effects.some((e) => e.kind === 'lens'), '折射为 0 时不该有 lens')
-  // 注意 blur 还在（默认 8），所以余量不是 0 —— 只有把模糊也关掉才为 0。
-  assert.equal(noLens.paddingDp, 24, '只剩模糊时余量是 ceil(3×8)')
+  // 注意 blur 还在（默认 12），所以余量不是 0 —— 只有把模糊也关掉才为 0。
+  assert.equal(noLens.paddingDp, 36, '只剩模糊时余量是 ceil(3×12)')
   const nothing = lowerMaterial({ refraction: 0, distortion: 0, blur: 0 }, size)
   assert.equal(nothing.paddingDp, 0, '没有折射也没有模糊就不需要余量')
 })
@@ -226,6 +226,14 @@ test('clear 预设不是「更淡的 regular」：不模糊但折射不减', () 
   // Clear 变体没有自适应；其余预设用默认值（自适应）
   assert.equal(lowerMaterial(GlassPresets.clear, [200, 100]).adaptive, 0)
   assert.equal(lowerMaterial(GlassPresets.regular, [200, 100]).adaptive, 1)
+})
+
+test('体光：钳到 [0, 1]，没写时 0；放大不小于 0', () => {
+  assert.equal(lowerMaterial({}, [100, 100]).bodyLight, 0)
+  assert.equal(lowerMaterial({ bodyLight: 3 }, [100, 100]).bodyLight, 1)
+  assert.equal(lowerMaterial({ bodyLight: -1 }, [100, 100]).bodyLight, 0)
+  assert.equal(lowerMaterial({ bodyLight: 0.4 }, [100, 100]).bodyLight, 0.4)
+  assert.equal(lowerMaterial({ magnify: -1 }, [100, 100]).magnify, 0)
 })
 
 test('glass() 覆盖预设字段', () => {
@@ -300,8 +308,8 @@ test('adaptive 钳到 [0, 1]，没写时是 1', () => {
   assert.equal(lowerMaterial({ adaptive: 3 }, [100, 100]).adaptive, 1)
 })
 
-test('投影：钳到 [0, 1]，没写时 0.3；预设越厚越深，clear 没有', () => {
-  assert.equal(lowerMaterial({}, [100, 100]).shadow, 0.3)
+test('投影：钳到 [0, 1]，没写时 0.35；预设越厚越深，clear 没有', () => {
+  assert.equal(lowerMaterial({}, [100, 100]).shadow, 0.35)
   assert.equal(lowerMaterial({ shadow: 2 }, [100, 100]).shadow, 1)
   assert.equal(lowerMaterial({ shadow: -1 }, [100, 100]).shadow, 0)
   const order = ['ultraThin', 'thin', 'regular', 'thick'] as const

@@ -9,7 +9,9 @@ import {
   circleMap,
   clampRadii,
   gradSdRoundedRect,
-  highlightTerms,
+  bodyLight,
+  magnifyFactor,
+  rimLight,
   radiusAt,
   refractionProfile,
   rimMask,
@@ -133,20 +135,24 @@ test('符合性向量：色散', () => {
   }
 })
 
-test('符合性向量：高光与边缘带', () => {
+test('符合性向量：亮边、边缘带、体光与放大', () => {
   const cases = doc.groups.lighting
   assert.ok(cases && cases.length > 0, '向量组为空 —— 是不是忘了跑 gen:conformance')
   for (const [i, c] of cases.entries()) {
     if ('rimMask' in c.expect) {
       close(rimMask(c.input.sd as number, c.input.rimPx as number), c.expect.rimMask as number, `#${i} rimMask`)
+    } else if ('body' in c.expect) {
+      close(bodyLight(c.input.t as number, c.input.shade as number, c.input.light as number), c.expect.body as number, `#${i} body`)
+    } else if ('factor' in c.expect) {
+      close(magnifyFactor(c.input.magnify as number), c.expect.factor as number, `#${i} magnify`)
     } else {
-      const got = highlightTerms(
+      const got = rimLight(
         c.input.n as unknown as Vec2,
         c.input.lightDir as unknown as Vec2,
+        c.input.base as number,
         c.input.gloss as number
       )
-      close(got.lit, c.expect.lit as number, `#${i} lit`)
-      close(got.dark, c.expect.dark as number, `#${i} dark`)
+      close(got, c.expect.rim as number, `#${i} rim`)
     }
   }
 })

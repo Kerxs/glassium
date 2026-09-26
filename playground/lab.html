@@ -1,0 +1,238 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Glassium 质感对照</title>
+    <!--
+      调质感用的开发页：四个场景对着四张 iOS 26 真机截图（滑块旋钮、正在播放面板、分段控件、圆形播放按钮）。
+      右边的读数按参考图上的测点回读，与参考图的实测并排。参考图本身不在仓库里（版权），只在本地对照截图。
+      左边是场景（玻璃都在这里），右边是读数面板（不透明的 DOM，不压在任何玻璃上）。
+    -->
+    <style>
+      html,
+      body {
+        margin: 0;
+        background: transparent;
+      }
+
+      body {
+        font: 13px/1.5 system-ui, -apple-system, 'PingFang SC', 'Segoe UI', sans-serif;
+        color: #fff;
+        overflow: hidden;
+      }
+
+      .panel {
+        position: fixed;
+        top: 0;
+        right: 0;
+        bottom: 0;
+        width: 400px;
+        box-sizing: border-box;
+        padding: 14px 16px;
+        overflow-y: auto;
+        background: #101218;
+        border-left: 1px solid rgba(255, 255, 255, 0.12);
+      }
+
+      .panel h1 {
+        margin: 0 0 4px;
+        font-size: 16px;
+      }
+
+      .env {
+        margin: 0 0 10px;
+        font: 11px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
+        color: rgba(255, 255, 255, 0.6);
+      }
+
+      .bar {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        margin-bottom: 10px;
+      }
+
+      .bar button,
+      .bar label {
+        font: inherit;
+        color: #fff;
+        background: rgba(255, 255, 255, 0.1);
+        border: 1px solid rgba(255, 255, 255, 0.2);
+        border-radius: 6px;
+        padding: 3px 9px;
+        cursor: pointer;
+      }
+
+      .bar button[aria-pressed='true'] {
+        background: #0a84ff;
+        border-color: #0a84ff;
+      }
+
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        font: 12px ui-monospace, SFMono-Regular, Menlo, monospace;
+      }
+
+      th,
+      td {
+        padding: 3px 4px;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+        text-align: right;
+        white-space: nowrap;
+      }
+
+      th:first-child,
+      td:first-child {
+        text-align: left;
+        white-space: normal;
+      }
+
+      th {
+        color: rgba(255, 255, 255, 0.65);
+      }
+
+      td.far {
+        color: #ff9f7a;
+      }
+
+      td.near {
+        color: #8fe3a2;
+      }
+
+      .note {
+        margin: 10px 0 0;
+        color: rgba(255, 255, 255, 0.55);
+      }
+
+      /* 场景：左边的区域，一次只显示一个 */
+      .scene {
+        position: fixed;
+        left: 0;
+        top: 0;
+        right: 400px;
+        bottom: 0;
+        visibility: hidden;
+      }
+
+      .scene.on {
+        visibility: visible;
+      }
+
+      .zoom {
+        position: absolute;
+        transform-origin: 0 0;
+      }
+
+      #s-slider .zoom {
+        left: 40px;
+        top: 250px;
+        transform: scale(4);
+      }
+
+      /* 截图上的进度色与轨道色 */
+      #s-slider glass-slider {
+        --glass-slider-fill: rgb(93, 146, 230);
+        --glass-slider-track: rgb(215, 215, 215);
+      }
+
+      #s-segmented .zoom {
+        left: 30px;
+        top: 240px;
+        transform: scale(3.5);
+        color: #8e8e93;
+        font-weight: 600;
+      }
+
+      #s-segmented glass-segmented {
+        width: 230px;
+        --glass-segmented-track: rgb(222, 222, 222);
+      }
+
+      #s-segmented [aria-checked='true'] {
+        color: #e8453c;
+      }
+
+      .now {
+        position: absolute;
+        left: 60px;
+        top: 150px;
+        width: 620px;
+        height: 310px;
+        box-sizing: border-box;
+        padding: 28px 30px;
+        border-radius: 22px;
+      }
+
+      .now strong {
+        display: block;
+        font-size: 30px;
+        line-height: 1.2;
+      }
+
+      .now span {
+        font-size: 22px;
+        opacity: 0.8;
+      }
+
+      .round {
+        position: absolute;
+        color: #fff;
+        font: 700 36px system-ui;
+      }
+    </style>
+  </head>
+  <body>
+    <section class="scene" id="s-slider" data-scene="slider">
+      <div class="zoom"><glass-slider id="lab-slider" value="45" style="width: 180px"></glass-slider></div>
+    </section>
+    <section class="scene" id="s-segmented" data-scene="segmented">
+      <div class="zoom">
+        <glass-segmented id="lab-seg" value="month" aria-label="时间范围">
+          <span value="week">Week</span>
+          <span value="month">Month</span>
+          <span value="year">Year</span>
+        </glass-segmented>
+      </div>
+    </section>
+    <section class="scene" id="s-panel" data-scene="panel">
+      <glass-card class="now" id="lab-now">
+        <strong>major BWV 1007: I. Prelude</strong>
+        <span>皇家爱乐管弦乐队 &amp; Caroline</span>
+      </glass-card>
+    </section>
+    <section class="scene" id="s-buttons" data-scene="buttons">
+      <glass-button class="round" id="lab-b1" type="button" style="left: 90px; top: 330px; width: 78px; height: 78px">↺</glass-button>
+      <glass-button class="round" id="lab-b2" type="button" style="left: 262px; top: 312px; width: 114px; height: 114px">❚❚</glass-button>
+      <glass-button class="round" id="lab-b3" type="button" style="left: 470px; top: 330px; width: 78px; height: 78px">↻</glass-button>
+    </section>
+
+    <aside class="panel">
+      <h1>Glassium 质感对照</h1>
+      <p class="env" id="env">初始化中…</p>
+      <div class="bar" id="scenes">
+        <button type="button" data-go="slider">1 滑块</button>
+        <button type="button" data-go="segmented">2 分段控件</button>
+        <button type="button" data-go="panel">3 正在播放</button>
+        <button type="button" data-go="buttons">4 圆按钮</button>
+      </div>
+      <div class="bar">
+        <label><input type="checkbox" id="press" /> 按住（滑块、分段控件）</label>
+        <button type="button" id="measure">重新量</button>
+      </div>
+      <table>
+        <thead>
+          <tr><th>项</th><th>Apple</th><th>Glassium</th><th>差</th></tr>
+        </thead>
+        <tbody id="rows"></tbody>
+      </table>
+      <p class="note">
+        Apple 一栏是 iOS 26 真机截图上的实测（sRGB 0–255）：「Δ」是相对背景或玻璃里面的差，「亮边」是边上 3px 内的峰值减去往里 10px 处。
+        测点按比例对应到这里的元素上。差在 ±25% 以内（或 ±4 级以内）标绿。
+      </p>
+    </aside>
+
+    <script type="module" src="./lab.ts"></script>
+  </body>
+</html>

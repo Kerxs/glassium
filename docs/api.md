@@ -166,8 +166,13 @@ button.classList.add('collapsed')           // 接着把 from 藏起来（或拿
 - **表单**：`name` 与选中的值进表单数据；`value` 属性是初始值（对不上时选第一段），表单重置回到它；`disabled`
   与祖先 `<fieldset disabled>` 让它禁用。属性访问器：`value`、`selectedIndex`、`defaultValue`、`segments`、
   `form`、`labels`。
-- CSS：`--glass-segmented-track`（底色，默认 `rgba(120, 120, 128, 0.24)`）。高 32px，段宽由内容决定（给宿主定宽时
-  平分）。选中的段带 `aria-checked="true"`，可以据此换文字颜色（它压在白色旋钮上）。`::part(track)`、`::part(thumb)`。
+- **按住时文字进场景**：各段的文字与图标画进场景（位图填充），旋钮的透镜把它们放大 1.2 倍、在两头的圆弧里扭弯
+  （iOS 26 拖动选中块时就是这样）；DOM 的字这时淡出，松手换回来。透镜下面垫一块 `--glass-segmented-lens`，所以透镜里
+  是亮的、字照样鲜艳。没有 GPU、在对话框 / popover 里（CSS 画）时照旧是 DOM 的字。能画进去的内容见 limitations.md。
+- CSS：`--glass-segmented-track`（底色，默认 `rgba(120, 120, 128, 0.24)`）、`--glass-segmented-lens`（按住时透镜下面
+  垫的那块，默认 `rgba(255, 255, 255, 0.7)`；深色主题可以换暗一点）。高 32px，段宽由内容决定（给宿主定宽时平分）。
+  选中的段带 `aria-checked="true"`，可以据此换文字颜色（它压在白色旋钮上）。`::part(track)`、`::part(thumb)`、
+  `::part(lens)`、`::part(labels)`。
 - 放在哪里与 `<glass-switch>` 相同。
 
 ### `<glass-tab-bar value="home">`
@@ -180,8 +185,10 @@ button.classList.add('collapsed')           // 接着把 from 藏起来（或拿
   （到头回绕），Home / End。`aria-controls` 之类由你写。
 - 用户换选中时派发 `input` 与 `change`；程序改 `value` / `selectedIndex` 不派发。`value` 属性是初始值（对不上时选第一格）。
   属性访问器：`value`、`selectedIndex`、`tabs`。不是表单控件。
-- CSS：`--glass-tab-bar-selected`（选中那一格的文字颜色，默认 `#0a84ff`）。`::part(bubble)`。
-- 透镜放大的是底下的玻璃，不是格子里的图标文字 —— 那些是 DOM，画在最上面。
+- CSS：`--glass-tab-bar-selected`（选中那一格的文字颜色，默认 `#0a84ff`）、`--glass-tab-bar-lens`（按住时透镜下面
+  垫的那块，默认 `rgba(255, 255, 255, 0.3)`，与静止的气泡一样亮）。`::part(bubble)`、`::part(lens)`、`::part(labels)`。
+- 按住时格子里的图标与文字画进场景（写在栏里面、与气泡同一层），气泡的透镜放大它们、在边缘扭弯；DOM 的内容这时
+  淡出，松手换回来。缩起来的栏（只剩一格）不这样做。
 - `minimize="scroll"`：页面往下滚时缩起来 —— 没选中的格收成 0 宽、淡出，栏只剩选中那一格，气泡淡出；往上滚、
   回到顶部时展开（iOS 26 的 `tabBarMinimizeBehavior(.onScrollDown)`）。往一个方向累计滚 32px 才切换，手指的小幅
   抖动不会让它来回闪。缩着的时候点一下只展开（不换选中）；键盘焦点移进来也展开。`minimized` 属性可读可写。
@@ -264,19 +271,24 @@ GPU 玻璃画在最底下，盖不住滚上来的 DOM 文字。
 | 属性 | 取值 | 默认 |
 |---|---|---|
 | `preset` | `ultraThin` / `thin` / `regular` / `thick` / `clear`（也认 kebab-case） | —（用默认值） |
-| `blur` | 模糊 σ，dp | 8 |
-| `refraction` | 折射带的深度，短边的比例 | 0.2 |
-| `distortion` | 位移的幅度，短边的比例 | 0.2 |
-| `highlight` | 亮边强度，0–1 | 0.6 |
+| `blur` | 模糊 σ，dp | 12 |
+| `refraction` | 折射带的深度，短边的比例 | 0.25 |
+| `distortion` | 位移的幅度，短边的比例 | 0.3 |
+| `highlight` | 亮边强度，0–1。亮边一整圈：上下两条最亮，左右约一半 | 0.9 |
 | `dispersion` | 色散，0–1 | 0 |
-| `saturation` | 1 = 原样 | 1.4 |
-| `tint` | hex（3/4/6/8 位）或 `rgb()` / `rgba()`；alpha 是叠加强度 | `rgba(255,255,255,0.18)` |
+| `saturation` | 1 = 原样 | 1.15 |
+| `tint` | hex（3/4/6/8 位）或 `rgb()` / `rgba()`；alpha 是叠加强度 | `rgba(255,255,255,0.1)` |
 | `opacity` | 玻璃的不透明度，0–1（还会乘上元素在 CSS 上的实际不透明度） | 1 |
 | `corner-radius` | `16`、`0.5frac`（短边的比例）或四个数 `4 32 8 28`（TL TR BR BL） | card 24、button `1frac`、其余 `0.5frac` |
 | `squircle` | 倒角剖面指数，2 = 圆 | 2 |
 | `depth-effect` | 0 薄板 – 1 厚透镜 | 1 |
 | `adaptive` | 自适应，0–1：背后太亮 / 太暗时蒙一层纱，守住与文字 3:1 的对比度 | 1（`clear` 预设 0） |
-| `shadow` | 投影深浅，0–1：玻璃往下投一圈柔和的影子 | 0.3（预设越厚越深，`clear` 为 0） |
+| `shadow` | 投影深浅，0–1：玻璃正下方一道柔和的影子（形状随短边定，两侧没有） | 0.35（预设越厚越深，`clear` 为 0） |
+| `magnify` | 放大，≥ 0：玻璃里的内容放大 1 + magnify 倍（以面板中心为准），与边缘的折射叠加 | 0（分段控件的选中块、标签栏的气泡按住时 0.2） |
+| `body-light` | 体光，0–1：玻璃里面顶上略暗、往下变亮，像一颗厚玻璃珠 | 0（开关、滑块、分段控件、标签栏按住时 1） |
+
+预设（`GlassPresets`，数值见 `src/core/material.ts`）：`ultraThin` < `thin` < `regular`（= 默认值）< `thick`，越往后越模糊、
+越白、影子越深；`clear` 不模糊、不叠色、不投影、没有自适应，边缘折射更强、带一点色散，只该用在媒体内容上。
 
 ### CSS
 
@@ -317,6 +329,7 @@ GPU 玻璃画在最底下，盖不住滚上来的 DOM 文字。
 | `register(element, material?)` → `GlassPanel` | 把任意元素注册成玻璃面板（组件背后就是它）。材质写错在这里就抛 |
 | `group({ smoothing? })` → `GlassGroup` | 建一个合并组（`<glass-container>` 背后就是它） |
 | `registerFill(element)` → `SceneFill` | 把任意元素注册成填充（`<glass-fill>` 背后就是它）：颜色取它的 `--glass-fill`。返回 `{ element, unregister() }` |
+| `registerBitmapFill(element, painter)` → `SceneBitmapFill` | 位图填充：盒子与普通填充一样来自 CSS，内容由 `painter(ctx, width, height)` 用 2D 画布画（原点在盒子左上角、单位 CSS 像素，已按设备像素缩放、裁好、清空）。只在看得见时画、画一次缓存在共享图集里；尺寸、缩放变了或调过 `invalidate()` 之后重画。分段控件、标签栏按住时把字画进场景用的就是它。返回 `{ element, invalidate(), unregister() }` |
 | `setScene(source, options?)` → `Promise` | 换场景，见下 |
 | `refreshScene()` | 非 dynamic 的画布、ImageData 内容变了：下一帧重新上传 |
 | `blendSpace` | 现在的混合空间 |
@@ -475,6 +488,7 @@ reject 一个 `name === 'AbortError'` 的 DOMException。跨源的图片与视�
 | `GlassSceneSource`、`SceneOptions`、`SceneFit`、`SceneKind` | `setScene` 的参数与选项、`object-fit` 的取值、当前场景的种类 |
 | `BlendSpace` | `'srgb' \| 'linear'` |
 | `GlassPanel`、`GlassGroup`、`SceneFill`、`PanelLight` | `register` / `group` / `registerFill` 的返回值；按压处的光 |
+| `SceneBitmapFill`、`BitmapPainter` | `registerBitmapFill` 的返回值与画内容的函数 |
 | `GlassStats`、`BackendReport`、`Gl2Report`、`ProbeReport` | `debug.stats()` 的结果；后端、WebGL2、WebGPU 适配器的报告 |
 | `ReadbackRegion`、`ReadbackResult`、`PanelDebugMode`、`DEBUG_MODES` | `debug.readback` 的参数与结果；面板的调试视图 |
 | `prefersReducedMotion`、`prefersReducedTransparency`、`prefersMoreContrast` | 读系统设置（或下面的模拟值） |
@@ -510,13 +524,14 @@ reject 一个 `name === 'AbortError'` 的 DOMException。跨源的图片与视�
 |---|---|
 | `sdRoundedRect`、`gradSdRoundedRect`、`radiusAt`、`gradRadiusOf`、`clampRadii`、`safeNormalize` | 圆角矩形的 SDF 与梯度、按象限取角、梯度用的半径（放大 1.5 倍）、半径钳制、归一化的守卫 |
 | `refractionDirection`、`refractionProfile`、`circleMap`、`squircleMap` | 折射的方向与位移剖面 |
-| `spectralWeights`、`channelSampleOffsets`、`highlightTerms`、`rimMask` | 色散的三通道权重与采样偏移、不对称的亮边与暗边、亮边的范围 |
+| `spectralWeights`、`channelSampleOffsets`、`rimLight`、`rimMask`、`bodyLight`、`magnifyFactor` | 色散的三通道权重与采样偏移、一整圈的双面亮边（角度因子）与它的范围、玻璃里面随竖直位置的体光、放大的采样系数 |
 | `smin`、`sminGradient`、`evalMergedOptics`、`memberOptics`、`mergeBleed`、`MAX_GROUP_MEMBERS`、`MemberGeometry`、`MergedOptics` | 合并：平滑并集与它的梯度、合并后的光学量、合并形状比并集大多少、一组最多几块 |
 | `Radii4`、`Vec2` | 四角半径、二维向量 |
 | `resolveMargins`、`sampleMargin`、`assertCanonicalOrder` | 效果管线的采样余量（按顺序累加）、校验顺序 |
 | `resolveViewport`、`ResolvedViewport`、`describeViewport`、`MAX_PIXELS`、`MIN_SCENE_RATIO` | 分辨率策略：画布与场景的像素数、启动时打印的那一行、像素预算与下限 |
 | `dpToCssPx`、`cssToDevicePx`、`deviceToCssPx`、`texelCenterUv`、`uvToTexelCoord` | 单位换算；像素 ↔ 纹素中心的 UV |
 | `DEFAULT_SMOOTHING_DP`、`LIGHT_GAIN`、`LIGHT_SIGMA_FRAC`、`MAX_GLASS_LAYER` | 合并的默认平滑半径、按压处光斑的强度与大小、玻璃最多叠几层 |
+| `RIM_WIDTH_DP`、`RIM_MIN_PX`、`SHADOW_OPACITY`、`shadowShapeDp(sideDp)` | 亮边的宽度（dp）与下限（设备像素）；shadow = 1 时影子的不透明度；按短边算影子的 σ、偏移、往里缩的量 |
 | `OPTICS_WGSL`、`OPTICS_GLSL` | 光学的着色器源：WGSL 是唯一真源，GLSL 由它机械生成 |
 
 ### 组件的内部件（进阶：可能变）
@@ -524,7 +539,8 @@ reject 一个 `name === 'AbortError'` 的 DOMException。跨源的图片与视�
 | 导出 | 说明 |
 |---|---|
 | `Segments`、`SegmentsOptions`、`segmentValue` | 分段控件与标签栏共用的一排可选的段（选中、键盘、拖动）；一段的值 |
-| `PressTween`、`THUMB_REST`、`THUMB_PRESSED`、`thumbMaterial`、`ThumbParams`、`bubbleMaterial` | 旋钮按下变成透镜的缓动与两头的材质；标签栏气泡的材质 |
+| `PressTween`、`THUMB_REST`、`THUMB_PRESSED`、`SEGMENT_THUMB_PRESSED`、`thumbMaterial`、`ThumbParams`、`bubbleMaterial` | 旋钮按下变成透镜的缓动与两头的材质（分段控件的选中块按下时放大）；标签栏气泡的材质 |
+| `SceneLabels`、`paintContent`、`LabelSource` | 文字进场景：一排段的镜像（注册成位图填充、内容变了作废重画）；把元素里的文字、内联 SVG、同源图片画进 2D 画布 |
 | `sliderDefaultValue`、`parseSliderRange`、`sliderRatio`、`snapSliderValue`、`SliderRange` | 滑块的默认值、`min` / `max` / `step` 的解析、值 ↔ 比例、按步长规整（原生 range 的规则） |
 
 ### 验证（进阶）

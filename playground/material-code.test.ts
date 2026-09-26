@@ -34,7 +34,7 @@ test('改过的项才写；数字最多两位小数', () => {
 
 test('tint：与预设一样不写，改了写成 rgba()', () => {
   const s = stateFromPreset('glass-card', 'regular')
-  assert.deepEqual(s.tint, [255, 255, 255, 0.18])
+  assert.deepEqual(s.tint, [255, 255, 255, 0.1])
   const red = edit(s, { tint: [255, 60, 60, 0.45] })
   assert.deepEqual(attributesOf(red).at(-1), ['tint', 'rgba(255, 60, 60, 0.45)'])
   assert.deepEqual(overridesOf(red)[0], ['tint', 'rgba(255, 60, 60, 0.45)'])

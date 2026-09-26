@@ -59,7 +59,15 @@ import type {
 import { GpuRenderer } from './gpu.ts'
 import { unchangedFrame, type FrameSnapshot } from './idle.ts'
 import { LayerWatcher, type LayerProblem } from './layering.ts'
-import { PanelRegistry, type GlassGroup, type GlassPanel, type MaterialFilter, type SceneFill } from './panels.ts'
+import {
+  PanelRegistry,
+  type BitmapPainter,
+  type GlassGroup,
+  type GlassPanel,
+  type MaterialFilter,
+  type SceneBitmapFill,
+  type SceneFill
+} from './panels.ts'
 import {
   SceneSlot,
   sceneFallbackCss,
@@ -243,6 +251,14 @@ export interface GlassStage {
    * `<glass-fill>` 背后就是它。元素自己的 CSS 背景要透明（R1），颜色只写在 `--glass-fill` 上。
    */
   registerFill(element: HTMLElement): SceneFill
+  /**
+   * 把一个元素注册成**位图**填充：盒子与普通填充一样来自 CSS，里面的内容由 painter 画进场景 ——
+   * 玻璃就能折射、放大它。`<glass-segmented>`、`<glass-tab-bar>` 按住时把文字与图标画进场景用的就是它。
+   *
+   * painter 收到的 ctx 原点在盒子左上角（变换之前）、单位是 CSS 像素，已经按设备像素缩放、裁好、清空。
+   * 只在看得见时画，画一次缓存；尺寸、缩放变了或者调过 invalidate() 之后，下次看得见时重画。
+   */
+  registerBitmapFill(element: HTMLElement, painter: BitmapPainter): SceneBitmapFill
   /**
    * 玻璃后面画什么：一张图、一段视频或一块画布，按 fit 铺满视口。传 null 回到内置场景。
    *
@@ -762,7 +778,7 @@ async function buildStage(options: GlassStageOptions): Promise<GlassStage> {
     pendingGroupProbe = null
     pendingReadback = null
 
-    const result = renderer.render({ ...frame, probe, groupProbe, readback })
+    const result = renderer.render({ ...frame, atlas: panels.atlas, probe, groupProbe, readback })
     if (!result) {
       // 这一帧没画成（比如资源还没就绪、上下文刚丢）：请求放回去，下一帧再服务
       pendingProbe ??= probe
@@ -1254,6 +1270,9 @@ async function buildStage(options: GlassStageOptions): Promise<GlassStage> {
     registerFill(element: HTMLElement): SceneFill {
       return panels.registerFill(element)
     },
+    registerBitmapFill(element: HTMLElement, painter: BitmapPainter): SceneBitmapFill {
+      return panels.registerBitmapFill(element, painter)
+    },
     setScene(source: GlassSceneSource | null, sceneOptions: SceneOptions = {}): Promise<void> {
       return scene.set(source, sceneOptions).then(() => {
         if (backend === 'none') applyFallbackBackground()
@@ -1403,6 +1422,9 @@ function makeInertStage(canvas: HTMLCanvasElement, options: GlassStageOptions): 
     // 没有 GPU 时填充由 glassium.css 画成 CSS 背景（没有 data-glassium-active 时）
     registerFill(element: HTMLElement): SceneFill {
       return { element, unregister(): void {} }
+    },
+    registerBitmapFill(element: HTMLElement): SceneBitmapFill {
+      return { element, invalidate(): void {}, unregister(): void {} }
     },
     setScene,
     refreshScene(): void {},

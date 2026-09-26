@@ -66,32 +66,43 @@ export interface GlassMaterial {
    * 形状（σ、偏移）由渲染器定，这里只管深浅。玻璃越厚，影子越深。
    */
   readonly shadow?: number
+  /**
+   * 放大，≥ 0：玻璃里的内容看起来放大 1 + magnify 倍（以面板中心为准），与边缘的折射叠加。
+   * 按住的旋钮、标签栏的气泡用它 —— iOS 26 拖动选中块时，底下的字就是这样被放大的。0 是不放大。
+   */
+  readonly magnify?: number
+  /**
+   * 体光，0–1：玻璃里面顶上略暗、往下变亮（像一颗厚玻璃珠，光聚在下半截）。iOS 26 按住的旋钮、选中块、
+   * 标签栏的气泡里就是这样；平放的面板没有。0 是没有。
+   */
+  readonly bodyLight?: number
 }
 
 /**
- * 默认值。
+ * 默认值 —— 就是 regular 预设。
  *
- * refraction / distortion 取 0.2，与上游 playground 的
- * refractionHeightFrac / refractionAmountFrac 默认值一致 —— 这样两边的校准结果
- * 可以直接对比（见 docs/calibration.md）。
+ * 按 iOS 26 真机截图的实测定（docs/calibration.md「质感对照」）：比早先（与上游 playground 对齐的
+ * refraction / distortion 0.2、白色 0.18、单面亮边）更透、更饱和，边缘折射更强，亮边一整圈。
  *
  * 导出是给要在默认值之上做调制的代码用的（`<glass-button>` 的按压动画要知道
  * 「没写 highlight 时 highlight 是多少」）。
  */
 export const MATERIAL_DEFAULTS: Readonly<Required<GlassMaterial>> = Object.freeze({
-  blur: 8,
-  refraction: 0.2,
-  distortion: 0.2,
-  highlight: 0.6,
+  blur: 12,
+  refraction: 0.25,
+  distortion: 0.3,
+  highlight: 0.9,
   dispersion: 0,
-  saturation: 1.4,
-  tint: 'rgba(255, 255, 255, 0.18)',
+  saturation: 1.15,
+  tint: 'rgba(255, 255, 255, 0.1)',
   opacity: 1,
   cornerRadius: '0.5frac',
   squircle: 2,
   depthEffect: 1,
   adaptive: 1,
-  shadow: 0.3
+  shadow: 0.35,
+  magnify: 0,
+  bodyLight: 0
 })
 
 /**
@@ -105,11 +116,11 @@ export const MATERIAL_DEFAULTS: Readonly<Required<GlassMaterial>> = Object.freez
  * 其余预设都自适应（默认 adaptive: 1）：背后太亮或太暗时玻璃自己蒙一层纱。
  */
 export const GlassPresets = {
-  ultraThin: { blur: 2, refraction: 0.1, distortion: 0.1, saturation: 1.15, tint: 'rgba(255,255,255,0.1)', highlight: 0.4, depthEffect: 0.3, shadow: 0.15 },
-  thin: { blur: 4, refraction: 0.14, distortion: 0.14, saturation: 1.25, tint: 'rgba(255,255,255,0.14)', highlight: 0.5, depthEffect: 0.6, shadow: 0.2 },
-  regular: { blur: 8, refraction: 0.2, distortion: 0.2, saturation: 1.4, tint: 'rgba(255,255,255,0.18)', highlight: 0.6, depthEffect: 1, shadow: 0.3 },
-  thick: { blur: 16, refraction: 0.3, distortion: 0.28, saturation: 1.5, tint: 'rgba(255,255,255,0.22)', highlight: 0.7, depthEffect: 1, shadow: 0.45 },
-  clear: { blur: 0, refraction: 0.2, distortion: 0.22, saturation: 1.1, tint: 'rgba(255,255,255,0)', highlight: 0.8, depthEffect: 1, adaptive: 0, shadow: 0 }
+  ultraThin: { blur: 3, refraction: 0.2, distortion: 0.24, saturation: 1.1, tint: 'rgba(255,255,255,0.05)', highlight: 0.7, depthEffect: 0.6, shadow: 0.2 },
+  thin: { blur: 6, refraction: 0.22, distortion: 0.27, saturation: 1.12, tint: 'rgba(255,255,255,0.07)', highlight: 0.8, depthEffect: 0.8, shadow: 0.28 },
+  regular: { blur: 12, refraction: 0.25, distortion: 0.3, saturation: 1.15, tint: 'rgba(255,255,255,0.1)', highlight: 0.9, depthEffect: 1, shadow: 0.35 },
+  thick: { blur: 22, refraction: 0.3, distortion: 0.36, saturation: 1.2, tint: 'rgba(255,255,255,0.14)', highlight: 1, depthEffect: 1, shadow: 0.45 },
+  clear: { blur: 0, refraction: 0.35, distortion: 0.5, saturation: 1.1, tint: 'rgba(255,255,255,0)', highlight: 1, dispersion: 0.08, depthEffect: 1, adaptive: 0, shadow: 0 }
 } as const satisfies Record<string, GlassMaterial>
 
 export type GlassPresetName = keyof typeof GlassPresets
@@ -225,7 +236,9 @@ export function lowerMaterial(material: GlassMaterial, size: Vec2): EffectChain 
     paddingDp: resolveMargins(effects),
     opacity: Math.min(Math.max(m.opacity, 0), 1),
     adaptive: Math.min(Math.max(m.adaptive, 0), 1),
-    shadow: Math.min(Math.max(m.shadow, 0), 1)
+    shadow: Math.min(Math.max(m.shadow, 0), 1),
+    magnify: Math.max(m.magnify, 0),
+    bodyLight: Math.min(Math.max(m.bodyLight, 0), 1)
   }
 }
 

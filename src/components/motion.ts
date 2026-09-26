@@ -69,10 +69,12 @@ export function modulate(base: GlassMaterial, energy: number): GlassMaterial {
   const highlight = base.highlight ?? MATERIAL_DEFAULTS.highlight
   const out: GlassMaterial = {
     ...base,
-    // 按下时玻璃「鼓起来」：边缘带更深、透镜更强，受光边更亮
+    // 按下时玻璃「鼓起来」：边缘带更深、透镜更强，亮边更亮，里面的内容放大一点（像按下的透镜）
     refraction: refraction * (1 + 0.5 * e),
     distortion: distortion * (1 + 0.35 * e),
-    highlight: highlight + (1 - highlight) * 0.6 * e
+    highlight: highlight + (1 - highlight) * 0.6 * e,
+    magnify: (base.magnify ?? MATERIAL_DEFAULTS.magnify) + 0.08 * e,
+    bodyLight: Math.min((base.bodyLight ?? MATERIAL_DEFAULTS.bodyLight) + 0.6 * e, 1)
   }
   if (e === 0) return out
 

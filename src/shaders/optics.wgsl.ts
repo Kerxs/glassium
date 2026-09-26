@@ -5,7 +5,7 @@
    commit 65ab177e90e5c1d8c62e70cf7755841982da65f6
 
    已修改：重写为 WGSL；修正 radiusAt 的坐标系；色散改为径向、蓝光位移大于红光；
-   高光改为不对称并新增暗边。逐条说明见 docs/porting-notes.md。
+   高光保留双面并加上侧面的基础亮度；新增体光。逐条说明见 docs/porting-notes.md。
 
    上游未附带 NOTICE 文件，故本项目不承担 Apache-2.0 §4(d) 的转载义务；
    §4(a)–(c) 仍然适用。
@@ -129,13 +129,15 @@ fn rimMask(sd: f32, rimPx: f32) -> f32 {
   return 1.0 - smoothstep(0.0, max(rimPx, 1e-6), -sd);
 }
 
-// 返回 (受光强度, 背光强度)。
-// 与上游的区别：上游是 pow(abs(dot(n, L)), falloff)，abs() 让朝光与背光两条边等亮，
-// 等于两个光源。这里拆成两项 —— 只有朝光一侧发亮，背光一侧给出暗边的强度。
-fn highlightTerms(n: vec2f, lightDir: vec2f, gloss: f32) -> vec2f {
-  let ndl: f32 = dot(n, lightDir);
-  let lit: f32 = pow(max(ndl, 0.0), gloss);
-  let dark: f32 = pow(max(-ndl, 0.0), gloss);
-  return vec2f(lit, dark);
+// 亮边的角度因子：一整圈都亮，朝着与背着 lightDir 的两侧最亮（双面，与上游的 abs() 一样），
+// 与它垂直的两侧是 base（上游在那里是 0）。依据是 iOS 26 截图的实测，见 src/core/optics.ts 的 rimLight。
+fn rimLight(n: vec2f, lightDir: vec2f, base: f32, gloss: f32) -> f32 {
+  let ndl: f32 = abs(dot(n, lightDir));
+  return base + (1.0 - base) * pow(ndl, gloss);
+}
+
+// 体光：玻璃里面随竖直位置 t（0 顶、1 底）的亮度增减 —— 顶上暗，往下平滑地变亮，40% 往下满亮。
+fn bodyLight(t: f32, shade: f32, light: f32) -> f32 {
+  return (light + shade) * smoothstep(0.0, 0.4, t) - shade;
 }
 `

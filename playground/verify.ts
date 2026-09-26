@@ -516,9 +516,11 @@ async function run(): Promise<void> {
     }
   })
 
-  await check('highlight-asymmetry', async () => {
-    // 平灰场上模糊与折射都改变不了颜色，边缘的亮度差只可能来自高光：
-    // 左上（朝光）要亮，右下（背光）一个发亮的像素都不该有。
+  await check('rim', async () => {
+    // 亮边（iOS 26 截图实测，docs/calibration.md「质感对照」）：平灰场上模糊与折射都改变不了颜色，边缘的亮度差
+    // 只可能来自亮边。要求一整圈都亮、上下两条最亮且一样亮（双面）、左右明显暗一截、哪里都不比内部暗（没有暗边）。
+    // （四条边还有同样多的倒角辉光，所以左右与上下之比不是着色器的 RIM_BASE，这里只要求差出 1.5 级以上。）
+    // 按外法线分四条边（法线分量 > 0.9 的像素），取边界往里 0.5–1.5px 那一圈。
     stage.debug.setBackdrop({ scene: 'flat' })
     try {
       const probe = probes.get('v-card')
@@ -528,11 +530,26 @@ async function run(): Promise<void> {
       const luma = (px: (typeof pixels)[number]): number => ((px.rgb[0] + px.rgb[1] + px.rgb[2]) / 3) * 255
       const deep = pixels.filter((px) => px.sd < -probe.panel.heightPx - 4).map(luma).sort((a, b) => a - b)
       const base = deep[Math.floor(deep.length / 2)] ?? 0
-      const rim = summarizeBySector(pixels, (px) => (px.sd < -0.5 && px.sd > -1.5 ? luma(px) - base : null))
+      const ring = pixels.filter((px) => px.sd < -0.5 && px.sd > -1.5)
+      const side = (pick: (n: readonly [number, number]) => boolean): number => {
+        const vs = ring.filter((px) => pick(px.normal)).map((px) => luma(px) - base)
+        return vs.length > 0 ? vs.reduce((a, b) => a + b, 0) / vs.length : Number.NaN
+      }
+      const top = side((n) => n[1] < -0.9)
+      const bottom = side((n) => n[1] > 0.9)
+      const left = side((n) => n[0] < -0.9)
+      const right = side((n) => n[0] > 0.9)
+      let darkest = Infinity
+      for (const px of ring) darkest = Math.min(darkest, luma(px) - base)
       const detail =
-        `相对内部 ${base.toFixed(1)}：TL 均值 ${rim.TL.mean.toFixed(1)} · BR 均值 ${rim.BR.mean.toFixed(1)}` +
-        ` · BR 最大 ${rim.BR.max.toFixed(1)}`
-      return rim.TL.mean > 10 && rim.BR.max <= 1 ? pass(detail) : fail(detail)
+        `相对内部 ${base.toFixed(1)}：上 ${top.toFixed(1)} · 下 ${bottom.toFixed(1)} · 左 ${left.toFixed(1)} · 右 ${right.toFixed(1)}` +
+        ` · 最暗 ${darkest.toFixed(1)}`
+      const ok =
+        Math.min(top, bottom, left, right) > 3 &&
+        Math.abs(top - bottom) <= 0.15 * Math.max(top, bottom) &&
+        Math.max(left, right) < Math.min(top, bottom) - 1.5 &&
+        darkest >= -1
+      return ok ? pass(detail) : fail(detail)
     } finally {
       calibrationScene()
     }
@@ -772,20 +789,104 @@ async function run(): Promise<void> {
       await sleep(0)
       const below = strip(4, 12, true)
       const above = strip(-12, -4, false)
+      // 右侧、卡片下半截高度处往外 12–20px：影子形状往里缩过，两侧不该有（截图上就没有）
+      const sideRegion = (): ReadbackRegion => {
+        const r = card.getBoundingClientRect()
+        return {
+          x: Math.floor((r.right - canvas.left + 12) * s),
+          y: Math.floor((r.top - canvas.top + r.height * 0.6) * s),
+          width: Math.floor(8 * s),
+          height: Math.floor(r.height * 0.3 * s)
+        }
+      }
       const belowOn = mean(await readback(below))
       const aboveOn = mean(await readback(above))
+      const sideOn = mean(await readback(sideRegion()))
       card.setAttribute('shadow', '0')
       await sleep(0)
       const belowOff = mean(await readback(below))
       const aboveOff = mean(await readback(above))
       const detail =
-        `正下方 4–12px：${belowOff.toFixed(1)} → ${belowOn.toFixed(1)}；正上方：${aboveOff.toFixed(1)} → ${aboveOn.toFixed(1)}` +
-        '（shadow="0" → 默认，/255）'
-      const ok = belowOff >= 254.5 && aboveOff >= 254.5 && belowOn < 250 && aboveOn > belowOn + 3
+        `正下方 4–12px：${belowOff.toFixed(1)} → ${belowOn.toFixed(1)}；正上方：${aboveOff.toFixed(1)} → ${aboveOn.toFixed(1)}；` +
+        `右侧 12–20px：${sideOn.toFixed(1)}（shadow="0" → 默认，/255）`
+      const ok = belowOff >= 254.5 && aboveOff >= 254.5 && belowOn < 252 && aboveOn > belowOn + 2 && sideOn >= 253.5
       return ok ? pass(detail) : fail(detail)
     } finally {
       card.remove()
       await stage.setScene(null)
+      stage.debug.renderNow()
+    }
+  })
+
+  await check('magnify', async () => {
+    // 放大（材质的 magnify）：黑白竖条纹（填充，周期 20px）上放一块不折射、不模糊、不调色的玻璃，
+    // 玻璃里条纹的周期是外面的 1 + m 倍。同一项里 m = 0 作对照：周期与外面一样。
+    const stripes = document.createElement('glass-fill')
+    Object.assign(stripes.style, {
+      position: 'absolute',
+      left: '40px',
+      top: '480px',
+      width: '400px',
+      height: '80px'
+    })
+    stripes.style.setProperty('--glass-fill', 'repeating-linear-gradient(90deg, #000 0 10px, #fff 10px 20px)')
+    const lens = document.createElement('div')
+    // 两种视口（1280×720、820×1200）里都不能伸出视口：伸出去会出滚动条，视口在运行中变了
+    Object.assign(lens.style, { position: 'absolute', left: '240px', top: '490px', width: '180px', height: '60px' })
+    document.body.append(stripes, lens)
+    const flatGlass = {
+      blur: 0,
+      refraction: 0,
+      distortion: 0,
+      saturation: 1,
+      tint: 'rgba(0,0,0,0)',
+      highlight: 0,
+      shadow: 0,
+      adaptive: 0,
+      cornerRadius: 8
+    }
+    const panel = stage.register(lens, { ...flatGlass, magnify: 0.5 })
+    const v = stage.debug.stats().viewport!
+    const s = v.compositeWidth / v.cssWidth
+    const canvas = stage.canvas.getBoundingClientRect()
+    /** 一行像素里黑白交替的间距（半周期），CSS 像素。 */
+    const halfPeriod = async (x0: number, x1: number, y: number): Promise<number> => {
+      const d = await readback({
+        x: Math.floor((x0 - canvas.left) * s),
+        y: Math.floor((y - canvas.top) * s),
+        width: Math.floor((x1 - x0) * s),
+        height: 1
+      })
+      const crossings: number[] = []
+      for (let i = 1; i < d.length / 4; i++) {
+        const a = d[(i - 1) * 4]! >= 128
+        const b = d[i * 4]! >= 128
+        if (a !== b) crossings.push(i)
+      }
+      if (crossings.length < 3) return Number.NaN
+      return (crossings[crossings.length - 1]! - crossings[0]!) / (crossings.length - 1) / s
+    }
+    try {
+      await sleep(0)
+      const sr = stripes.getBoundingClientRect()
+      const outside = await halfPeriod(sr.left + 10, sr.left + 180, sr.top + 50)
+      const r = lens.getBoundingClientRect()
+      const magnified = await halfPeriod(r.left + 20, r.right - 20, r.top + r.height / 2)
+      panel.setMaterial({ ...flatGlass, magnify: 0 })
+      await sleep(0)
+      const plain = await halfPeriod(r.left + 20, r.right - 20, r.top + r.height / 2)
+      const ratio = magnified / outside
+      const control = plain / outside
+      const detail =
+        `外面半周期 ${outside.toFixed(2)}px · magnify 0.5 时玻璃里 ${magnified.toFixed(2)}px（${ratio.toFixed(3)} 倍，应为 1.5）` +
+        ` · magnify 0 时 ${plain.toFixed(2)}px（${control.toFixed(3)} 倍，应为 1）`
+      return Math.abs(outside - 10) < 0.3 && Math.abs(ratio - 1.5) < 0.05 && Math.abs(control - 1) < 0.03
+        ? pass(detail)
+        : fail(detail)
+    } finally {
+      panel.unregister()
+      lens.remove()
+      stripes.remove()
       stage.debug.renderNow()
     }
   })
@@ -1405,15 +1506,120 @@ async function run(): Promise<void> {
     stage.debug.renderNow()
 
     const white = (c: readonly number[]): boolean => Math.min(c[0]!, c[1]!, c[2]!) > 225
+    // 按住：旋钮变成透镜，透出它下面垫的那块白（在底上）—— 比静止的白旋钮暗、比光秃秃的底亮
+    const lensed = pressed[0]! < restSelected[0]! - 8 && pressed[0]! > restOther[0]! + 20
     const f = (c: readonly number[]): string => c.join('/')
     const detail =
       `静止：选中段 ${f(restSelected)}、别的段 ${f(restOther)} · 按住：${f(pressed)} · ` +
       `点「月」之后 ${afterClick}（旋钮 ${f(onMonth)}）· → 键回绕到 ${afterKey} · 表单 ${String(data)} · ` +
       `事件 ${events.join(',')} · 管线 ${pipelines1 - pipelines0} 条新建`
-    return white(restSelected) && !white(restOther) && !white(pressed) && afterClick === 'month' && white(onMonth) &&
+    return white(restSelected) && !white(restOther) && lensed && afterClick === 'month' && white(onMonth) &&
       afterKey === 'day' && data === 'day' && events.join(',') === 'input,change,input,change' && pipelines1 === pipelines0
       ? pass(detail)
       : fail(detail)
+  })
+
+  await check('scene-label', async () => {
+    // 文字进场景（scene-label.ts）：分段控件按住时各段的字画进场景 —— 场景里的墨迹落在 DOM 文字的 Range 矩形里
+    // （±1px）；按住的选中块（放大的透镜）下面的墨迹比 DOM 的字宽 ≥ 10%；DOM 的字这时透明。
+    // 静止与松手之后场景里一点字都没有（照旧是 DOM 的字）。
+    stage.debug.setBackdrop({ scene: 'flat' })
+    simulateReducedMotion(true)
+    const seg = document.createElement('glass-segmented') as HTMLElement & { segments: HTMLElement[] }
+    seg.setAttribute('value', 'b')
+    Object.assign(seg.style, { position: 'absolute', left: '440px', top: '500px', color: '#000', font: '600 15px system-ui, sans-serif' })
+    seg.innerHTML = '<span value="a">Week</span><span value="b">Month</span><span value="c">Year</span>'
+    document.body.append(seg)
+    const finish = (): void => {
+      for (const a of seg.shadowRoot!.getAnimations()) a.finish()
+      for (const el of seg.segments) for (const a of el.getAnimations()) a.finish()
+    }
+    const v = stage.debug.stats().viewport!
+    const s = v.compositeWidth / v.cssWidth
+    const canvasBox = stage.canvas.getBoundingClientRect()
+    const textRect = (el: Element): DOMRect => {
+      const r = document.createRange()
+      r.selectNodeContents(el)
+      return r.getBoundingClientRect()
+    }
+    type Box = { left: number; top: number; right: number; bottom: number }
+    /** 区域（往外扩 pad）里亮度 < 80 的像素：个数与包围盒（CSS 像素，客户区坐标）。 */
+    const ink = async (box: Box, pad: number): Promise<Box & { n: number }> => {
+      const x0 = Math.floor((box.left - pad - canvasBox.left) * s)
+      const y0 = Math.floor((box.top - pad - canvasBox.top) * s)
+      const w = Math.ceil((box.right - box.left + 2 * pad) * s)
+      const h = Math.ceil((box.bottom - box.top + 2 * pad) * s)
+      const d = await readback({ x: x0, y: y0, width: w, height: h })
+      let n = 0
+      let minX = Infinity
+      let maxX = -Infinity
+      let minY = Infinity
+      let maxY = -Infinity
+      for (let j = 0; j < h; j++) {
+        for (let i = 0; i < w; i++) {
+          const k = (j * w + i) * 4
+          if (0.2126 * d[k]! + 0.7152 * d[k + 1]! + 0.0722 * d[k + 2]! >= 80) continue
+          n++
+          minX = Math.min(minX, i)
+          maxX = Math.max(maxX, i)
+          minY = Math.min(minY, j)
+          maxY = Math.max(maxY, j)
+        }
+      }
+      const cx = (i: number): number => (x0 + i) / s + canvasBox.left
+      const cy = (j: number): number => (y0 + j) / s + canvasBox.top
+      return { n, left: cx(minX), right: cx(maxX + 1), top: cy(minY), bottom: cy(maxY + 1) }
+    }
+    try {
+      await sleep(0)
+      finish()
+      const [week, month] = seg.segments as [HTMLElement, HTMLElement]
+      const weekText = textRect(week)
+      const monthText = textRect(month)
+      const rest = await ink(weekText, 3)
+      const thumb = seg.shadowRoot!.querySelector('[part=thumb]')!
+      const t0 = thumb.getBoundingClientRect()
+      seg.dispatchEvent(
+        new PointerEvent('pointerdown', { pointerId: 16, button: 0, clientX: t0.left + t0.width / 2, clientY: t0.top + t0.height / 2, bubbles: true })
+      )
+      await sleep(0)
+      finish()
+      const lensing = seg.hasAttribute('data-lensing')
+      const domOpacity = getComputedStyle(week).opacity
+      const outside = await ink(weekText, 3)
+      const t1 = thumb.getBoundingClientRect()
+      const inside = await ink({ left: t1.left + 2, right: t1.right - 2, top: monthText.top - 4, bottom: monthText.bottom + 4 }, 0)
+      seg.dispatchEvent(
+        new PointerEvent('pointerup', { pointerId: 16, button: 0, clientX: t0.left + t0.width / 2, clientY: t0.top + t0.height / 2, bubbles: true })
+      )
+      await sleep(0)
+      finish()
+      const after = await ink(weekText, 3)
+      const released = !seg.hasAttribute('data-lensing')
+
+      const aligned =
+        outside.n > 10 &&
+        outside.left >= weekText.left - 1 &&
+        outside.right <= weekText.right + 1 &&
+        outside.top >= weekText.top - 1 &&
+        outside.bottom <= weekText.bottom + 1
+      const widen = inside.n > 0 ? (inside.right - inside.left) / monthText.width : 0
+      const f = (b: Box & { n: number }): string =>
+        b.n > 0 ? `${b.n} 个（${b.left.toFixed(1)}–${b.right.toFixed(1)} × ${b.top.toFixed(1)}–${b.bottom.toFixed(1)}）` : '0 个'
+      const detail =
+        `静止：场景里「Week」处的墨迹 ${f(rest)} · 按住：data-lensing ${lensing}、DOM 字的 opacity ${domOpacity}、` +
+        `「Week」墨迹 ${f(outside)}（DOM 矩形 ${weekText.left.toFixed(1)}–${weekText.right.toFixed(1)} × ` +
+        `${weekText.top.toFixed(1)}–${weekText.bottom.toFixed(1)}）· 透镜里「Month」宽 ${widen.toFixed(2)} 倍 · ` +
+        `松手：墨迹 ${f(after)}、data-lensing ${released ? '撤了' : '还在'}`
+      return rest.n === 0 && lensing && domOpacity === '0' && aligned && widen >= 1.1 && widen <= 1.7 && after.n === 0 && released
+        ? pass(detail)
+        : fail(detail)
+    } finally {
+      seg.remove()
+      simulateReducedMotion(null)
+      calibrationScene()
+      stage.debug.renderNow()
+    }
   })
 
   await check('nested-glass', async () => {
@@ -1485,7 +1691,9 @@ async function run(): Promise<void> {
   await check('tab-bar', async () => {
     // <glass-tab-bar>：栏是玻璃，选中那一格下面的气泡是写在栏里面的玻璃（第 1 层）。
     // 灰场景上，气泡中心 = 栏在那里的颜色 × 0.7 + 白 × 0.3（气泡的 tint）—— 看得见栏；不分层的话它只看得到
-    // 场景（128 × 0.7 + 76.5 ≈ 166），与栏（≈ 149）上的这个公式对不上。按住时变成透镜，中心几乎就是栏本身。
+    // 场景（128 × 0.7 + 76.5 ≈ 166），与栏（≈ 149）上的这个公式对不上。按住时变成透镜，透出下面垫的那块
+    // （与静止的气泡一样亮：栏 × 0.7 + 白 × 0.3），再加上透镜的体光（中间一带约 +14），量在字外面
+    // （格中心往左 20px）—— 字这时画进了场景。
     // 点第三格、方向键回绕、事件；全程不建管线。
     stage.debug.setBackdrop({ scene: 'flat' })
     simulateReducedMotion(true)
@@ -1506,10 +1714,10 @@ async function run(): Promise<void> {
     const v = stage.debug.stats().viewport!
     const s = v.compositeWidth / v.cssWidth
     const canvasBox = stage.canvas.getBoundingClientRect()
-    const center = async (el: Element): Promise<[number, number, number]> => {
+    const center = async (el: Element, dx = 0): Promise<[number, number, number]> => {
       const r = el.getBoundingClientRect()
       const d = await readback({
-        x: Math.floor((r.left + r.width / 2 - canvasBox.left) * s),
+        x: Math.floor((r.left + r.width / 2 + dx - canvasBox.left) * s),
         y: Math.floor((r.top + r.height / 2 - canvasBox.top) * s),
         width: 1,
         height: 1
@@ -1525,7 +1733,7 @@ async function run(): Promise<void> {
     bar.dispatchEvent(new PointerEvent('pointerdown', { pointerId: 14, button: 0, clientX: br.left + br.width / 2, clientY: br.top + br.height / 2, bubbles: true }))
     finish()
     await sleep(0)
-    const pressed = await center(b)
+    const pressed = await center(b, -20)
     bar.dispatchEvent(new PointerEvent('pointerup', { pointerId: 14, button: 0, clientX: br.left + br.width / 2, clientY: br.top + br.height / 2, bubbles: true }))
     const cr = c.getBoundingClientRect()
     bar.dispatchEvent(new PointerEvent('pointerdown', { pointerId: 15, button: 0, clientX: cr.left + 8, clientY: cr.top + 8, bubbles: true }))
@@ -1548,7 +1756,7 @@ async function run(): Promise<void> {
       `选中的格 ${f(selected)}（栏 ${f(other)} × 0.7 + 白 × 0.3 = ${expected.toFixed(1)}）· 按住 ${f(pressed)} · ` +
       `点第三格 → ${afterClick}（那里 ${f(onC)}）· → 键回绕到 ${afterKey} · 事件 ${events.join(',')} · ` +
       `模糊 ${layers} 趟 · 管线 ${pipelines1 - pipelines0} 条新建`
-    return Math.abs(selected[0]! - expected) <= 3 && Math.abs(pressed[0]! - other[0]!) < 10 && afterClick === 'c' &&
+    return Math.abs(selected[0]! - expected) <= 3 && pressed[0]! >= expected - 3 && pressed[0]! <= expected + 20 && afterClick === 'c' &&
       Math.abs(onC[0]! - selected[0]!) <= 2 && afterKey === 'a' && events.join(',') === 'input,change,input,change' &&
       pipelines1 === pipelines0
       ? pass(detail)
@@ -1649,7 +1857,7 @@ async function run(): Promise<void> {
     Object.assign(plain.style, { position: 'absolute', left: '40px', top: '560px' })
     document.body.append(plain)
     await sleep(0)
-    const plainTransition = getComputedStyle(plain.children[0]!).transitionDuration
+    const plainTransition = getComputedStyle(plain.children[0]!).transitionProperty
     plain.remove()
     calibrationScene()
     stage.debug.renderNow()
@@ -1667,7 +1875,7 @@ async function run(): Promise<void> {
       Math.abs(reopened - open.width) < 1 && transitions > 0 && panelsSmall === panelsOpen - 1 &&
       Math.abs(glassSmall - scene) <= 1 && Math.abs(glassOpen - scene) > 3 &&
       scrolledDown && !scrolledTop && tapExpanded && valueAfterTap === 'b' && inputs === 0 && focusExpanded &&
-      /^0s(, 0s)*$/.test(plainTransition)
+      !/width|padding/.test(plainTransition)
     return ok ? pass(detail) : fail(detail)
   })
 
@@ -1986,8 +2194,11 @@ async function run(): Promise<void> {
       `面板数：原来 ${base}、加了 overlay 卡片 ${withLoose}、对话框与 popover 打开 ${opened}（都不上 GPU）· ` +
       `标记 ${marked ? '都在' : '缺'} · 对话框里的卡片 ${cardBackdrop}、${cardTint} · popover ${popBackdrop} · ` +
       `开关 旋钮 ${thumbBg}、轨道 ${trackBg} · 层级问题 ${problems} · 关上之后标记${unmarked ? '撤掉了' : '还在'}`
-    return withLoose === base && opened === base && marked && cardBackdrop === 'blur(16px) saturate(1.5)' &&
-      cardTint === 'rgba(255, 255, 255, 0.22)' && popBackdrop === 'blur(4px) saturate(1.25)' &&
+    const thick = GlassPresets.thick
+    const thin = GlassPresets.thin
+    return withLoose === base && opened === base && marked &&
+      cardBackdrop === `blur(${thick.blur}px) saturate(${thick.saturation})` &&
+      cardTint === thick.tint.replace(/,(?! )/g, ', ') && popBackdrop === `blur(${thin.blur}px) saturate(${thin.saturation})` &&
       thumbBg === 'rgb(255, 255, 255)' && trackBg === 'rgb(52, 199, 89)' && problems === 0 && unmarked
       ? pass(detail)
       : fail(detail)

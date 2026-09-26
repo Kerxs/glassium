@@ -39,6 +39,7 @@ import {
   sourceReady
 } from '../renderer/backend.ts'
 import { LOCAL_SIGMA, MAX_LEVELS, levelForSigma } from '../renderer/blur.ts'
+import type { LabelAtlas } from '../renderer/atlas.ts'
 import { CANVAS_DEST, packFill, sceneDest, sceneScissor, type MeasuredFill } from '../renderer/fills.ts'
 import { layerRegion, levelRegion, splitLayers, type LayerItems } from '../renderer/layers.ts'
 import {
@@ -129,6 +130,10 @@ export class Gl2Renderer implements Renderer {
   #fillUbo: WebGLBuffer | null = null
   #fillCapacity = 0
   #fillData = new Float32Array(0)
+  // 位图填充的图集（atlas.ts），绑在第 1 个纹理单元（别的程序都只用第 0 个）。没有位图填充时是 1×1 的透明占位
+  #atlasTexture: WebGLTexture | null = null
+  #atlasSource: LabelAtlas['canvas'] | null = null
+  #atlasVersion = -1
   /** 玻璃的层（layers.ts）：默认帧缓冲上已经画好的那一块 blit 进来，再重采样回场景目标。 */
   #layerSource: WebGLTexture | null = null
   #layerSourceFbo: WebGLFramebuffer | null = null
@@ -176,6 +181,18 @@ export class Gl2Renderer implements Renderer {
     this.#ensurePanelCapacity(16)
     this.#ensureGroupCapacity(4)
     this.#ensureFillCapacity(4)
+
+    this.#atlasTexture = gl.createTexture()
+    if (this.#atlasTexture) {
+      gl.activeTexture(gl.TEXTURE1)
+      gl.bindTexture(gl.TEXTURE_2D, this.#atlasTexture)
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array(4))
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR)
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
+      gl.activeTexture(gl.TEXTURE0)
+    }
 
     const err = gl.getError()
     if (err !== gl.NO_ERROR) throw new Error(`[Glassium] WebGL2 初始化后 getError() = 0x${err.toString(16)}`)
@@ -334,6 +351,10 @@ export class Gl2Renderer implements Renderer {
     const gl = this.gl
     const p = this.#fill
     useProgram(gl, p)
+    gl.activeTexture(gl.TEXTURE1)
+    gl.bindTexture(gl.TEXTURE_2D, this.#atlasTexture)
+    gl.activeTexture(gl.TEXTURE0)
+    gl.uniform1i(loc(gl, p, 'uAtlas'), 1)
     gl.uniform1f(loc(gl, p, 'uFlipUv'), onScreen ? 1 : 0)
     gl.uniform4f(loc(gl, p, 'uDest'), dest[0], dest[1], dest[2], onScreen ? 1 : 0)
     gl.uniform1f(loc(gl, p, 'uDestHeight'), targetHeight)
@@ -355,6 +376,24 @@ export class Gl2Renderer implements Renderer {
     gl.disable(gl.BLEND)
     gl.disable(gl.SCISSOR_TEST)
     return draws
+  }
+
+  /**
+   * 位图填充的图集变了（画了新的一格、清空、长大）就整张重新传。与 WebGPU 的 copyExternalImageToTexture
+   * （premultipliedAlpha: true）一致：预乘，第 0 行是图集顶部。
+   */
+  #syncAtlas(atlas: LabelAtlas | null): void {
+    if (!atlas || !this.#atlasTexture || (atlas.canvas === this.#atlasSource && atlas.version === this.#atlasVersion)) return
+    const gl = this.gl
+    gl.activeTexture(gl.TEXTURE1)
+    gl.bindTexture(gl.TEXTURE_2D, this.#atlasTexture)
+    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false)
+    gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, true)
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, gl.RGBA, gl.UNSIGNED_BYTE, atlas.canvas as TexImageSource)
+    gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false)
+    gl.activeTexture(gl.TEXTURE0)
+    this.#atlasSource = atlas.canvas
+    this.#atlasVersion = atlas.version
   }
 
   #replaceBuffer(old: WebGLBuffer | null, bytes: number): WebGLBuffer {
@@ -422,6 +461,7 @@ export class Gl2Renderer implements Renderer {
       packGroup(this.#groupData, i, groups[i]!, viewport, this.#levels, input.panelDebugMode)
     }
     this.#ensureFillCapacity(fills.length)
+    this.#syncAtlas(input.atlas)
     for (let i = 0; i < fills.length; i++) packFill(this.#fillData, i, fills[i]!)
     if (this.#rangeBinding) {
       if (panels.length > 0) {
@@ -873,6 +913,7 @@ export class Gl2Renderer implements Renderer {
     const gl = this.gl
     this.#destroyTargets()
     if (this.#imageTexture) gl.deleteTexture(this.#imageTexture)
+    if (this.#atlasTexture) gl.deleteTexture(this.#atlasTexture)
     for (const p of [this.#scene, this.#sceneImage, this.#blur, this.#backdrop, this.#glass, this.#group, this.#fill]) {
       gl.deleteProgram(p.program)
     }

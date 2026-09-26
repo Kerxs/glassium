@@ -21,10 +21,10 @@ import { OPTICS_WGSL } from './optics.wgsl.ts'
 import { SRGB_WGSL } from './srgb.wgsl.ts'
 
 /** Panel 结构体的字节数。按 512B 步长排进一条 buffer，用动态偏移切换。 */
-export const PANEL_STRUCT_BYTES = 416
+export const PANEL_STRUCT_BYTES = 432
 /**
  * 每块面板在 uniform buffer 里占的步长：两个 256B 槽位（T5 实测 minUniformBufferOffsetAlignment = 256）。
- * 结构体原来是 176B、步长 256；裁剪加了椭圆角与第二个形状之后长到 304B，再加遮罩到 416B。
+ * 结构体原来是 176B、步长 256；裁剪加了椭圆角与第二个形状之后长到 304B，再加遮罩到 416B，再加 extra 到 432B。
  */
 export const PANEL_STRIDE = 512
 /** Float32 视角下的步长。 */
@@ -165,8 +165,8 @@ struct Panel {
   clip: vec4f,          // 裁剪祖先围出的可见区域 x0, y0, x1, y1 —— 画布设备像素；没有裁剪的方向是 ±65536
   clipRadii: vec4f,     // 可见区域四角的圆角 TL, TR, BR, BL（水平半径）
   light: vec4f,         // 按压处的光：中心 x、y，σ（画布设备像素），强度（0 = 没有）
-  shadow: vec4f,        // 投影：峰值 alpha、σ、向下的偏移（画布设备像素）、空
-  pose: vec4f,          // 旋转：cos θ、sin θ（屏幕坐标，y 向下），空，空。没有旋转是 (1, 0)
+  shadow: vec4f,        // 投影：峰值 alpha、σ、向下的偏移、形状往里缩的量（都是画布设备像素）
+  pose: vec4f,          // 旋转：cos θ、sin θ（屏幕坐标，y 向下）；放大系数 m / (1 + m)；1 ÷ 面板的高（体光用，CPU 算好倒数）
   clipRadiiY: vec4f,    // 可见区域四角的竖直半径（与 clipRadii 相等的角是圆角）
   clipInv: array<vec4f, 2>, // 1 ÷ 水平半径、1 ÷ 竖直半径（半径 0 写 0）
   shapeBox: vec4f,      // 单独算的那个圆角形状（被截断的圆角祖先、clip-path 的圆 / 椭圆）；没有时是 ±65536、半径 0
@@ -178,16 +178,24 @@ struct Panel {
   maskAlpha: array<vec4f, 2>, // 色标的不透明度（5 个）
   maskAt: array<vec4f, 2>,    // 色标的位置（5 个）；maskAt[1].y、z 是重复的周期的倒数与周期
   maskSpan: vec4f,      // 相邻两个位置之差的倒数（重合的是 0）
+  extra: vec4f,         // x：体光的强度（材质的 bodyLight，0–1）；y、z、w 空
 }
 
-// 光源方向：指向光源的单位向量，屏幕坐标（y 向下）。左上 45°。
-// 于是上边和左边受光、右边和下边背光；左上角最亮、右下角暗边最深、另两角居中。
-// 选 45° 是为了验证时四个角的预期各不相同，一眼能对上。
-const LIGHT_DIR: vec2f = vec2f(-0.70710678, -0.70710678);
-// 高光对入射角的集中程度。2 = 左上角满强度、上边与左边约一半。
-const GLOSS: f32 = 2.0;
-// 暗边相对亮边的强度。Apple 的那道暗边很淡，所以远小于 1。
-const DARK_RIM: f32 = 0.35;
+// 光照，按 iOS 26 截图的实测定（docs/calibration.md「质感对照」）。各项都乘材质的 highlight。
+// 亮边一整圈：上下两侧最亮（双面），左右是它的 RIM_BASE 倍；没有暗边。
+const RIM_LIGHT_DIR: vec2f = vec2f(0.0, -1.0);
+const RIM_BASE: f32 = 0.45;
+const RIM_GLOSS: f32 = 1.0;
+// highlight = 1 时亮边最亮处加的亮度
+const RIM_GAIN: f32 = 0.3;
+// 倒角带：最外一圈的饱和度倍增与加亮，往里按折射剖面的平方衰减 —— 边上弯过来的颜色略艳、略亮
+const BEVEL_SATURATION: f32 = 0.3;
+const BEVEL_GLOW: f32 = 0.02;
+// 体光（材质的 bodyLight = 1 时）：顶上的暗度、下面的亮度（截图：按住的滑块旋钮顶上 −12、下面 +14 级）
+const BODY_SHADE: f32 = 0.047;
+const BODY_LIGHT: f32 = 0.055;
+// 影子的颜色：玻璃背后的平均色压暗到这个比例（截图上浅灰底上的影子偏蓝，不是纯黑）
+const SHADOW_TINT: f32 = 0.5;
 
 struct VsOut {
   @builtin(position) pos: vec4f,
@@ -209,8 +217,15 @@ fn lightAt(px: vec2f, light: vec4f) -> f32 {
 
 ${POSE_WGSL}
 
-// 投影：形状往下挪 offset 之后的 SDF，外面按高斯衰减，里面是峰值（被玻璃盖住的那部分看不见）。
+// 投影：形状往下挪 offset、四周往里缩 inset 之后的 SDF，外面按高斯衰减，里面是峰值（被玻璃盖住的那部分看不见）。
+// 缩进去的形状只在玻璃正下方露出来，两侧没有影子 —— 截图上就是这样。
 // 强度 0 时恰好是 0 —— 该丢弃的片元照样丢弃，其余加上去逐位不变。
+fn shadowSd(centered: vec2f, halfSize: vec2f, radii: vec4f, shadow: vec4f, pose: vec4f) -> f32 {
+  let shifted = centered - toLocal(vec2f(0.0, shadow.z), pose);
+  let inner = max(halfSize - vec2f(shadow.w, shadow.w), vec2f(0.0, 0.0));
+  return sdRoundedRect(shifted, inner, max(radiusAt(shifted, radii) - shadow.w, 0.0));
+}
+
 fn shadowAlpha(sdShifted: f32, strength: f32, sigma: f32) -> f32 {
   if (strength <= 0.0) {
     return 0.0;
@@ -271,6 +286,10 @@ struct Shading {
   coverage: f32,
   dir: vec2f,
   displacement: f32,
+  offset: vec2f,        // 放大：采样点往中心挪的量（没有放大时是 0）
+  bevel: f32,           // 倒角带里的位置：折射剖面按幅值 1 算（边缘 1、带的内边 0）
+  vpos: f32,            // 竖直位置：0 顶、1 底（体光用）
+  body: f32,            // 体光的强度（材质的 bodyLight，0 = 没有）
   normal: vec2f,
   tint: vec4f,
   blurLevel: f32,
@@ -284,17 +303,17 @@ struct Shading {
 }
 
 fn shade(px: vec2f, s: Shading) -> vec4f {
-  // —— 折射与色散 ——
-  // 往里采样：dir 指向外侧，减掉它。
-  let base = px - s.dir * s.displacement;
+  // —— 折射、放大与色散 ——
+  // 往里采样：dir 指向外侧，减掉它；放大再把采样点往中心挪 s.offset。
+  let base = px - s.dir * s.displacement - s.offset;
   var sampled: vec3f;
   if (s.dispersion > 0.0) {
     // 三个通道沿同一方向往里采，长度按 spectralWeights 缩放：蓝最长、红最短。
     // 所以边缘每一点上蓝都比红采得更靠里 —— 四个角的关系完全一致。
     // 上游用 (x·y)/(hx·hy) 调制色散，这个关系逐象限翻转。
     let w = spectralWeights(s.dispersion);
-    let sR = px - s.dir * (s.displacement * w.x);
-    let sB = px - s.dir * (s.displacement * w.z);
+    let sR = px - s.dir * (s.displacement * w.x) - s.offset;
+    let sB = px - s.dir * (s.displacement * w.z) - s.offset;
     sampled = vec3f(
       textureSampleLevel(chain, samp, sR / stage.canvasSize, s.blurLevel).r,
       textureSampleLevel(chain, samp, base / stage.canvasSize, s.blurLevel).g,
@@ -305,18 +324,20 @@ fn shade(px: vec2f, s: Shading) -> vec4f {
     // 所以关掉色散时的输出与 T7 逐位一致（有整帧哈希比对为证）。
     sampled = textureSampleLevel(chain, samp, base / stage.canvasSize, s.blurLevel).rgb;
   }
-  let filtered = applyColorFilter(sampled, s.saturation, workingTint(s.tint));
+  // 倒角带里饱和度更高：边上弯过来的颜色更艳（截图上滑块旋钮左缘那圈蓝）
+  let bevel2 = s.bevel * s.bevel;
+  let filtered = applyColorFilter(sampled, s.saturation * (1.0 + BEVEL_SATURATION * bevel2), workingTint(s.tint));
   let rgb = filtered * s.veil.x + (vec3f(1.0) - filtered * s.veil.x) * s.veil.y;
 
-  // —— 高光 ——
+  // —— 光：亮边、倒角的辉光、体光，都是加性的 ——
   // 法线用纯 SDF 梯度（放大后的角半径），不混 depthEffect —— 与上游一致，
   // 高光描述的是面板轮廓的朝向，不是折射方向。
-  let terms = highlightTerms(s.normal, LIGHT_DIR, GLOSS) * rimMask(s.sd, s.rimPx) * s.highlight;
-  let lit = terms.x + s.glow;
-  let dark = terms.y * DARK_RIM;
+  let rim = rimLight(s.normal, RIM_LIGHT_DIR, RIM_BASE, RIM_GLOSS) * rimMask(s.sd, s.rimPx) * RIM_GAIN;
+  let body = bodyLight(s.vpos, BODY_SHADE, BODY_LIGHT) * s.body;
+  let lit = (rim + BEVEL_GLOW * bevel2 + body) * s.highlight + s.glow;
 
   let a = s.coverage * s.opacity;
-  // 暗边按比例压暗玻璃本身；亮边是加性光。
+  // 光是加性的（体光顶上那条暗带是负的加性光）。
   //
   // **不钳 rgb ≤ a。** 原计划要钳，理由是预乘画布下 rgb > a 的合成结果未定义。
   // 但整个画布的 alpha 恒为 1（背景写 1，预乘混合保持 1 —— 实测全画布 alpha 皆为 255），
@@ -325,11 +346,20 @@ fn shade(px: vec2f, s: Shading) -> vec4f {
   //
   // 线性光模式下这里之前的一切（采样、调色、纱、亮边与暗边）都在线性光里，最后编码回 sRGB：
   // 画布上的合成（抗锯齿的边、投影）仍在编码空间，与 DOM 一样。
-  var color = rgb * (1.0 - dark) + vec3f(lit, lit, lit);
+  var color = max(rgb + vec3f(lit, lit, lit), vec3f(0.0, 0.0, 0.0));
   if (stage.linear > 0.5) {
     color = linearToSrgb(color);
   }
   return vec4f(color * a, a);
+}
+
+// 影子的颜色（预乘之前）：玻璃背后的平均色压暗。线性光模式下平均色是线性值，编码回 sRGB 再用（画布上是编码值）。
+fn shadowColor(avg: vec3f) -> vec3f {
+  let c = avg * SHADOW_TINT;
+  if (stage.linear > 0.5) {
+    return linearToSrgb(c);
+  }
+  return c;
 }
 
 // 自适应（文字可读性）。玻璃看起来有多亮，由它背后在面板范围里的平均颜色、经过这块玻璃自己的调色算出；
@@ -459,17 +489,16 @@ fn evalOptics(px: vec2f) -> Optics {
     return debug;
   }
 
-  // 投影：往下挪 offset 的同一个形状。与玻璃一样受裁剪、跟着不透明度
-  // 影子往屏幕上的下方挪，挪的量要转进面板坐标系
-  let shifted = o.centered - toLocal(vec2f(0.0, panel.shadow.z), panel.pose);
-  let sdShadow = sdRoundedRect(shifted, o.halfSize, radiusAt(shifted, panel.radii));
-  let shade0 = shadowAlpha(sdShadow, panel.shadow.x, panel.shadow.y) * clip * panel.opacity;
+  // 投影：往下挪、往里缩的同一个形状（shadowSd）。与玻璃一样受裁剪、跟着不透明度
+  let shade0 = shadowAlpha(shadowSd(o.centered, o.halfSize, panel.radii, panel.shadow, panel.pose), panel.shadow.x, panel.shadow.y) * clip * panel.opacity;
+  // 玻璃背后的平均色：自适应与影子的颜色共用
+  let avg = panelAverage(panel.rect);
 
   if (coverage <= 0.0) {
     if (shade0 <= 0.0) {
       discard;
     }
-    return vec4f(0.0, 0.0, 0.0, shade0); // 玻璃外面只有影子：预乘的黑
+    return vec4f(shadowColor(avg) * shade0, shade0); // 玻璃外面只有影子（预乘）
   }
 
   var s: Shading;
@@ -477,6 +506,12 @@ fn evalOptics(px: vec2f) -> Optics {
   s.coverage = coverage;
   s.dir = o.dir;
   s.displacement = o.displacement;
+  // 放大：pose.z = m / (1 + m)，采样点往中心挪（屏幕坐标，旋转不影响）
+  s.offset = (px - (panel.rect.xy + o.halfSize)) * panel.pose.z;
+  s.bevel = refractionProfile(o.sd, panel.heightPx, 1.0, panel.squircle);
+  // 竖直位置：pose.w 是 1 ÷ 面板的高（CPU 算好，着色器里不除以 uniform）
+  s.vpos = clamp((o.centered.y + o.halfSize.y) * panel.pose.w, 0.0, 1.0);
+  s.body = panel.extra.x;
   s.normal = toWorld(safeNormalize(gradSdRoundedRect(o.centered, o.halfSize, gradRadiusOf(o.radius, o.halfSize))), panel.pose);
   s.tint = panel.tint;
   s.blurLevel = panel.blurLevel;
@@ -486,10 +521,11 @@ fn evalOptics(px: vec2f) -> Optics {
   s.opacity = panel.opacity;
   s.rimPx = panel.rimPx;
   s.glow = lightAt(px, panel.light);
-  s.veil = adaptVeil(panelAverage(panel.rect), panel.adapt, panel.saturation, panel.tint);
+  s.veil = adaptVeil(avg, panel.adapt, panel.saturation, panel.tint);
   // 抗锯齿的那一圈边上，影子垫在玻璃下面
   let glass = shade(px, s);
-  return vec4f(glass.rgb, glass.a + shade0 * (1.0 - glass.a));
+  let under = shade0 * (1.0 - glass.a);
+  return vec4f(glass.rgb + shadowColor(avg) * under, glass.a + under);
 }
 
 /**

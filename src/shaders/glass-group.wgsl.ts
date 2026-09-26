@@ -44,6 +44,9 @@ struct MemberOptics {
   sd: f32,
   dir: vec2f,
   normal: vec2f,
+  offset: vec2f,        // 放大的采样偏移（与单块面板的 s.offset 相同的算法）
+  vpos: f32,            // 竖直位置（与单块面板的 s.vpos 相同的算法）
+  body: f32,            // 体光的强度（与单块面板的 s.body 相同的算法）
 }
 
 // 与单块面板的 evalOptics 完全相同的几行。
@@ -56,6 +59,9 @@ fn memberOptics(p: Panel, px: vec2f) -> MemberOptics {
   m.sd = sdRoundedRect(centered, halfSize, radius);
   m.dir = toWorld(refractionDirection(centered, halfSize, gradR, p.depthEffect), p.pose);
   m.normal = toWorld(safeNormalize(gradSdRoundedRect(centered, halfSize, gradR)), p.pose);
+  m.offset = (px - (p.rect.xy + halfSize)) * p.pose.z;
+  m.vpos = clamp((centered.y + halfSize.y) * p.pose.w, 0.0, 1.0);
+  m.body = p.extra.x;
   return m;
 }
 
@@ -73,6 +79,10 @@ struct Merged {
   dir: vec2f,
   normal: vec2f,
   displacement: f32,
+  offset: vec2f,
+  bevel: f32,
+  vpos: f32,
+  body: f32,
   tint: vec4f,
   heightPx: f32,
   amountPx: f32,
@@ -104,6 +114,9 @@ fn evalGroup(px: vec2f) -> Merged {
   m.sd = f.sd;
   m.dir = f.dir;
   m.normal = f.normal;
+  m.offset = f.offset;
+  m.vpos = f.vpos;
+  m.body = f.body;
   m.tint = first.tint;
   m.heightPx = first.heightPx;
   m.amountPx = first.amountPx;
@@ -125,6 +138,9 @@ fn evalGroup(px: vec2f) -> Merged {
     m.sd = s.x;
     m.dir = sminGradient(c.dir, m.dir, h);
     m.normal = sminGradient(c.normal, m.normal, h);
+    m.offset = blend2(m.offset, c.offset, h);
+    m.vpos = blend1(m.vpos, c.vpos, h);
+    m.body = blend1(m.body, c.body, h);
     m.tint = blend4(m.tint, p.tint, h);
     m.heightPx = blend1(m.heightPx, p.heightPx, h);
     m.amountPx = blend1(m.amountPx, p.amountPx, h);
@@ -145,6 +161,7 @@ fn evalGroup(px: vec2f) -> Merged {
   m.dir = select(m.dir, safeNormalize(m.dir), blended);
   m.normal = select(m.normal, safeNormalize(m.normal), blended);
   m.displacement = refractionProfile(m.sd, m.heightPx, m.amountPx, m.squircle) * agreement;
+  m.bevel = refractionProfile(m.sd, m.heightPx, 1.0, m.squircle) * agreement;
   return m;
 }
 
@@ -159,30 +176,32 @@ fn groupGlow(px: vec2f) -> f32 {
   return g;
 }
 
-// 合并组的投影：各成员往下挪之后的 SDF 用同一个 smin 折叠，深浅与 σ 按 h 混合 ——
-// 相距足够远（h 恰为 0 或 1）时与各自单独绘制逐位相同。
-fn memberSd(p: Panel, pos: vec2f) -> f32 {
+// 合并组的投影：各成员往下挪、往里缩之后的 SDF（与单块面板的 shadowSd 相同）用同一个 smin 折叠，
+// 深浅、σ 与颜色（各成员背后的平均色）按 h 混合 —— 相距足够远（h 恰为 0 或 1）时与各自单独绘制逐位相同。
+fn memberShadowSd(p: Panel, pos: vec2f) -> f32 {
   let halfSize = p.rect.zw * 0.5;
   let centered = toLocal(pos - (p.rect.xy + halfSize), p.pose);
-  return sdRoundedRect(centered, halfSize, radiusAt(centered, p.radii));
+  return shadowSd(centered, halfSize, p.radii, p.shadow, p.pose);
 }
 
-fn groupShadow(px: vec2f) -> f32 {
+// 返回 (影子颜色（预乘之前的平均色）, 不透明度)。
+fn groupShadow(px: vec2f) -> vec4f {
   let count = min(u32(group.header.x + 0.5), ${GROUP_CAPACITY}u);
   let k = group.header.y;
   let first = group.members[0];
-  let at = px - vec2f(0.0, first.shadow.z);
-  var sd = memberSd(first, at);
+  var sd = memberShadowSd(first, px);
   var strength = first.shadow.x;
   var sigma = first.shadow.y;
+  var avg = panelAverage(first.rect);
   for (var i = 1u; i < count; i++) {
     let p = group.members[i];
-    let s = smin(memberSd(p, at), sd, k);
+    let s = smin(memberShadowSd(p, px), sd, k);
     sd = s.x;
     strength = blend1(strength, p.shadow.x, s.y);
     sigma = blend1(sigma, p.shadow.y, s.y);
+    avg = avg * (1.0 - s.y) + panelAverage(p.rect) * s.y;
   }
-  return shadowAlpha(sd, strength, sigma);
+  return vec4f(avg, shadowAlpha(sd, strength, sigma));
 }
 
 fn groupClip(px: vec2f) -> f32 {
@@ -205,12 +224,14 @@ fn groupClip(px: vec2f) -> f32 {
     return debug;
   }
 
-  let shade0 = groupShadow(px) * clip * m.opacity;
+  let shadow = groupShadow(px);
+  let shade0 = shadow.w * clip * m.opacity;
+  let avg = shadow.xyz;
   if (coverage <= 0.0) {
     if (shade0 <= 0.0) {
       discard;
     }
-    return vec4f(0.0, 0.0, 0.0, shade0);
+    return vec4f(shadowColor(avg) * shade0, shade0);
   }
 
   var s: Shading;
@@ -218,6 +239,10 @@ fn groupClip(px: vec2f) -> f32 {
   s.coverage = coverage;
   s.dir = m.dir;
   s.displacement = m.displacement;
+  s.offset = m.offset;
+  s.bevel = m.bevel;
+  s.vpos = m.vpos;
+  s.body = m.body;
   s.normal = m.normal;
   s.tint = m.tint;
   s.blurLevel = m.blurLevel;
@@ -229,7 +254,8 @@ fn groupClip(px: vec2f) -> f32 {
   s.glow = groupGlow(px);
   s.veil = m.veil;
   let glass = shade(px, s);
-  return vec4f(glass.rgb, glass.a + shade0 * (1.0 - glass.a));
+  let under = shade0 * (1.0 - glass.a);
+  return vec4f(glass.rgb + shadowColor(avg) * under, glass.a + under);
 }
 
 // 探针：r = sd, g = dir.x, b = dir.y, a = displacement（已乘一致度）。

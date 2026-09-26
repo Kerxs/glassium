@@ -305,11 +305,19 @@ struct Panel {
   vec4 maskAlpha[2];
   vec4 maskAt[2];
   vec4 maskSpan;
+  vec4 extra;
 };
 
-const vec2 LIGHT_DIR = vec2(-0.70710678, -0.70710678);
-const float GLOSS = 2.0;
-const float DARK_RIM = 0.35;
+// 与 glass.wgsl.ts 的光照常量相同。
+const vec2 RIM_LIGHT_DIR = vec2(0.0, -1.0);
+const float RIM_BASE = 0.45;
+const float RIM_GLOSS = 1.0;
+const float RIM_GAIN = 0.3;
+const float BEVEL_SATURATION = 0.3;
+const float BEVEL_GLOW = 0.02;
+const float BODY_SHADE = 0.047;
+const float BODY_LIGHT = 0.055;
+const float SHADOW_TINT = 0.5;
 
 uniform sampler2D chain;
 uniform vec4 uStage;       // canvasSize.xy, probeOrigin.xy
@@ -344,6 +352,10 @@ struct Shading {
   float coverage;
   vec2 dir;
   float displacement;
+  vec2 offset;
+  float bevel;
+  float vpos;
+  float body;
   vec2 normal;
   vec4 tint;
   float blurLevel;
@@ -357,12 +369,12 @@ struct Shading {
 };
 
 vec4 shade(vec2 px, Shading s) {
-  vec2 base = px - s.dir * s.displacement;
+  vec2 base = px - s.dir * s.displacement - s.offset;
   vec3 sampled;
   if (s.dispersion > 0.0) {
     vec3 w = spectralWeights(s.dispersion);
-    vec2 sR = px - s.dir * (s.displacement * w.x);
-    vec2 sB = px - s.dir * (s.displacement * w.z);
+    vec2 sR = px - s.dir * (s.displacement * w.x) - s.offset;
+    vec2 sB = px - s.dir * (s.displacement * w.z) - s.offset;
     sampled = vec3(
       textureLod(chain, sR * uStageInv, s.blurLevel).r,
       textureLod(chain, base * uStageInv, s.blurLevel).g,
@@ -371,17 +383,27 @@ vec4 shade(vec2 px, Shading s) {
   } else {
     sampled = textureLod(chain, base * uStageInv, s.blurLevel).rgb;
   }
-  vec3 filtered = applyColorFilter(sampled, s.saturation, workingTint(s.tint));
+  float bevel2 = s.bevel * s.bevel;
+  vec3 filtered = applyColorFilter(sampled, s.saturation * (1.0 + BEVEL_SATURATION * bevel2), workingTint(s.tint));
   vec3 rgb = filtered * s.veil.x + (vec3(1.0) - filtered * s.veil.x) * s.veil.y;
-  vec2 terms = highlightTerms(s.normal, LIGHT_DIR, GLOSS) * rimMask(s.sd, s.rimPx) * s.highlight;
-  float lit = terms.x + s.glow;
-  float dark = terms.y * DARK_RIM;
+  float rim = rimLight(s.normal, RIM_LIGHT_DIR, RIM_BASE, RIM_GLOSS) * rimMask(s.sd, s.rimPx) * RIM_GAIN;
+  float body = bodyLight(s.vpos, BODY_SHADE, BODY_LIGHT) * s.body;
+  float lit = (rim + BEVEL_GLOW * bevel2 + body) * s.highlight + s.glow;
   float a = s.coverage * s.opacity;
-  vec3 color = rgb * (1.0 - dark) + vec3(lit, lit, lit);
+  vec3 color = max(rgb + vec3(lit, lit, lit), vec3(0.0));
   if (uLinear > 0.5) {
     color = linearToSrgb(color);
   }
   return vec4(color * a, a);
+}
+
+// 与 glass.wgsl.ts 的 shadowColor 对应。
+vec3 shadowColor(vec3 avg) {
+  vec3 c = avg * SHADOW_TINT;
+  if (uLinear > 0.5) {
+    return linearToSrgb(c);
+  }
+  return c;
 }
 
 // 与 glass.wgsl.ts 的自适应对应。
@@ -442,6 +464,13 @@ float lightAt(vec2 px, vec4 light) {
 }
 
 ${POSE_GLSL}
+
+// 与 glass.wgsl.ts 的 shadowSd 对应。
+float shadowSd(vec2 centered, vec2 halfSize, vec4 radii, vec4 shadow, vec4 pose) {
+  vec2 shifted = centered - toLocal(vec2(0.0, shadow.z), pose);
+  vec2 inner = max(halfSize - vec2(shadow.w, shadow.w), vec2(0.0));
+  return sdRoundedRect(shifted, inner, max(radiusAt(shifted, radii) - shadow.w, 0.0));
+}
 
 // 与 glass.wgsl.ts 的 shadowAlpha 对应。
 float shadowAlpha(float sdShifted, float strength, float sigma) {
@@ -531,14 +560,13 @@ void main() {
     outColor = debug;
     return;
   }
-  vec2 shifted = o.centered - toLocal(vec2(0.0, panel.shadow.z), panel.pose);
-  float sdShadow = sdRoundedRect(shifted, o.halfSize, radiusAt(shifted, panel.radii));
-  float shade0 = shadowAlpha(sdShadow, panel.shadow.x, panel.shadow.y) * clip * panel.opacity;
+  float shade0 = shadowAlpha(shadowSd(o.centered, o.halfSize, panel.radii, panel.shadow, panel.pose), panel.shadow.x, panel.shadow.y) * clip * panel.opacity;
+  vec3 avg = panelAverage(panel.rect);
   if (coverage <= 0.0) {
     if (shade0 <= 0.0) {
       discard;
     }
-    outColor = vec4(0.0, 0.0, 0.0, shade0);
+    outColor = vec4(shadowColor(avg) * shade0, shade0);
     return;
   }
   Shading s;
@@ -546,6 +574,10 @@ void main() {
   s.coverage = coverage;
   s.dir = o.dir;
   s.displacement = o.displacement;
+  s.offset = (px - (panel.rect.xy + o.halfSize)) * panel.pose.z;
+  s.bevel = refractionProfile(o.sd, panel.heightPx, 1.0, panel.squircle);
+  s.vpos = clamp((o.centered.y + o.halfSize.y) * panel.pose.w, 0.0, 1.0);
+  s.body = panel.extra.x;
   s.normal = toWorld(safeNormalize(gradSdRoundedRect(o.centered, o.halfSize, gradRadiusOf(o.radius, o.halfSize))), panel.pose);
   s.tint = panel.tint;
   s.blurLevel = panel.blurLevel;
@@ -555,9 +587,10 @@ void main() {
   s.opacity = panel.opacity;
   s.rimPx = panel.rimPx;
   s.glow = lightAt(px, panel.light);
-  s.veil = adaptVeil(panelAverage(panel.rect), panel.adapt, panel.saturation, panel.tint);
+  s.veil = adaptVeil(avg, panel.adapt, panel.saturation, panel.tint);
   vec4 glass = shade(px, s);
-  outColor = vec4(glass.rgb, glass.a + shade0 * (1.0 - glass.a));
+  float under = shade0 * (1.0 - glass.a);
+  outColor = vec4(glass.rgb + shadowColor(avg) * under, glass.a + under);
 }
 `
 
@@ -602,6 +635,7 @@ layout(std140) uniform FillBlock {
 uniform vec4 uDest;         // scale.xy（一个目标像素是几个画布设备像素）, aa, 翻不翻（1 = 画布）
 uniform float uDestHeight;  // 目标的高：翻 y 用
 uniform float uLinear;      // 1 = 输出线性值（线性光模式下画进场景目标，见 fill.wgsl.ts 的 Dest.linear）
+uniform sampler2D uAtlas;   // 位图填充的图集（预乘的 sRGB 编码值，第 0 行是顶部）；没有时是 1×1 的透明占位
 out vec4 outColor;
 ${SRGB_GLSL}
 
@@ -674,6 +708,20 @@ void main() {
   float shape = clamp(0.5 - sd / uDest.z, 0.0, 1.0);
   float clip = clamp(0.5 - clipSd(px) / uDest.z, 0.0, 1.0) *
     maskAlpha(px, fill.maskPaint, fill.maskGeom, fill.maskAlpha[0], fill.maskAlpha[1], fill.maskAt[0], fill.maskAt[1], fill.maskSpan);
+  if (fill.paint.x > 2.5) {
+    // 与 fill.wgsl.ts 的位图一支对应
+    vec4 texel = textureLod(uAtlas, fill.geom.xy + (c + halfSize) * fill.geom.zw, 0.0);
+    float kb = fill.color.a * shape * clip;
+    if (texel.a * kb <= 0.0) {
+      discard;
+    }
+    if (uLinear > 0.5) {
+      outColor = vec4(srgbToLinear(texel.rgb / texel.a) * texel.a * kb, texel.a * kb);
+      return;
+    }
+    outColor = texel * kb;
+    return;
+  }
   if (fill.paint.x < 0.5) {
     float a = fill.color.a * shape * clip;
     if (a <= 0.0) {
@@ -717,6 +765,9 @@ struct MemberOptics {
   float sd;
   vec2 dir;
   vec2 normal;
+  vec2 offset;
+  float vpos;
+  float body;
 };
 
 MemberOptics memberOptics(Panel p, vec2 px) {
@@ -728,6 +779,9 @@ MemberOptics memberOptics(Panel p, vec2 px) {
   m.sd = sdRoundedRect(centered, halfSize, radius);
   m.dir = toWorld(refractionDirection(centered, halfSize, gradR, p.depthEffect), p.pose);
   m.normal = toWorld(safeNormalize(gradSdRoundedRect(centered, halfSize, gradR)), p.pose);
+  m.offset = (px - (p.rect.xy + halfSize)) * p.pose.z;
+  m.vpos = clamp((centered.y + halfSize.y) * p.pose.w, 0.0, 1.0);
+  m.body = p.extra.x;
   return m;
 }
 
@@ -744,6 +798,10 @@ struct Merged {
   vec2 dir;
   vec2 normal;
   float displacement;
+  vec2 offset;
+  float bevel;
+  float vpos;
+  float body;
   vec4 tint;
   float heightPx;
   float amountPx;
@@ -775,6 +833,9 @@ Merged evalGroup(vec2 px) {
   m.sd = f.sd;
   m.dir = f.dir;
   m.normal = f.normal;
+  m.offset = f.offset;
+  m.vpos = f.vpos;
+  m.body = f.body;
   m.tint = first.tint;
   m.heightPx = first.heightPx;
   m.amountPx = first.amountPx;
@@ -797,6 +858,9 @@ Merged evalGroup(vec2 px) {
     m.sd = s.x;
     m.dir = sminGradient(c.dir, m.dir, h);
     m.normal = sminGradient(c.normal, m.normal, h);
+    m.offset = blend2(m.offset, c.offset, h);
+    m.vpos = blend1(m.vpos, c.vpos, h);
+    m.body = blend1(m.body, c.body, h);
     m.tint = blend4(m.tint, p.tint, h);
     m.heightPx = blend1(m.heightPx, p.heightPx, h);
     m.amountPx = blend1(m.amountPx, p.amountPx, h);
@@ -815,6 +879,7 @@ Merged evalGroup(vec2 px) {
   m.dir = blended ? safeNormalize(m.dir) : m.dir;
   m.normal = blended ? safeNormalize(m.normal) : m.normal;
   m.displacement = refractionProfile(m.sd, m.heightPx, m.amountPx, m.squircle) * agreement;
+  m.bevel = refractionProfile(m.sd, m.heightPx, 1.0, m.squircle) * agreement;
   return m;
 }
 
@@ -828,29 +893,31 @@ float groupGlow(vec2 px) {
   return g;
 }
 
-float memberSd(Panel p, vec2 pos) {
+float memberShadowSd(Panel p, vec2 pos) {
   vec2 halfSize = p.rect.zw * 0.5;
   vec2 centered = toLocal(pos - (p.rect.xy + halfSize), p.pose);
-  return sdRoundedRect(centered, halfSize, radiusAt(centered, p.radii));
+  return shadowSd(centered, halfSize, p.radii, p.shadow, p.pose);
 }
 
-float groupShadow(vec2 px) {
+// 与 glass-group.wgsl.ts 的 groupShadow 对应：(影子颜色, 不透明度)。
+vec4 groupShadow(vec2 px) {
   int count = min(int(grp.header.x + 0.5), ${capacity});
   float k = grp.header.y;
   Panel first = grp.members[0];
-  vec2 at = px - vec2(0.0, first.shadow.z);
-  float sd = memberSd(first, at);
+  float sd = memberShadowSd(first, px);
   float strength = first.shadow.x;
   float sigma = first.shadow.y;
+  vec3 avg = panelAverage(first.rect);
   for (int i = 1; i < ${capacity}; i++) {
     if (i >= count) break;
     Panel p = grp.members[i];
-    vec2 s = smin(memberSd(p, at), sd, k);
+    vec2 s = smin(memberShadowSd(p, px), sd, k);
     sd = s.x;
     strength = blend1(strength, p.shadow.x, s.y);
     sigma = blend1(sigma, p.shadow.y, s.y);
+    avg = avg * (1.0 - s.y) + panelAverage(p.rect) * s.y;
   }
-  return shadowAlpha(sd, strength, sigma);
+  return vec4(avg, shadowAlpha(sd, strength, sigma));
 }
 
 float groupClip(vec2 px) {
@@ -877,12 +944,14 @@ void main() {
     outColor = debug;
     return;
   }
-  float shade0 = groupShadow(px) * clip * m.opacity;
+  vec4 shadow = groupShadow(px);
+  float shade0 = shadow.w * clip * m.opacity;
+  vec3 avg = shadow.xyz;
   if (coverage <= 0.0) {
     if (shade0 <= 0.0) {
       discard;
     }
-    outColor = vec4(0.0, 0.0, 0.0, shade0);
+    outColor = vec4(shadowColor(avg) * shade0, shade0);
     return;
   }
   Shading s;
@@ -890,6 +959,10 @@ void main() {
   s.coverage = coverage;
   s.dir = m.dir;
   s.displacement = m.displacement;
+  s.offset = m.offset;
+  s.bevel = m.bevel;
+  s.vpos = m.vpos;
+  s.body = m.body;
   s.normal = m.normal;
   s.tint = m.tint;
   s.blurLevel = m.blurLevel;
@@ -901,7 +974,8 @@ void main() {
   s.glow = groupGlow(px);
   s.veil = m.veil;
   vec4 glass = shade(px, s);
-  outColor = vec4(glass.rgb, glass.a + shade0 * (1.0 - glass.a));
+  float under = shade0 * (1.0 - glass.a);
+  outColor = vec4(glass.rgb + shadowColor(avg) * under, glass.a + under);
 }
 `
 }

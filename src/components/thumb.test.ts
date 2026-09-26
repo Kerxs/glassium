@@ -2,7 +2,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 
 import { lowerMaterial, parseTint } from '../core/material.ts'
-import { THUMB_PRESSED, THUMB_REST, thumbMaterial } from './thumb.ts'
+import { SEGMENT_THUMB_PRESSED, THUMB_PRESSED, THUMB_REST, thumbMaterial } from './thumb.ts'
 
 test('旋钮材质：能量 0 是静止（白旋钮），1 是按下（透镜），出界的钳住', () => {
   const rest = thumbMaterial(0)
@@ -27,4 +27,15 @@ test('旋钮材质能降级（在调用处就会抛的那种错一个都没有�
     assert.deepEqual(chain.cornerRadiiDp, [12, 12, 12, 12], '胶囊：半径是短边的一半')
   }
   assert.ok(THUMB_REST.whiteness > 0.9 && THUMB_PRESSED.whiteness < 0.1)
+})
+
+test('滑块、开关按住时不放大、有体光；分段控件的选中块按住时放大', () => {
+  const plain = thumbMaterial(1)
+  assert.equal(plain.magnify, 0, '截图上滑块旋钮里的轨道与外面一样粗')
+  assert.equal(plain.bodyLight, 1)
+  assert.equal(thumbMaterial(0).bodyLight, 0, '静止的白旋钮没有体光')
+  const segment = thumbMaterial(1, SEGMENT_THUMB_PRESSED)
+  assert.ok(segment.magnify! > 0.1, '字被放大')
+  assert.equal(segment.bodyLight, 1)
+  assert.deepEqual(thumbMaterial(0, SEGMENT_THUMB_PRESSED), thumbMaterial(0), '静止时两者一样')
 })

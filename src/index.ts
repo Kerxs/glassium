@@ -24,10 +24,12 @@ export {
   clampRadii,
   gradRadiusOf,
   gradSdRoundedRect,
-  highlightTerms,
+  bodyLight,
+  magnifyFactor,
   radiusAt,
   refractionDirection,
   refractionProfile,
+  rimLight,
   rimMask,
   safeNormalize,
   sdRoundedRect,
@@ -198,7 +200,16 @@ export {
   snapValue as snapSliderValue,
   type SliderRange
 } from './components/glass-slider.ts'
-export { PressTween, THUMB_PRESSED, THUMB_REST, thumbMaterial, type ThumbParams } from './components/thumb.ts'
+export {
+  PressTween,
+  SEGMENT_THUMB_PRESSED,
+  THUMB_PRESSED,
+  THUMB_REST,
+  thumbMaterial,
+  type ThumbParams
+} from './components/thumb.ts'
+// 文字进场景：把元素里的文字、图标画进 2D 画布（位图填充的 painter），分段控件与标签栏按住时用
+export { SceneLabels, paintContent, type LabelSource } from './components/scene-label.ts'
 export { MATERIAL_ATTRIBUTES, parseMaterialAttributes } from './components/attributes.ts'
 
 // —— 玻璃面板（T7 起）与合并组（T10 起）——
@@ -209,9 +220,15 @@ export {
   MAX_GLASS_LAYER,
   OVERLAY_ATTRIBUTE,
   OVERLAY_OPT_IN,
+  RIM_MIN_PX,
+  RIM_WIDTH_DP,
+  SHADOW_OPACITY,
+  shadowShapeDp,
+  type BitmapPainter,
   type GlassGroup,
   type GlassPanel,
   type PanelLight,
+  type SceneBitmapFill,
   type SceneFill
 } from './renderer/panels.ts'
 // —— 填充：画进场景的纯色形状（`<glass-fill>`）——

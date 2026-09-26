@@ -2,12 +2,14 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 
 import {
+  bodyLight,
   channelSampleOffsets,
   gradRadiusOf,
   gradSdRoundedRect,
-  highlightTerms,
+  magnifyFactor,
   refractionDirection,
   refractionProfile,
+  rimLight,
   rimMask,
   safeNormalize,
   sdRoundedRect,
@@ -26,7 +28,7 @@ const HALF: Vec2 = [150, 90]
 const RADIUS = 40
 const HEIGHT = 24
 const AMOUNT = 48
-const LIGHT: Vec2 = [-Math.SQRT1_2, -Math.SQRT1_2] // 左上 45°，与着色器一致
+const LIGHT: Vec2 = [0, -1] // 竖直，与着色器的 RIM_LIGHT_DIR 一致
 
 /** 四个角各取一个边缘带内的点（沿 45° 方向走到 sd = -4）。 */
 function cornerPoints(): Record<'TL' | 'TR' | 'BR' | 'BL', Vec2> {
@@ -115,36 +117,50 @@ test('色散为 0 时三个通道的偏移逐位相等', () => {
  * 高光
  * ------------------------------------------------------------------ */
 
-test('高光：朝光一侧只亮不暗，背光一侧只暗不亮', () => {
+test('亮边：一整圈都亮 —— 最暗的地方正好是 base，没有哪里是 0', () => {
   for (let deg = 0; deg < 360; deg += 5) {
     const a = (deg * Math.PI) / 180
-    const n: Vec2 = [Math.cos(a), Math.sin(a)]
-    const { lit, dark } = highlightTerms(n, LIGHT, 2)
-    const ndl = n[0] * LIGHT[0] + n[1] * LIGHT[1]
-    assert.ok(lit === 0 || dark === 0, `${deg}° 处亮与暗同时非零`)
-    if (ndl > 1e-9) assert.ok(lit > 0 && dark === 0, `${deg}° 朝光却不亮`)
-    if (ndl < -1e-9) assert.ok(dark > 0 && lit === 0, `${deg}° 背光却在发亮`)
+    const v = rimLight([Math.cos(a), Math.sin(a)], LIGHT, 0.5, 1)
+    assert.ok(v >= 0.5 - 1e-12 && v <= 1 + 1e-12, `${deg}° 处 ${v} 超出 [base, 1]`)
   }
 })
 
-test('高光：左上最亮、右下暗边最深、另两角居中', () => {
-  const at = (x: number, y: number) => highlightTerms(safeNormalize([x, y]), LIGHT, 2)
-  assert.ok(Math.abs(at(-1, -1).lit - 1) < 1e-12, '左上满强度')
-  assert.ok(Math.abs(at(1, 1).dark - 1) < 1e-12, '右下暗边满强度')
-  const tr = at(1, -1)
-  const bl = at(-1, 1)
-  assert.ok(tr.lit < 1e-12 && tr.dark < 1e-12, '右上两项都应接近 0')
-  assert.ok(bl.lit < 1e-12 && bl.dark < 1e-12, '左下两项都应接近 0')
+test('亮边：上下两侧最亮（双面、等亮），左右是 base —— iOS 26 截图上就是这样', () => {
+  const at = (x: number, y: number): number => rimLight(safeNormalize([x, y]), LIGHT, 0.5, 1)
+  assert.ok(Math.abs(at(0, -1) - 1) < 1e-12, '上缘满强度')
+  assert.ok(Math.abs(at(0, 1) - 1) < 1e-12, '下缘满强度（双面）')
+  assert.ok(Math.abs(at(1, 0) - 0.5) < 1e-12, '右缘是 base')
+  assert.ok(Math.abs(at(-1, 0) - 0.5) < 1e-12, '左缘是 base')
 })
 
-test('对照：上游的 abs() 让朝光与背光两边等亮', () => {
-  // 上游：pow(abs(dot(n, L)), falloff)。这就是「两个光源」的来源。
-  const upstream = (n: Vec2): number => Math.pow(Math.abs(n[0] * LIGHT[0] + n[1] * LIGHT[1]), 2)
-  const tl = upstream(safeNormalize([-1, -1]))
-  const br = upstream(safeNormalize([1, 1]))
-  assert.ok(Math.abs(tl - br) < 1e-12, '上游左上与右下同样亮')
-  // 而这里右下一点都不亮
-  assert.equal(highlightTerms(safeNormalize([1, 1]), LIGHT, 2).lit, 0)
+test('对照：旧的单面模型（只在受光一侧亮）在下缘是 0，分得出来', () => {
+  const oneSided = (n: Vec2): number => Math.pow(Math.max(n[0] * LIGHT[0] + n[1] * LIGHT[1], 0), 1)
+  assert.equal(oneSided([0, 1]), 0)
+  assert.ok(rimLight([0, 1], LIGHT, 0.5, 1) > 0.9)
+})
+
+test('体光：顶上是 −shade，往下单调变亮，40% 往下满亮', () => {
+  assert.ok(Math.abs(bodyLight(0, 0.05, 0.06) + 0.05) < 1e-12, '顶上是 −shade')
+  assert.ok(bodyLight(0.1, 0.05, 0.06) < 0, '上面 10% 处还是暗的')
+  assert.ok(bodyLight(0.3, 0.05, 0.06) > 0, '30% 处已经亮了')
+  assert.ok(Math.abs(bodyLight(0.4, 0.05, 0.06) - 0.06) < 1e-12, '40% 处满亮')
+  assert.ok(Math.abs(bodyLight(1, 0.05, 0.06) - 0.06) < 1e-12, '到底都是满亮')
+  let prev = -1
+  for (let t = 0; t <= 1; t += 0.01) {
+    const v = bodyLight(t, 0.05, 0.06)
+    assert.ok(v >= prev - 1e-12, `t = ${t} 处不单调`)
+    prev = v
+  }
+})
+
+test('放大：m = 0 时系数恰好是 0；放大 1 + m 倍 —— 离中心 v 的像素采 v / (1 + m) 处', () => {
+  assert.equal(magnifyFactor(0), 0)
+  assert.equal(magnifyFactor(-1), 0)
+  for (const m of [0.1, 0.25, 1]) {
+    const k = magnifyFactor(m)
+    const v = 40
+    assert.ok(Math.abs(v - v * k - v / (1 + m)) < 1e-12, `m = ${m}`)
+  }
 })
 
 /* ------------------------------------------------------------------ *

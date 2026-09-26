@@ -1,5 +1,6 @@
 /**
- * 填充 pass：`<glass-fill>` 的圆角矩形，纯色或渐变（线性、径向，可重复）。
+ * 填充 pass：`<glass-fill>` 的圆角矩形，纯色或渐变（线性、径向，可重复）；位图填充（分段控件、标签栏画进场景的
+ * 文字与图标）在共享的图集纹理里取样。
  *
  * 玻璃只折射场景（R2），DOM 的背景它看不见。填充是「CSS 摆位、Glassium 画」的纯色形状，
  * 每块画两次：
@@ -16,6 +17,9 @@
  * 插值 —— 与浏览器画 CSS 渐变一样在预乘的 sRGB 里插（透明的一头不发黑），线性光模式下插完再换成线性值。
  * 着色器里不除以 uniform：方向、半径、色标间距的倒数都在 CPU 上算好（除以 uniform 在 NVIDIA + ANGLE 上
  * 帧与帧之间会差 1 ulp，见 webgl2/shaders.ts 的 uStageInv）。
+ *
+ * 位图：图集（renderer/atlas.ts）里是预乘的 sRGB 编码值，盒子里的位置按 geom 换算成图集 uv（CPU 算好原点与
+ * 每个画布设备像素走多少 uv），与渐变一样乘上形状、裁剪与不透明度，线性光模式下去掉预乘换成线性值再预乘回去。
  *
  * 和 scene / blur / glass 一样**不经过重写器**：有入口点与绑定，各后端手写（GLSL 在 webgl2/shaders.ts）。
  */
@@ -46,8 +50,9 @@ struct Fill {
   clip: vec4f,          // 裁剪祖先围出的可见区域 x0, y0, x1, y1；没有裁剪的方向是 ±65536
   clipRadii: vec4f,     // 可见区域四角的圆角 TL, TR, BR, BL
   pose: vec4f,          // 旋转：cos θ、sin θ（屏幕坐标，y 向下），空，空
-  paint: vec4f,         // 种类（0 纯色 · 1 线性 · 2 径向）、色标数、重复（0 / 1）、空
-  geom: vec4f,          // 线性：起点 xy、(终点 − 起点) ÷ 长度²；径向：中心 xy、1/rx、1/ry（盒子左上角为原点、转之前，画布设备像素）
+  paint: vec4f,         // 种类（0 纯色 · 1 线性 · 2 径向 · 3 位图）、色标数、重复（0 / 1）、空
+  geom: vec4f,          // 线性：起点 xy、(终点 − 起点) ÷ 长度²；径向：中心 xy、1/rx、1/ry（盒子左上角为原点、转之前，画布设备像素）；
+                        // 位图：图集 uv 的原点 xy、每个画布设备像素走多少 uv
   stops: array<vec4f, ${MAX_GRADIENT_STOPS}>,  // 色标的颜色：未预乘的 rgb（sRGB 编码）+ a
   at: array<vec4f, 2>,  // 色标的位置（0–1 是 0%–100%）：at[0] 是第 0–3 个，at[1].x 第 4 个；at[1].y、z 是重复的周期的倒数与周期
   span: vec4f,          // 相邻两个色标之间：1 ÷ 位置之差（第 0–3 段；重合的是 0）
@@ -75,6 +80,9 @@ struct Dest {
 
 @group(0) @binding(0) var<uniform> fill: Fill;
 @group(0) @binding(1) var<uniform> dest: Dest;
+// 位图填充的图集（预乘的 sRGB 编码值）；没有位图填充时是 1×1 的透明占位
+@group(0) @binding(2) var atlas: texture_2d<f32>;
+@group(0) @binding(3) var atlasSampler: sampler;
 
 struct VsOut {
   @builtin(position) pos: vec4f,
@@ -166,6 +174,18 @@ fn gradientAt(t0: f32) -> vec4f {
   let shape = clamp(0.5 - sd / dest.aa, 0.0, 1.0);
   let clip = clamp(0.5 - clipSd(px) / dest.aa, 0.0, 1.0) *
     maskAlpha(px, fill.maskPaint, fill.maskGeom, fill.maskAlpha[0], fill.maskAlpha[1], fill.maskAt[0], fill.maskAt[1], fill.maskSpan);
+  if (fill.paint.x > 2.5) {
+    // 位图：盒子里的位置（左上角为原点、转之前）→ 图集 uv。textureSampleLevel 不要求一致控制流
+    let texel = textureSampleLevel(atlas, atlasSampler, fill.geom.xy + (c + halfSize) * fill.geom.zw, 0.0);
+    let kb = fill.color.a * shape * clip;
+    if (texel.a * kb <= 0.0) {
+      discard;
+    }
+    if (dest.linear > 0.5) {
+      return vec4f(srgbToLinear(texel.rgb / texel.a) * texel.a * kb, texel.a * kb);
+    }
+    return texel * kb;
+  }
   if (fill.paint.x < 0.5) {
     let a = fill.color.a * shape * clip;
     if (a <= 0.0) {

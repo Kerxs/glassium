@@ -175,6 +175,8 @@ function materialBetween(from: MorphEnd, to: MorphEnd, k: number, scale: number,
     depthEffect: n('depthEffect'),
     adaptive: n('adaptive'),
     shadow: n('shadow') * shadowScale,
+    magnify: n('magnify'),
+    bodyLight: n('bodyLight'),
     tint: `rgba(${lerp(r0, r1, k) * 255}, ${lerp(g0, g1, k) * 255}, ${lerp(b0, b1, k) * 255}, ${lerp(a0, a1, k)})`
   }
 }

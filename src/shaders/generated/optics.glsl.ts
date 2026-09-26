@@ -90,13 +90,15 @@ float rimMask(float sd, float rimPx) {
   return 1.0 - smoothstep(0.0, max(rimPx, 1e-6), -sd);
 }
 
-// 返回 (受光强度, 背光强度)。
-// 与上游的区别：上游是 pow(abs(dot(n, L)), falloff)，abs() 让朝光与背光两条边等亮，
-// 等于两个光源。这里拆成两项 —— 只有朝光一侧发亮，背光一侧给出暗边的强度。
-vec2 highlightTerms(vec2 n, vec2 lightDir, float gloss) {
-  float ndl = dot(n, lightDir);
-  float lit = pow(max(ndl, 0.0), gloss);
-  float dark = pow(max(-ndl, 0.0), gloss);
-  return vec2(lit, dark);
+// 亮边的角度因子：一整圈都亮，朝着与背着 lightDir 的两侧最亮（双面，与上游的 abs() 一样），
+// 与它垂直的两侧是 base（上游在那里是 0）。依据是 iOS 26 截图的实测，见 src/core/optics.ts 的 rimLight。
+float rimLight(vec2 n, vec2 lightDir, float base, float gloss) {
+  float ndl = abs(dot(n, lightDir));
+  return base + (1.0 - base) * pow(ndl, gloss);
+}
+
+// 体光：玻璃里面随竖直位置 t（0 顶、1 底）的亮度增减 —— 顶上暗，往下平滑地变亮，40% 往下满亮。
+float bodyLight(float t, float shade, float light) {
+  return (light + shade) * smoothstep(0.0, 0.4, t) - shade;
 }
 `

@@ -39,7 +39,7 @@ test('能量为 0 时，调制后的材质降级结果与基础材质逐位相�
 })
 
 test('按下时折射更深、位移更强、高光更亮，且高光不超过 1', () => {
-  const base = GlassPresets.thick
+  const base = GlassPresets.regular
   const pressed = modulate(base, 1)
   assert.ok(pressed.refraction! > base.refraction)
   assert.ok(pressed.distortion! > base.distortion)
