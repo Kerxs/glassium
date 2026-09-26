@@ -70,17 +70,18 @@ const CSS = `
   width: var(--_w, 0px);
   border-radius: 999px;
   translate: var(--_x, 0px) 0;
-  scale: 1;
+  scale: var(--_jx, 1) var(--_jy, 1);
   transition: translate 0.35s cubic-bezier(0.3, 1.2, 0.5, 1), width 0.35s cubic-bezier(0.3, 1.2, 0.5, 1), scale 0.2s ease;
 }
 :host([data-pressed]) [part='thumb'] {
-  scale: 1.15;
+  scale: calc(1.15 * var(--_jx, 1)) calc(1.15 * var(--_jy, 1));
 }
 :host([data-dragging]) [part='thumb'] {
-  transition: width 0.2s ease, scale 0.2s ease;
+  transition: width 0.2s ease, scale 0.06s linear;
 }
 /* 按住时透镜下面垫的那块白：与旋钮同一个位置、宽度、缩放（同样的过渡），画在字的下面 */
-[part='lens'] {
+[part='lens'],
+[part='lens-labels'] {
   position: absolute;
   top: ${INSET}px;
   bottom: ${INSET}px;
@@ -88,18 +89,20 @@ const CSS = `
   width: var(--_w, 0px);
   border-radius: 999px;
   translate: var(--_x, 0px) 0;
-  scale: 1;
+  scale: var(--_jx, 1) var(--_jy, 1);
   opacity: 0;
   pointer-events: none;
   --glass-fill: var(--glass-segmented-lens, rgba(255, 255, 255, 0.7));
   transition: translate 0.35s cubic-bezier(0.3, 1.2, 0.5, 1), width 0.35s cubic-bezier(0.3, 1.2, 0.5, 1), scale 0.2s ease,
     opacity 0.12s ease;
 }
-:host([data-pressed]) [part='lens'] {
-  scale: 1.15;
+:host([data-pressed]) [part='lens'],
+:host([data-pressed]) [part='lens-labels'] {
+  scale: calc(1.15 * var(--_jx, 1)) calc(1.15 * var(--_jy, 1));
 }
-:host([data-dragging]) [part='lens'] {
-  transition: width 0.2s ease, scale 0.2s ease, opacity 0.12s ease;
+:host([data-dragging]) [part='lens'],
+:host([data-dragging]) [part='lens-labels'] {
+  transition: width 0.2s ease, scale 0.06s linear, opacity 0.12s ease;
 }
 /* 各段的字画进场景的那一份（scene-label.ts）：平时透明（不画），按住时换上、DOM 的字淡出 */
 [part='labels'] {
@@ -110,6 +113,7 @@ const CSS = `
   transition: opacity 0.12s ease;
 }
 :host([data-lensing]) [part='lens'],
+:host([data-lensing]) [part='lens-labels'],
 :host([data-lensing]) [part='labels'] {
   opacity: 1;
 }
@@ -144,10 +148,12 @@ const CSS = `
 @media (prefers-reduced-motion: reduce) {
   [part='thumb'],
   [part='lens'],
+  [part='lens-labels'],
   [part='labels'],
   ::slotted(*),
   :host([data-dragging]) [part='thumb'],
-  :host([data-dragging]) [part='lens'] {
+  :host([data-dragging]) [part='lens'],
+:host([data-dragging]) [part='lens-labels'] {
     transition: none;
   }
 }
@@ -177,6 +183,7 @@ export class GlassSegmented extends HTMLElementBase {
   readonly #internals: ElementInternals | null
   readonly #track: HTMLElement
   readonly #lens: HTMLElement
+  readonly #lensLabels: HTMLElement
   readonly #thumb: HTMLElement
   readonly #slot: HTMLSlotElement
   readonly #labels: SceneLabels
@@ -214,11 +221,20 @@ export class GlassSegmented extends HTMLElementBase {
     this.#lens.setAttribute('part', 'lens')
     const labels = document.createElement('div')
     labels.setAttribute('part', 'labels')
-    this.#labels = new SceneLabels(this, labels, () => this.segments.map((element) => ({ element })))
+    // 透镜里的那一份：各段的字统一换成选中那一段的颜色（iOS 27 截图：拖动时透镜下的字都是选中色）
+    this.#lensLabels = document.createElement('div')
+    this.#lensLabels.setAttribute('part', 'lens-labels')
+    this.#labels = new SceneLabels(this, labels, () => this.segments.map((element) => ({ element })), {
+      element: this.#lensLabels,
+      color: () => {
+        const s = this.segments[this.#segments.selected]
+        return s ? getComputedStyle(s).color : undefined
+      }
+    })
     this.#thumb = document.createElement('div')
     this.#thumb.setAttribute('part', 'thumb')
     this.#slot = document.createElement('slot')
-    root.append(this.#track, this.#lens, labels, this.#thumb, this.#slot)
+    root.append(this.#track, this.#lens, labels, this.#lensLabels, this.#thumb, this.#slot)
     this.#slot.addEventListener('slotchange', () => {
       this.#syncSegments()
       this.#labels.invalidate()
@@ -228,7 +244,7 @@ export class GlassSegmented extends HTMLElementBase {
     this.#segments = new Segments({
       host: this,
       thumb: this.#thumb,
-      followers: [this.#lens],
+      followers: [this.#lens, this.#lensLabels],
       role: 'radio',
       selectedAttribute: 'aria-checked',
       inset: INSET,

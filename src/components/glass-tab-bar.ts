@@ -42,7 +42,8 @@ import { PressTween, SEGMENT_THUMB_PRESSED } from './thumb.ts'
 const INSET = 4
 
 /**
- * 气泡的材质：静止时是一块比栏亮一点的玻璃（它看得见栏，所以自己不用再模糊）；按下时变成透明的透镜 ——
+ * 气泡的材质：静止时是一层 0.2 的中灰（iOS 27 截图：白底的栏上选中块比栏暗约 22 级；深色的栏上中灰反而更亮），
+ * 它看得见栏，所以自己不用再模糊；按下时变成透明的透镜 ——
  * 与分段控件的选中块按下时同一套数（thumb.ts 的 SEGMENT_THUMB_PRESSED：放大底下的图标与文字）。
  * 按压能量 0–1 之间线性插值，两头精确落在端点上。
  */
@@ -59,7 +60,8 @@ export function bubbleMaterial(energy: number): GlassMaterial {
     highlight: mix(0.35, p.highlight),
     dispersion: mix(0, p.dispersion),
     shadow: mix(0, 0.15),
-    tint: `rgba(255, 255, 255, ${mix(0.3, p.whiteness)})`,
+    // 颜色从中灰（静止）过渡到白（按下时那层薄白）
+    tint: `rgba(${mix(128, 255)}, ${mix(128, 255)}, ${mix(128, 255)}, ${mix(0.2, p.whiteness)})`,
     magnify: mix(0, p.magnify),
     bodyLight: mix(0, p.bodyLight),
     adaptive: 0,
@@ -87,18 +89,19 @@ const CSS = `
   width: var(--_w, 0px);
   border-radius: 999px;
   translate: var(--_x, 0px) 0;
-  scale: 1;
+  scale: var(--_jx, 1) var(--_jy, 1);
   transition: translate 0.35s cubic-bezier(0.3, 1.2, 0.5, 1), width 0.35s cubic-bezier(0.3, 1.2, 0.5, 1), scale 0.2s ease,
     opacity 0.2s ease;
 }
 :host([data-pressed]) [part='bubble'] {
-  scale: 1.12;
+  scale: calc(1.35 * var(--_jx, 1)) calc(1.28 * var(--_jy, 1));
 }
 :host([data-dragging]) [part='bubble'] {
-  transition: width 0.2s ease, scale 0.2s ease;
+  transition: width 0.2s ease, scale 0.06s linear;
 }
 /* 按住时透镜下面垫的那块：与气泡同一个位置、宽度、缩放（同样的过渡），画在图标与文字的下面 */
-[part='lens'] {
+[part='lens'],
+[part='lens-labels'] {
   position: absolute;
   top: ${INSET}px;
   bottom: ${INSET}px;
@@ -106,18 +109,20 @@ const CSS = `
   width: var(--_w, 0px);
   border-radius: 999px;
   translate: var(--_x, 0px) 0;
-  scale: 1;
+  scale: var(--_jx, 1) var(--_jy, 1);
   opacity: 0;
   pointer-events: none;
   --glass-fill: var(--glass-tab-bar-lens, rgba(255, 255, 255, 0.3));
   transition: translate 0.35s cubic-bezier(0.3, 1.2, 0.5, 1), width 0.35s cubic-bezier(0.3, 1.2, 0.5, 1), scale 0.2s ease,
     opacity 0.12s ease;
 }
-:host([data-pressed]) [part='lens'] {
-  scale: 1.12;
+:host([data-pressed]) [part='lens'],
+:host([data-pressed]) [part='lens-labels'] {
+  scale: calc(1.35 * var(--_jx, 1)) calc(1.28 * var(--_jy, 1));
 }
-:host([data-dragging]) [part='lens'] {
-  transition: width 0.2s ease, scale 0.2s ease, opacity 0.12s ease;
+:host([data-dragging]) [part='lens'],
+:host([data-dragging]) [part='lens-labels'] {
+  transition: width 0.2s ease, scale 0.06s linear, opacity 0.12s ease;
 }
 /* 各格的内容画进场景的那一份（scene-label.ts）：平时透明（不画），按住时换上、DOM 的内容淡出 */
 [part='labels'] {
@@ -128,6 +133,7 @@ const CSS = `
   transition: opacity 0.12s ease;
 }
 :host([data-lensing]) [part='lens'],
+:host([data-lensing]) [part='lens-labels'],
 :host([data-lensing]) [part='labels'] {
   opacity: 1;
 }
@@ -194,10 +200,12 @@ const CSS = `
 @media (prefers-reduced-motion: reduce) {
   [part='bubble'],
   [part='lens'],
+  [part='lens-labels'],
   [part='labels'],
   ::slotted(*),
   :host([data-dragging]) [part='bubble'],
   :host([data-dragging]) [part='lens'],
+  :host([data-dragging]) [part='lens-labels'],
   :host([minimize]) ::slotted(*) {
     transition: none;
   }
@@ -218,6 +226,7 @@ export class GlassTabBar extends GlassElement {
 
   readonly #bubble: HTMLElement
   readonly #lens: HTMLElement
+  readonly #lensLabels: HTMLElement
   readonly #labels: SceneLabels
   #bubblePanel: GlassPanel | null = null
   readonly #tween = new PressTween((energy) => this.#bubblePanel?.setMaterial(bubbleMaterial(energy)))
@@ -260,18 +269,27 @@ export class GlassTabBar extends GlassElement {
     this.#lens.setAttribute('part', 'lens')
     const labels = document.createElement('div')
     labels.setAttribute('part', 'labels')
-    this.#labels = new SceneLabels(this, labels, () => this.tabs.map((element) => ({ element })))
+    // 透镜里的那一份：各格的图标与文字统一换成选中那一格的颜色（iOS 27 截图：拖动时透镜下的都是选中色）
+    this.#lensLabels = document.createElement('div')
+    this.#lensLabels.setAttribute('part', 'lens-labels')
+    this.#labels = new SceneLabels(this, labels, () => this.tabs.map((element) => ({ element })), {
+      element: this.#lensLabels,
+      color: () => {
+        const t = this.tabs[this.#segments.selected]
+        return t ? getComputedStyle(t).color : undefined
+      }
+    })
     const slot = document.createElement('slot')
     slot.addEventListener('slotchange', () => {
       this.#syncTabs()
       this.#labels.invalidate()
     })
-    root.append(this.#lens, labels, this.#bubble, slot)
+    root.append(this.#lens, labels, this.#lensLabels, this.#bubble, slot)
 
     this.#segments = new Segments({
       host: this,
       thumb: this.#bubble,
-      followers: [this.#lens],
+      followers: [this.#lens, this.#lensLabels],
       role: 'tab',
       selectedAttribute: 'aria-selected',
       inset: INSET,

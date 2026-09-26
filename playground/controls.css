@@ -1,0 +1,622 @@
+/*
+  首页（index.html）的样式。
+
+  R1：从玻璃到 <body> 的祖先都不画背景 —— 页面背景是 controls.ts 交给 stage 的场景；四块屏幕的壁纸、白色分组、
+  App 图块都是 <glass-fill>（画进场景，玻璃看得见）。分隔线也是填充。
+
+  每块屏幕按 390×780 写死像素排版，controls.ts 按格子的宽度算缩放 --k，整块 transform: scale（玻璃跟着缩）。
+*/
+
+:root {
+  color-scheme: dark;
+}
+
+html,
+body {
+  margin: 0;
+  background: transparent;
+}
+
+body {
+  font: 16px/1.6 system-ui, -apple-system, 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', 'Segoe UI', sans-serif;
+  color: #f2f3f7;
+  -webkit-font-smoothing: antialiased;
+  overflow-x: hidden;
+}
+
+a {
+  color: #9ecbff;
+}
+
+code,
+pre {
+  font: 0.9em ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+button {
+  font: inherit;
+}
+
+/* —— 页头 —— */
+
+.page-nav::part(bar),
+.page-nav::part(large-title) {
+  padding-inline: max(16px, calc((100vw - 1120px) / 2));
+}
+
+.page-nav::part(large-title) {
+  font-size: 44px;
+  letter-spacing: -0.02em;
+}
+
+.page-nav button {
+  color: #fff;
+  font-size: 15px;
+  padding: 0 14px;
+  cursor: pointer;
+}
+
+main,
+.fine {
+  box-sizing: border-box;
+  width: min(1120px, 100%);
+  margin: 0 auto;
+  padding: 0 16px;
+}
+
+.intro {
+  max-width: 720px;
+}
+
+.lede {
+  margin: 4px 0 14px;
+  font-size: 18px;
+  color: rgba(242, 243, 247, 0.86);
+}
+
+.install {
+  display: inline-block;
+  margin: 0 0 32px;
+  padding: 8px 14px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 10px;
+  color: #e8f1ff;
+}
+
+/* —— 场景 —— */
+
+.scenes {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 56px 48px;
+}
+
+@media (max-width: 860px) {
+  .scenes {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.scene h2 {
+  margin: 0 0 4px;
+  font-size: 26px;
+}
+
+.scene header p {
+  margin: 0 0 6px;
+  color: rgba(242, 243, 247, 0.78);
+}
+
+.try {
+  margin: 0 0 18px;
+  padding-left: 1.2em;
+  color: rgba(242, 243, 247, 0.62);
+  font-size: 14px;
+}
+
+/* 格子：宽度随布局，高度 = 780 × k（controls.ts 写 --k） */
+.slot {
+  --k: 1;
+  position: relative;
+  width: calc(390px * var(--k));
+  height: calc(780px * var(--k));
+  margin: 0 auto;
+}
+
+.screen {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 390px;
+  height: 780px;
+  border-radius: 46px;
+  overflow: hidden;
+  transform-origin: 0 0;
+  transform: scale(var(--k));
+  font-size: 17px;
+  line-height: 1.3;
+}
+
+.screen.light {
+  color: #000;
+}
+
+.screen.dark {
+  color: #fff;
+}
+
+.wall {
+  position: absolute;
+  inset: 0;
+}
+
+[data-icon] {
+  display: inline-flex;
+}
+
+[data-icon] svg {
+  width: 100%;
+  height: 100%;
+}
+
+/* —— 1 设置 —— */
+
+.st-nav {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 44px;
+  margin: 54px 16px 8px;
+  font-weight: 600;
+}
+
+.st-back {
+  position: absolute;
+  left: 0;
+  color: #007aff;
+  font-weight: 400;
+}
+
+.st-head {
+  position: relative;
+  margin: 18px 32px 6px;
+  font-size: 13px;
+  color: #6d6d72;
+  text-transform: uppercase;
+}
+
+.st-note {
+  position: relative;
+  margin: 6px 32px 18px;
+  font-size: 13px;
+  color: #6d6d72;
+}
+
+.group {
+  position: relative;
+  display: block;
+  margin: 0 16px;
+  border-radius: 26px;
+  --glass-fill: #ffffff;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 54px;
+  padding: 0 16px;
+  gap: 12px;
+}
+
+.row.bright {
+  min-height: 64px;
+}
+
+.st-slider {
+  flex: 1;
+  width: auto;
+  --glass-slider-fill: #0a84ff;
+  --glass-slider-track: #e3e3e8;
+}
+
+.ico {
+  color: #8e8e93;
+}
+
+.ico.sm {
+  width: 18px;
+  height: 18px;
+}
+
+.ico.lg {
+  width: 26px;
+  height: 26px;
+}
+
+.sep {
+  display: block;
+  height: 1px;
+  margin-left: 16px;
+  --glass-fill: #e5e5ea;
+}
+
+.st-seg {
+  color: #000;
+  font-size: 15px;
+}
+
+/* —— 2 控制中心 —— */
+
+.blob {
+  position: absolute;
+  border-radius: 50%;
+}
+
+.cc-status {
+  position: relative;
+  display: flex;
+  justify-content: space-between;
+  margin: 22px 34px 0;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.cc-grid {
+  position: absolute;
+  left: 22px;
+  right: 22px;
+  top: 90px;
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  grid-auto-rows: 76px;
+  gap: 16px;
+}
+
+.cc-module {
+  grid-column: span 2;
+  grid-row: span 2;
+  border-radius: 32px;
+}
+
+.conn {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  place-items: center;
+  padding: 10px;
+  box-sizing: border-box;
+}
+
+.cc-round {
+  width: 62px;
+  height: 62px;
+  border-radius: 50%;
+  color: #fff;
+}
+
+.cc-round span[data-icon],
+.cc-tile span[data-icon] {
+  width: 26px;
+  height: 26px;
+}
+
+.cc-round.small {
+  width: 64px;
+  height: 64px;
+}
+
+.media {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  padding: 18px 16px 14px;
+  box-sizing: border-box;
+}
+
+.media-title {
+  margin: 0 0 10px;
+  font-size: 17px;
+  font-weight: 600;
+}
+
+.media-controls {
+  display: flex;
+  justify-content: space-between;
+}
+
+.media-btn {
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  color: #fff;
+}
+
+.media-btn span[data-icon] {
+  width: 20px;
+  height: 20px;
+}
+
+.cc-tile {
+  width: 76px;
+  height: 76px;
+  border-radius: 50%;
+  color: #fff;
+  justify-self: center;
+}
+
+/* 打开了的白色按钮：方向锁定的图标变红，手电筒的变深色 */
+.cc-tile[aria-pressed='true'] {
+  color: #ff3b30;
+}
+
+.cc-tile[aria-label='手电筒'][aria-pressed='true'],
+.lock-btn[aria-pressed='true'] {
+  color: #1c1c1e;
+}
+
+.vslider {
+  grid-row: span 2;
+  position: relative;
+  border-radius: 999px;
+  overflow: hidden;
+  touch-action: none;
+  cursor: ns-resize;
+}
+
+.vslider .level {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: var(--level, 50%);
+}
+
+.vslider-ico {
+  position: absolute;
+  left: 50%;
+  bottom: 18px;
+  width: 26px;
+  height: 26px;
+  margin-left: -13px;
+  color: #6c6c70;
+}
+
+.cc-focus {
+  grid-column: span 2;
+  border-radius: 999px;
+  color: #fff;
+  gap: 8px;
+}
+
+.cc-focus span[data-icon] {
+  width: 22px;
+  height: 22px;
+}
+
+.cc-row {
+  grid-column: span 4;
+  display: flex;
+  justify-content: space-between;
+  padding-top: 6px;
+}
+
+/* —— 3 应用列表 —— */
+
+.store-scroll {
+  position: absolute;
+  inset: 0;
+  overflow-y: auto;
+  padding: 58px 20px 120px;
+  box-sizing: border-box;
+  scrollbar-width: none;
+}
+
+.store-scroll::-webkit-scrollbar {
+  display: none;
+}
+
+.store-date {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: #8e8e93;
+  text-transform: uppercase;
+}
+
+.store-title {
+  margin: 0 0 14px;
+  font-size: 34px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+.feature {
+  display: block;
+  height: 200px;
+  padding: 18px;
+  box-sizing: border-box;
+  border-radius: 22px;
+  color: #fff;
+}
+
+.feature-kicker {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 700;
+  opacity: 0.85;
+}
+
+.feature-title {
+  margin: 4px 0 0;
+  font-size: 26px;
+  font-weight: 700;
+  line-height: 1.15;
+}
+
+.store-head {
+  margin: 26px 0 10px;
+  font-size: 22px;
+  font-weight: 700;
+}
+
+.apps {
+  display: grid;
+  gap: 12px;
+}
+
+.app {
+  display: grid;
+  grid-template-columns: 60px 1fr auto;
+  align-items: center;
+  gap: 12px;
+}
+
+.app-ico {
+  display: block;
+  width: 60px;
+  height: 60px;
+  border-radius: 14px;
+}
+
+.app-name {
+  display: block;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.app-sub {
+  display: block;
+  font-size: 13px;
+  color: #8e8e93;
+}
+
+.app-get {
+  display: block;
+  padding: 5px 16px;
+  border-radius: 999px;
+  font-size: 15px;
+  font-weight: 700;
+  color: #007aff;
+  --glass-fill: #eeeef0;
+}
+
+/* 画进场景的字：玻璃生效时 DOM 那一份透明（选中、读屏照旧），场景里的那一份由 controls.ts 画 */
+html[data-gpu] .scene-text {
+  color: transparent;
+}
+
+.store-tabs {
+  position: absolute;
+  left: 22px;
+  right: 22px;
+  bottom: 26px;
+  justify-content: space-between;
+  color: #1c1c1e;
+  --glass-tab-bar-selected: #0a84ff;
+}
+
+.store-tabs > button {
+  flex: 1;
+  min-width: 0;
+  padding: 6px 4px;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.tab-ico {
+  width: 26px;
+  height: 26px;
+}
+
+/* —— 4 锁屏 —— */
+
+.lock-date {
+  position: relative;
+  margin: 92px 0 0;
+  text-align: center;
+  font-size: 20px;
+  font-weight: 600;
+}
+
+.lock-time {
+  position: relative;
+  margin: -6px 0 0;
+  text-align: center;
+  font-size: 96px;
+  font-weight: 700;
+  line-height: 1.05;
+  letter-spacing: -0.02em;
+}
+
+.notif {
+  position: absolute;
+  left: 14px;
+  right: 14px;
+  top: 470px;
+  display: grid;
+  grid-template-columns: 38px 1fr auto;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 16px;
+  border-radius: 26px;
+  color: #fff;
+  font-size: 15px;
+}
+
+.notif-ico {
+  width: 38px;
+  height: 38px;
+  padding: 7px;
+  box-sizing: border-box;
+  border-radius: 10px;
+  --glass-fill: linear-gradient(140deg, #5ac8fa, #af52de);
+  color: #fff;
+}
+
+.notif-ico span {
+  width: 100%;
+  height: 100%;
+}
+
+.notif-body {
+  display: grid;
+  line-height: 1.3;
+}
+
+.notif-time {
+  align-self: start;
+  font-size: 13px;
+  opacity: 0.7;
+}
+
+.lock-btn {
+  position: absolute;
+  bottom: 52px;
+  width: 62px;
+  height: 62px;
+  border-radius: 50%;
+  color: #fff;
+}
+
+.lock-btn.left {
+  left: 46px;
+}
+
+.lock-btn.right {
+  right: 46px;
+}
+
+.lock-btn span[data-icon] {
+  width: 26px;
+  height: 26px;
+}
+
+/* —— 页脚 —— */
+
+.fine {
+  margin-top: 64px;
+  padding-bottom: 40px;
+  font-size: 13px;
+  color: rgba(242, 243, 247, 0.55);
+}

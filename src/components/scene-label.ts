@@ -286,11 +286,21 @@ function paintImages(ctx: Context2D, source: LabelSource, map: LocalMapping): vo
  *
  * 平时镜像透明（不画、不占图集）；组件按住时让它不透明、把 DOM 的字淡出（见 ready）。
  */
+/** SceneLabels 的「透镜里的那一份」：只在透镜的窗口里露出来，内容统一换成选中色。 */
+export interface LensLabels {
+  /** 与透镜同一个位置、大小、缩放的元素（Segments 的跟随者）：填充的盒子是它，内容按镜像元素的坐标画。 */
+  readonly element: HTMLElement
+  /** 透镜里的字与图标的颜色：选中那一段的计算颜色（没有选中时 undefined，用各自的颜色）。 */
+  readonly color: () => string | undefined
+}
+
 export class SceneLabels {
   readonly #host: HTMLElement
   readonly #element: HTMLElement
   readonly #sources: () => readonly LabelSource[]
+  readonly #lens: LensLabels | null
   #fill: SceneBitmapFill | null = null
+  #lensFill: SceneBitmapFill | null = null
   readonly #observer: MutationObserver | null
   readonly #onFonts = (): void => this.invalidate()
 
@@ -298,26 +308,47 @@ export class SceneLabels {
    * @param host 组件宿主（段是它的子元素）
    * @param element 镜像元素：在影子树里、盖住各段，位图填充画在它的盒子里
    * @param sources 要画的元素（各段），每次重画时取
+   * @param lens 透镜里的那一份（iOS 27 截图：拖动时透镜下的字都是选中色，透镜外还是原色）。它画在镜像之上、
+   *   只在透镜的窗口里露出来 —— 位图填充的锚点，内容画一次、不跟着透镜重画
    */
-  constructor(host: HTMLElement, element: HTMLElement, sources: () => readonly LabelSource[]) {
+  constructor(host: HTMLElement, element: HTMLElement, sources: () => readonly LabelSource[], lens?: LensLabels) {
     this.#host = host
     this.#element = element
     this.#sources = sources
+    this.#lens = lens ?? null
     this.#observer =
       typeof MutationObserver === 'function'
         ? new MutationObserver(() => this.invalidate())
         : null
   }
 
-  /** 在 stage 上注册成位图填充，返回注销它的函数（StageLink 的 attach 里调）。 */
+  /**
+   * 在 stage 上注册成位图填充（先镜像，再透镜里的那一份：按注册的顺序画，后者盖在前者上面），
+   * 返回注销它们的函数（StageLink 的 attach 里调）。
+   */
   attach(stage: GlassStage): () => void {
     const fill = stage.registerBitmapFill(this.#element, (ctx) =>
       paintContent(ctx, this.#element, this.#sources(), () => this.invalidate())
     )
     this.#fill = fill
+    const lens = this.#lens
+    const lensFill = lens
+      ? stage.registerBitmapFill(
+          lens.element,
+          (ctx) => {
+            const color = lens.color()
+            const sources = this.#sources().map((s) => (color ? { ...s, color } : s))
+            paintContent(ctx, this.#element, sources, () => this.invalidate())
+          },
+          { anchor: this.#element }
+        )
+      : null
+    this.#lensFill = lensFill
     return () => {
+      lensFill?.unregister()
       fill.unregister()
       if (this.#fill === fill) this.#fill = null
+      if (this.#lensFill === lensFill) this.#lensFill = null
     }
   }
 
@@ -332,6 +363,7 @@ export class SceneLabels {
   /** 内容变了：下次看得见时重画。 */
   invalidate(): void {
     this.#fill?.invalidate()
+    this.#lensFill?.invalidate()
   }
 
   /** 宿主进文档：开始盯着各段的变化（文字、子元素、类与样式）与字体加载。 */

@@ -23,6 +23,7 @@
 
 import type { GlassPanel } from '../renderer/panels.ts'
 import { HTMLElementBase, sharedSheet } from './base.ts'
+import { Jelly } from './jelly.ts'
 import { StageLink } from './stage-link.ts'
 import { PressTween, thumbMaterial } from './thumb.ts'
 
@@ -135,11 +136,15 @@ const CSS = `
   margin-top: ${-THUMB_H / 2}px;
   border-radius: 999px;
   translate: calc(var(--_ratio) * (100cqw - ${THUMB_W}px)) 0;
-  scale: 1;
+  scale: var(--_jx, 1) var(--_jy, 1);
   transition: scale 0.2s ease;
 }
 :host([data-pressed]) [part='thumb'] {
-  scale: 1.25;
+  scale: calc(1.25 * var(--_jx, 1)) calc(1.25 * var(--_jy, 1));
+}
+/* 拖动时缩放由果冻（jelly.ts）逐帧驱动，过渡只留一点平滑 */
+:host([data-dragging]) [part='thumb'] {
+  transition: scale 0.06s linear;
 }
 /* 没有玻璃时，或者在对话框 / popover 里用 CSS 画（data-glassium-overlay）：CSS 画轨道、进度与白色旋钮 */
 :host(:not([data-glassium-active])) [part='track'],
@@ -189,6 +194,11 @@ export class GlassSlider extends HTMLElementBase {
   readonly #track: HTMLElement
   readonly #progress: HTMLElement
   readonly #thumb: HTMLElement
+  /** 拖动时的果冻（jelly.ts）。 */
+  readonly #jelly = new Jelly((sx, sy) => {
+    this.#thumb.style.setProperty('--_jx', String(sx))
+    this.#thumb.style.setProperty('--_jy', String(sy))
+  })
   #panel: GlassPanel | null = null
   readonly #link = new StageLink(this, (stage) => {
     // 先注册的填充画在下面：轨道，再进度
@@ -330,7 +340,9 @@ export class GlassSlider extends HTMLElementBase {
   disconnectedCallback(): void {
     this.#link.disconnect()
     this.#tween.reset()
+    this.#jelly.reset()
     this.toggleAttribute('data-pressed', false)
+    this.removeAttribute('data-dragging')
     this.#pointerId = null
   }
 
@@ -425,10 +437,14 @@ export class GlassSlider extends HTMLElementBase {
   #onPointerMove = (e: PointerEvent): void => {
     if (e.pointerId !== this.#pointerId) return
     this.#userSet(this.#valueAt(e.clientX))
+    if (!this.hasAttribute('data-dragging')) this.toggleAttribute('data-dragging', true)
+    this.#jelly.move(e.clientX, e.timeStamp)
   }
 
   #onPointerUp = (e: PointerEvent): void => {
     if (e.pointerId !== this.#pointerId) return
+    this.#jelly.release()
+    this.removeAttribute('data-dragging')
     this.#pointerId = null
     this.#press(false)
     if (this.#value !== this.#valueAtPress) this.#emit('change')

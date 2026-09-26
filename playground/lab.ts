@@ -11,8 +11,8 @@ import '../src/components/glassium.css'
 
 import { createGlassStage, defineGlassElements, type GlassStage } from 'glassium'
 
-type SceneName = 'slider' | 'segmented' | 'panel' | 'buttons'
-const SCENES: readonly SceneName[] = ['slider', 'segmented', 'panel', 'buttons']
+type SceneName = 'slider' | 'segmented' | 'panel' | 'buttons' | 'white' | 'tabbar'
+const SCENES: readonly SceneName[] = ['slider', 'segmented', 'panel', 'buttons', 'white', 'tabbar']
 
 const params = new URLSearchParams(location.search)
 const $ = <T extends HTMLElement = HTMLElement>(id: string): T => document.getElementById(id) as T
@@ -74,7 +74,9 @@ const BACKGROUNDS: Record<SceneName, (g: CanvasRenderingContext2D, w: number, h:
   slider: flat('rgb(236, 236, 238)'),
   segmented: flat('rgb(241, 241, 241)'),
   panel: purpleVideo,
-  buttons: tealVideo
+  buttons: tealVideo,
+  white: flat('rgb(255, 255, 255)'),
+  tabbar: flat('rgb(255, 255, 255)')
 }
 
 // —— 截图上的实测 ——
@@ -119,6 +121,19 @@ const APPLE: Record<SceneName, Record<string, number>> = {
     '亮边 左': 44,
     '亮边 右': 68,
     'Δ 里面−外面 左侧': 19
+  },
+  // iOS 27 截图（白底，3 倍图）：外沿那圈灰线的最深处，相对白底
+  white: {
+    '滑块按住 外线 上': -37,
+    '滑块按住 外线 下': -45,
+    '滑块按住 外线 右': -78,
+    'Δ 影子 下 5%': -12
+  },
+  tabbar: {
+    '标签栏 外线 上': -25,
+    '标签栏 外线 下': -28,
+    '标签栏 外线 左': -79,
+    '标签栏 外线 右': -80
   },
   buttons: {
     '大按钮 亮边 上': 68,
@@ -278,11 +293,54 @@ async function measureButtons(): Promise<Record<string, number>> {
   }
 }
 
+/** 外线：边外 4% 到边内 15% 那条线上的最小值减去白底（255）。 */
+async function outline(r: DOMRect, side: 'top' | 'bottom' | 'left' | 'right', along = 0.5): Promise<number> {
+  const bg = await at(r.left - 30, r.top - 30)
+  const m = Math.min(r.width, r.height)
+  const outside = m * 0.04
+  const inside = m * 0.15
+  let g: Awaited<ReturnType<typeof grab>>
+  const values: number[] = []
+  if (side === 'top' || side === 'bottom') {
+    const x = r.left + r.width * along
+    g = await grab(x, side === 'top' ? r.top - outside : r.bottom - inside, 1, outside + inside)
+    for (let i = 0; i < g.h; i++) values.push(lumOf(g.data, i * g.w * 4))
+  } else {
+    const y = r.top + r.height * along
+    g = await grab(side === 'left' ? r.left - outside : r.right - inside, y, outside + inside, 1)
+    for (let i = 0; i < g.w; i++) values.push(lumOf(g.data, i * 4))
+  }
+  return Math.min(...values) - bg.lum
+}
+
+async function measureWhite(): Promise<Record<string, number>> {
+  const t = partOf($('lab-white-slider'), 'thumb')
+  const below = await at(t.left + t.width / 2, t.bottom + t.height * 0.05)
+  return {
+    '滑块按住 外线 上': await outline(t, 'top', 0.62),
+    '滑块按住 外线 下': await outline(t, 'bottom', 0.62),
+    '滑块按住 外线 右': await outline(t, 'right', 0.75),
+    'Δ 影子 下 5%': below.lum - 255
+  }
+}
+
+async function measureTabbar(): Promise<Record<string, number>> {
+  const r = $('lab-tabbar').getBoundingClientRect()
+  return {
+    '标签栏 外线 上': await outline(r, 'top', 0.2),
+    '标签栏 外线 下': await outline(r, 'bottom', 0.2),
+    '标签栏 外线 左': await outline(r, 'left'),
+    '标签栏 外线 右': await outline(r, 'right')
+  }
+}
+
 const MEASURE: Record<SceneName, () => Promise<Record<string, number>>> = {
   slider: measureSlider,
   segmented: measureSegmented,
   panel: measurePanel,
-  buttons: measureButtons
+  buttons: measureButtons,
+  white: measureWhite,
+  tabbar: measureTabbar
 }
 
 // —— 按住：滑块与分段控件的旋钮（合成的 pointer 事件，与手指按住一样走组件自己的路径） ——
@@ -290,6 +348,7 @@ const MEASURE: Record<SceneName, () => Promise<Record<string, number>>> = {
 function pressTarget(scene: SceneName): { host: HTMLElement; thumb: DOMRect } | null {
   if (scene === 'slider') return { host: $('lab-slider'), thumb: partOf($('lab-slider'), 'thumb') }
   if (scene === 'segmented') return { host: $('lab-seg'), thumb: partOf($('lab-seg'), 'thumb') }
+  if (scene === 'white') return { host: $('lab-white-slider'), thumb: partOf($('lab-white-slider'), 'thumb') }
   return null
 }
 
@@ -398,6 +457,19 @@ async function main(): Promise<void> {
     void measure()
   })
   $('measure').addEventListener('click', () => void measure())
+
+  // 调试用：切场景、设按住、量，返回「项: Apple | Glassium」的文本（隐藏的面板里 rAF 不走，调用方先换成定时器）
+  const run = async (scene: SceneName, pressed: boolean): Promise<string> => {
+    if (press.checked !== pressed) {
+      press.checked = pressed
+      setPressed(current, pressed)
+    }
+    await show(scene)
+    await sleep(400)
+    const readings = await measure()
+    return readings.map((r) => `${r.label}: ${r.apple} | ${r.ours.toFixed(1)}`).join('\n')
+  }
+  Object.assign(window as unknown as Record<string, unknown>, { glassiumLabRun: run })
 
   const first = params.get('scene') as SceneName | null
   await show(first && SCENES.includes(first) ? first : 'slider')

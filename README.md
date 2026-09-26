@@ -3,7 +3,8 @@
 Liquid Glass（液态玻璃）UI 的 Web 实现。玻璃的折射、色散、亮边、融合都由 GPU 画（WebGPU，没有时 WebGL2），
 以 Web Components 交付：写 `<glass-card>`、`<glass-button>`，原生 HTML、Vue、React、Svelte 里都能用。
 
-**在线看**：[展示页](https://kerxs.github.io/glassium/)（iPhone 与 Mac 界面里的液态玻璃，都能点）·
+**在线看**：[首页](https://kerxs.github.io/glassium/)（设置、控制中心、标签栏、锁屏四个场景里的控件，都能操作）·
+[iPhone 与 Mac](https://kerxs.github.io/glassium/devices.html) ·
 [Playground](https://kerxs.github.io/glassium/playground.html)（调材质、拿代码）· [性能测试](https://kerxs.github.io/glassium/bench.html)
 
 ```html
@@ -14,9 +15,10 @@ Liquid Glass（液态玻璃）UI 的 Web 实现。玻璃的折射、色散、亮
 ```
 
 - **真的折射**：边缘的透镜按圆角矩形的距离场弯折背景，浮点精度，没有 SVG 位移贴图的 ±128px 与色阶。
-- **逐通道色散**、一整圈的亮边（上下最亮）、按压时的放大与体光、按压处的光、投影、按背景亮度自适应的可读性 ——
-  外观按 iOS 26 真机截图的实测调（[docs/calibration.md](docs/calibration.md)「质感对照」）。
-- 分段控件、标签栏按住时，文字与图标画进场景，被选中块 / 气泡的透镜放大、在边缘扭弯。
+- **逐通道色散**、一整圈的亮边（上下最亮）与白底上看得见的淡灰外线、按压时的放大与体光、按压处的光、投影、
+  按背景亮度自适应的可读性 —— 外观按 iOS 26 / 27 真机截图的实测调（[docs/calibration.md](docs/calibration.md)）。
+- 分段控件、标签栏按住时，文字与图标画进场景，被选中块 / 气泡的透镜放大、在边缘扭弯，透镜里换成选中色；
+  拖动时透镜顺着速度拉长（果冻），停下来平滑地回去。
 - **玻璃连成一片**：`<glass-container>` 里的几块玻璃用 smin 融成一个形状，一次 draw；成员可以像水滴一样分出来、融回去。
 - **跟着 DOM 走**：滚动、transform（平移 / 缩放 / 旋转）、CSS opacity、overflow 裁剪、clip-path、mask-image 都跟。
 - **完整的控件**：开关、滑块、分段控件、标签栏、导航栏、工具栏 —— 行为与原生控件相同（键盘、表单、无障碍）。
@@ -150,10 +152,12 @@ npm ci
 npm run dev   # http://localhost:5174
 ```
 
-五个页面，在线版和本地一样：
+六个页面，在线版和本地一样：
 
-- [`/`](https://kerxs.github.io/glassium/)：展示页 —— iPhone 与 Mac 的界面，只用公开 API：清透的玻璃图标、照片在玻璃标签栏底下滚动、
-  控制中心、从按钮变形出来的面板（`morphGlass`），壁纸与照片都是 `<glass-fill>`
+- [`/`](https://kerxs.github.io/glassium/)：首页 —— 照着 iOS 27 实机截图搭的四个场景（设置、控制中心、应用列表与标签栏、锁屏），
+  控件都能操作；只用公开 API，壁纸、分组、图块是 `<glass-fill>`，列表标题与锁屏壁纸用位图填充画进场景
+- [`/devices.html`](https://kerxs.github.io/glassium/devices.html)：iPhone 与 Mac 的界面 —— 清透的玻璃图标、照片在玻璃标签栏底下滚动、
+  控制中心、从按钮变形出来的面板（`morphGlass`）
 - [`/playground.html`](https://kerxs.github.io/glassium/playground.html)：playground —— 调材质、换背景、看调试视图，右边给出对应的 HTML 与 JS
 - [`/bench.html`](https://kerxs.github.io/glassium/bench.html)：性能测试（面板数与帧开销，结果见 [docs/benchmark.md](docs/benchmark.md)）
 - [`/debug.html`](https://kerxs.github.io/glassium/debug.html)：调试台（给开发 Glassium 本身用：统计、校准场景、各种模拟开关）

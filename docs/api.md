@@ -172,7 +172,9 @@ button.classList.add('collapsed')           // 接着把 from 藏起来（或拿
 - CSS：`--glass-segmented-track`（底色，默认 `rgba(120, 120, 128, 0.24)`）、`--glass-segmented-lens`（按住时透镜下面
   垫的那块，默认 `rgba(255, 255, 255, 0.7)`；深色主题可以换暗一点）。高 32px，段宽由内容决定（给宿主定宽时平分）。
   选中的段带 `aria-checked="true"`，可以据此换文字颜色（它压在白色旋钮上）。`::part(track)`、`::part(thumb)`、
-  `::part(lens)`、`::part(labels)`。
+  `::part(lens)`、`::part(labels)`、`::part(lens-labels)`。
+- 拖动选中块时透镜顺着速度横向拉长（果冻，jelly.ts），停下来平滑地回去、不晃；透镜里的字统一换成选中那一段的
+  计算颜色（`lens-labels`：同一份字只在透镜的窗口里露出来）。减少动效时没有果冻。
 - 放在哪里与 `<glass-switch>` 相同。
 
 ### `<glass-tab-bar value="home">`
@@ -186,7 +188,9 @@ button.classList.add('collapsed')           // 接着把 from 藏起来（或拿
 - 用户换选中时派发 `input` 与 `change`；程序改 `value` / `selectedIndex` 不派发。`value` 属性是初始值（对不上时选第一格）。
   属性访问器：`value`、`selectedIndex`、`tabs`。不是表单控件。
 - CSS：`--glass-tab-bar-selected`（选中那一格的文字颜色，默认 `#0a84ff`）、`--glass-tab-bar-lens`（按住时透镜下面
-  垫的那块，默认 `rgba(255, 255, 255, 0.3)`，与静止的气泡一样亮）。`::part(bubble)`、`::part(lens)`、`::part(labels)`。
+  垫的那块，默认 `rgba(255, 255, 255, 0.3)`）。`::part(bubble)`、`::part(lens)`、`::part(labels)`、`::part(lens-labels)`。
+- 气泡静止时是一层 0.2 的中灰；按住时变成 1.35 × 1.28 倍的透镜（比栏还高），拖动时顺着速度拉长，透镜里的图标与文字
+  换成选中那一格的颜色。
 - 按住时格子里的图标与文字画进场景（写在栏里面、与气泡同一层），气泡的透镜放大它们、在边缘扭弯；DOM 的内容这时
   淡出，松手换回来。缩起来的栏（只剩一格）不这样做。
 - `minimize="scroll"`：页面往下滚时缩起来 —— 没选中的格收成 0 宽、淡出，栏只剩选中那一格，气泡淡出；往上滚、
@@ -274,7 +278,7 @@ GPU 玻璃画在最底下，盖不住滚上来的 DOM 文字。
 | `blur` | 模糊 σ，dp | 12 |
 | `refraction` | 折射带的深度，短边的比例 | 0.25 |
 | `distortion` | 位移的幅度，短边的比例 | 0.3 |
-| `highlight` | 亮边强度，0–1。亮边一整圈：上下两条最亮，左右约一半 | 0.9 |
+| `highlight` | 亮边强度，0–1。亮边一整圈：上下两条最亮，左右约一半；最外一圈还有一道半透明的深灰外线（白底上看得见，左右深、上下浅） | 0.9 |
 | `dispersion` | 色散，0–1 | 0 |
 | `saturation` | 1 = 原样 | 1.15 |
 | `tint` | hex（3/4/6/8 位）或 `rgb()` / `rgba()`；alpha 是叠加强度 | `rgba(255,255,255,0.1)` |
@@ -329,7 +333,7 @@ GPU 玻璃画在最底下，盖不住滚上来的 DOM 文字。
 | `register(element, material?)` → `GlassPanel` | 把任意元素注册成玻璃面板（组件背后就是它）。材质写错在这里就抛 |
 | `group({ smoothing? })` → `GlassGroup` | 建一个合并组（`<glass-container>` 背后就是它） |
 | `registerFill(element)` → `SceneFill` | 把任意元素注册成填充（`<glass-fill>` 背后就是它）：颜色取它的 `--glass-fill`。返回 `{ element, unregister() }` |
-| `registerBitmapFill(element, painter)` → `SceneBitmapFill` | 位图填充：盒子与普通填充一样来自 CSS，内容由 `painter(ctx, width, height)` 用 2D 画布画（原点在盒子左上角、单位 CSS 像素，已按设备像素缩放、裁好、清空）。只在看得见时画、画一次缓存在共享图集里；尺寸、缩放变了或调过 `invalidate()` 之后重画。分段控件、标签栏按住时把字画进场景用的就是它。返回 `{ element, invalidate(), unregister() }` |
+| `registerBitmapFill(element, painter, { anchor }?)` → `SceneBitmapFill` | 位图填充：盒子与普通填充一样来自 CSS，内容由 `painter(ctx, width, height)` 用 2D 画布画（原点在盒子左上角、单位 CSS 像素，已按设备像素缩放、裁好、清空）。只在看得见时画、画一次缓存在共享图集里；尺寸、缩放变了或调过 `invalidate()` 之后重画。分段控件、标签栏按住时把字画进场景用的就是它。返回 `{ element, invalidate(), unregister() }` |
 | `setScene(source, options?)` → `Promise` | 换场景，见下 |
 | `refreshScene()` | 非 dynamic 的画布、ImageData 内容变了：下一帧重新上传 |
 | `blendSpace` | 现在的混合空间 |
@@ -488,7 +492,7 @@ reject 一个 `name === 'AbortError'` 的 DOMException。跨源的图片与视�
 | `GlassSceneSource`、`SceneOptions`、`SceneFit`、`SceneKind` | `setScene` 的参数与选项、`object-fit` 的取值、当前场景的种类 |
 | `BlendSpace` | `'srgb' \| 'linear'` |
 | `GlassPanel`、`GlassGroup`、`SceneFill`、`PanelLight` | `register` / `group` / `registerFill` 的返回值；按压处的光 |
-| `SceneBitmapFill`、`BitmapPainter` | `registerBitmapFill` 的返回值与画内容的函数 |
+| `SceneBitmapFill`、`BitmapPainter`、`BitmapFillOptions` | `registerBitmapFill` 的返回值、画内容的函数、选项（`anchor`：在锚点元素的盒子里画，填充自己的盒子只决定露出哪一块） |
 | `GlassStats`、`BackendReport`、`Gl2Report`、`ProbeReport` | `debug.stats()` 的结果；后端、WebGL2、WebGPU 适配器的报告 |
 | `ReadbackRegion`、`ReadbackResult`、`PanelDebugMode`、`DEBUG_MODES` | `debug.readback` 的参数与结果；面板的调试视图 |
 | `prefersReducedMotion`、`prefersReducedTransparency`、`prefersMoreContrast` | 读系统设置（或下面的模拟值） |

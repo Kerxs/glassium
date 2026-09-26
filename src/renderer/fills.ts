@@ -154,6 +154,8 @@ export type BitmapPainter = (
 /** 位图填充的状态（注册表维护）。 */
 export interface BitmapState {
   readonly painter: BitmapPainter
+  /** 锚点（registerBitmapFill 的 anchor）：画在它的盒子里；null 是画在元素自己的盒子里。 */
+  readonly anchor: HTMLElement | null
   /** 图集里的那一格；还没分配、或者图集清空过是 null / 过期的。 */
   cell: AtlasCell | null
   /** 画的时候格子的像素尺寸与缩放（一个 CSS 像素是几个图集像素）：变了要重新分配、重画。 */

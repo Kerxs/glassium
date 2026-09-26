@@ -9,7 +9,7 @@ test('气泡材质：静止时是一块亮一点的玻璃（不自己模糊，�
   const rest = bubbleMaterial(0)
   const pressed = bubbleMaterial(1)
   assert.equal(rest.blur, 0, '气泡在栏上面一层，看到的已经是模糊过的栏')
-  assert.equal(parseTint(rest.tint!)[3], 0.3)
+  assert.deepEqual(parseTint(rest.tint!), [128 / 255, 128 / 255, 128 / 255, 0.2], '静止：0.2 的中灰')
   assert.equal(parseTint(pressed.tint!)[3], SEGMENT_THUMB_PRESSED.whiteness, '两头精确落在端点上')
   assert.equal(pressed.refraction, SEGMENT_THUMB_PRESSED.refraction)
   assert.equal(pressed.distortion, SEGMENT_THUMB_PRESSED.distortion)

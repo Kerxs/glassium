@@ -78,6 +78,27 @@ export interface SceneBitmapFill extends SceneFill {
 
 export type { BitmapPainter }
 
+/** registerBitmapFill 的选项。 */
+export interface BitmapFillOptions {
+  /**
+   * 锚点：painter 在这个元素的盒子里画（原点、尺寸、缩放都按它），填充自己的盒子只决定露出哪一块。
+   * 一张画好不动的内容（一排字）只在一个跟着旋钮走、会缩放的窗口里露出来，就这么写：不用每帧重画、重传。
+   * 只按包围盒换算，锚点不能旋转。
+   */
+  readonly anchor?: HTMLElement
+}
+
+/** 位图画的那一块：画布设备像素的原点与尺寸（转之前）、CSS 尺寸、一个 CSS 像素几个设备像素。 */
+interface RasterTarget {
+  readonly x: number
+  readonly y: number
+  readonly w: number
+  readonly h: number
+  readonly cssW: number
+  readonly cssH: number
+  readonly k: number
+}
+
 export { CLIP_UNBOUNDED_PX }
 
 /** 按压处的光。x、y 是相对面板元素左上角的 CSS 像素；strength 0–1。 */
@@ -453,13 +474,23 @@ export class PanelRegistry {
    * 内容按需画：只有看得见（不透明度 > 0、在屏上）的时候才画，画一次缓存在图集里；尺寸、缩放变了，或者
    * invalidate() 之后，下次看得见时重画。painter 在测量阶段调用，可以读布局（这一帧已经量过了，不会多一次重排）。
    */
-  registerBitmapFill(element: HTMLElement, painter: BitmapPainter): SceneBitmapFill {
+  registerBitmapFill(element: HTMLElement, painter: BitmapPainter, options: BitmapFillOptions = {}): SceneBitmapFill {
     let record = this.#fills.find((r) => r.element === element)
     if (!record) {
       record = { element }
       this.#fills.push(record)
     }
-    record.bitmap = { painter, cell: null, pxW: 0, pxH: 0, scale: 0, dirty: true, version: 0, warned: false }
+    record.bitmap = {
+      painter,
+      anchor: options.anchor ?? null,
+      cell: null,
+      pxW: 0,
+      pxH: 0,
+      scale: 0,
+      dirty: true,
+      version: 0,
+      warned: false
+    }
     this.#onChange()
     const r = record
     return {
@@ -479,10 +510,12 @@ export class PanelRegistry {
 
   /**
    * 位图填充这一帧的图集位置：格子没有、过期、尺寸或缩放变了就重新分配；内容过期就重画。
-   * deviceW / deviceH 是盒子的画布设备像素尺寸（转之前），cssW / cssH 是 CSS 尺寸，scale 是一个 CSS 像素几个设备像素。
+   * target 是画的那块（元素自己，或者锚点）：画布设备像素的原点与尺寸（转之前）、CSS 尺寸、一个 CSS 像素几个设备像素。
+   * boxX / boxY 是填充盒子的原点：与 target 不同（有锚点）时，uv 的原点挪过去，只露出锚点画面里盒子盖住的那一块。
    */
-  #bitmapOf(record: FillRecord, deviceW: number, deviceH: number, cssW: number, cssH: number, scale: number): FillBitmap | null {
+  #bitmapOf(record: FillRecord, target: RasterTarget, boxX: number, boxY: number): FillBitmap | null {
     const b = record.bitmap
+    const { w: deviceW, h: deviceH, cssW, cssH, k: scale } = target
     if (!b || !(deviceW > 0 && deviceH > 0)) return null
     if (this.#atlas === undefined) this.#atlas = LabelAtlas.create()
     const atlas = this.#atlas
@@ -514,7 +547,12 @@ export class PanelRegistry {
       }
     }
     return {
-      geom: [cell.x / atlas.width, cell.y / atlas.height, fit / atlas.width, fit / atlas.height],
+      geom: [
+        (cell.x + (boxX - target.x) * fit) / atlas.width,
+        (cell.y + (boxY - target.y) * fit) / atlas.height,
+        fit / atlas.width,
+        fit / atlas.height
+      ],
       version: b.version
     }
   }
@@ -917,8 +955,18 @@ export class PanelRegistry {
     //    量完再把它们补一遍（见下面）
     const fills: MeasuredFill[] = []
     const atlasGeneration = this.#atlas?.generation
-    /** 这一帧量到的位图填充的 CSS 尺寸与缩放：图集清空过时拿它们补画。 */
-    const bitmapArgs = new Map<FillRecord, readonly [number, number, number]>()
+    /** 这一帧量到的位图填充画的那块与盒子原点：图集清空过时拿它们补画。 */
+    const bitmapArgs = new Map<FillRecord, readonly [RasterTarget, number, number]>()
+    /** 锚点元素（不是注册过的东西）：包围盒换到画布设备像素，CSS 尺寸取布局尺寸（变换之前）。 */
+    const anchorTarget = (el: HTMLElement): RasterTarget | null => {
+      const r = el.getBoundingClientRect()
+      const w = r.width * sx
+      const h = r.height * sy
+      const cssW = el.offsetWidth || r.width
+      const cssH = el.offsetHeight || r.height
+      if (!(w > 0 && h > 0 && cssW > 0 && cssH > 0)) return null
+      return { x: (r.left - originX) * sx, y: (r.top - originY) * sy, w, h, cssW, cssH, k: w / cssW }
+    }
     for (const record of this.#fills) {
       const overlay = isOverlay(record)
       markOverlay(record.element, overlay)
@@ -935,8 +983,11 @@ export class PanelRegistry {
       let bitmap: FillBitmap | null = null
       if (record.bitmap) {
         if (!(g.fade > 0)) continue
-        bitmapArgs.set(record, [g.cssW, g.cssH, k])
-        bitmap = this.#bitmapOf(record, g.w, g.h, g.cssW, g.cssH, k)
+        const anchor = record.bitmap.anchor
+        const target = anchor ? anchorTarget(anchor) : { x: g.x, y: g.y, w: g.w, h: g.h, cssW: g.cssW, cssH: g.cssH, k }
+        if (!target) continue
+        bitmapArgs.set(record, [target, g.x, g.y])
+        bitmap = this.#bitmapOf(record, target, g.x, g.y)
         if (!bitmap) continue
         color = [0, 0, 0, g.fade]
       } else {
@@ -986,7 +1037,7 @@ export class PanelRegistry {
         const b = f.record.bitmap
         const args = bitmapArgs.get(f.record)
         if (!f.bitmap || !b || !args || atlas.holds(b.cell)) continue
-        const again = this.#bitmapOf(f.record, f.w, f.h, args[0], args[1], args[2])
+        const again = this.#bitmapOf(f.record, args[0], args[1], args[2])
         if (again) fills[i] = { ...f, bitmap: again }
         else fills.splice(i, 1)
       }

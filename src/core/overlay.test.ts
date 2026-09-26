@@ -15,6 +15,7 @@ test('材质 → CSS 玻璃：模糊是同一个 σ、饱和度与 tint 原样�
   assert.equal(half['--glassium-shadow'], 'rgba(0, 0, 0, 0.075)')
   assert.equal(half['--glassium-rim-light'], 'rgba(255, 255, 255, 0.275)')
   assert.equal(half['--glassium-rim-side'], 'rgba(255, 255, 255, 0.124)', '左右两侧是上下的 RIM_BASE 倍')
+  assert.equal(half['--glassium-edge'], 'rgba(41, 41, 41, 0.175)', '外线：深灰，乘 highlight 与 opacity')
 })
 
 test('没写的项用材质的默认值；预设照样换算；写成 :host 规则', () => {

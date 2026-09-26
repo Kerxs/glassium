@@ -317,6 +317,10 @@ const float BEVEL_SATURATION = 0.3;
 const float BEVEL_GLOW = 0.02;
 const float BODY_SHADE = 0.047;
 const float BODY_LIGHT = 0.055;
+const float EDGE_GRAY = 0.16;
+const float EDGE_MIX = 0.5;
+const float EDGE_TOP = 0.62;
+const float EDGE_FRAC = 0.6;
 const float SHADOW_TINT = 0.5;
 
 uniform sampler2D chain;
@@ -385,8 +389,13 @@ vec4 shade(vec2 px, Shading s) {
   }
   float bevel2 = s.bevel * s.bevel;
   vec3 filtered = applyColorFilter(sampled, s.saturation * (1.0 + BEVEL_SATURATION * bevel2), workingTint(s.tint));
-  vec3 rgb = filtered * s.veil.x + (vec3(1.0) - filtered * s.veil.x) * s.veil.y;
-  float rim = rimLight(s.normal, RIM_LIGHT_DIR, RIM_BASE, RIM_GLOSS) * rimMask(s.sd, s.rimPx) * RIM_GAIN;
+  vec3 veiled = filtered * s.veil.x + (vec3(1.0) - filtered * s.veil.x) * s.veil.y;
+  vec3 edgeGray = uLinear > 0.5 ? srgbToLinear(vec3(EDGE_GRAY)) : vec3(EDGE_GRAY);
+  float edgePx = max(s.rimPx * EDGE_FRAC, 1.5);
+  float edge = rimMask(s.sd, edgePx);
+  float ndl = abs(dot(s.normal, RIM_LIGHT_DIR));
+  vec3 rgb = mix(veiled, edgeGray, EDGE_MIX * (1.0 - EDGE_TOP * ndl) * s.highlight * edge);
+  float rim = rimLight(s.normal, RIM_LIGHT_DIR, RIM_BASE, RIM_GLOSS) * rimMask(s.sd + edgePx, s.rimPx) * (1.0 - edge) * (1.0 - edge) * RIM_GAIN;
   float body = bodyLight(s.vpos, BODY_SHADE, BODY_LIGHT) * s.body;
   float lit = (rim + BEVEL_GLOW * bevel2 + body) * s.highlight + s.glow;
   float a = s.coverage * s.opacity;

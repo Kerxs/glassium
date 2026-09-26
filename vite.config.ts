@@ -30,6 +30,7 @@ export default defineConfig({
       input: {
         main: fileURLToPath(new URL('./playground/index.html', import.meta.url)),
         playground: fileURLToPath(new URL('./playground/playground.html', import.meta.url)),
+        devices: fileURLToPath(new URL('./playground/devices.html', import.meta.url)),
         demo: fileURLToPath(new URL('./playground/demo.html', import.meta.url)),
         bench: fileURLToPath(new URL('./playground/bench.html', import.meta.url)),
         debug: fileURLToPath(new URL('./playground/debug.html', import.meta.url)),

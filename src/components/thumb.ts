@@ -53,7 +53,7 @@ export const THUMB_PRESSED: ThumbParams = {
   saturation: 1.15,
   highlight: 1,
   dispersion: 0.12,
-  shadow: 0.2,
+  shadow: 0.3,
   whiteness: 0.03,
   magnify: 0,
   bodyLight: 1

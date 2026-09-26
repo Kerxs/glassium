@@ -224,6 +224,7 @@ export {
   RIM_WIDTH_DP,
   SHADOW_OPACITY,
   shadowShapeDp,
+  type BitmapFillOptions,
   type BitmapPainter,
   type GlassGroup,
   type GlassPanel,

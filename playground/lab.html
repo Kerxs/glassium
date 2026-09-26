@@ -202,6 +202,22 @@
         <span>皇家爱乐管弦乐队 &amp; Caroline</span>
       </glass-card>
     </section>
+    <!-- iOS 27 截图：白底上按住的亮度滑块（3 倍）、白底上的标签栏（3 倍） -->
+    <section class="scene" id="s-white" data-scene="white">
+      <div class="zoom" style="left: 40px; top: 300px; transform: scale(3)">
+        <glass-slider id="lab-white-slider" value="45" style="width: 240px; --glass-slider-fill: rgb(59, 130, 246); --glass-slider-track: rgb(229, 229, 229)"></glass-slider>
+      </div>
+    </section>
+    <section class="scene" id="s-tabbar" data-scene="tabbar">
+      <div class="zoom" style="left: 30px; top: 280px; transform: scale(2.4)">
+        <glass-tab-bar id="lab-tabbar" value="c" aria-label="标签栏" style="color: #000">
+          <button value="a"><span>Today</span></button>
+          <button value="b"><span>游戏</span></button>
+          <button value="c"><span>App</span></button>
+          <button value="d"><span>搜索</span></button>
+        </glass-tab-bar>
+      </div>
+    </section>
     <section class="scene" id="s-buttons" data-scene="buttons">
       <glass-button class="round" id="lab-b1" type="button" style="left: 90px; top: 330px; width: 78px; height: 78px">↺</glass-button>
       <glass-button class="round" id="lab-b2" type="button" style="left: 262px; top: 312px; width: 114px; height: 114px">❚❚</glass-button>
@@ -216,6 +232,8 @@
         <button type="button" data-go="segmented">2 分段控件</button>
         <button type="button" data-go="panel">3 正在播放</button>
         <button type="button" data-go="buttons">4 圆按钮</button>
+        <button type="button" data-go="white">5 白底滑块</button>
+        <button type="button" data-go="tabbar">6 标签栏</button>
       </div>
       <div class="bar">
         <label><input type="checkbox" id="press" /> 按住（滑块、分段控件）</label>

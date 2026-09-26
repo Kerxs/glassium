@@ -6,335 +6,217 @@
     <title>Glassium · 液态玻璃</title>
     <meta
       name="description"
-      content="Liquid Glass（液态玻璃）的 Web 实现：iPhone 与 Mac 界面里的玻璃都由 GPU 实时绘制 —— 折射、色散、亮边，跟着 DOM 走。"
+      content="Liquid Glass（液态玻璃）的 Web 实现：开关、滑块、分段控件、标签栏、按钮 —— 折射、色散、亮边、按住时的透镜都由 GPU 实时绘制。"
     />
+    <link rel="stylesheet" href="./controls.css" />
     <!--
-      展示页。只用公开 API：组件 + createGlassStage + <glass-fill>。样式在 showcase.css，交互在 showcase.ts。
+      首页：四个照着 iOS 27 实机截图搭的场景（设置、控制中心、应用列表、锁屏），控件都能直接操作。只用公开 API：
+      组件 + createGlassStage + <glass-fill> + stage.registerBitmapFill。样式在 controls.css，交互在 controls.ts。
 
-      玻璃只折射场景（R2），所以两台设备的壁纸、App 里在玻璃底下滚动的照片都是 <glass-fill>：它们画进场景，
-      玻璃看得见。设备的外框是 DOM 的边框（背景透明，R1），屏幕里的界面按设备的原尺寸排版，整台设备再用
-      transform: scale 缩到放得下 —— 玻璃的模糊、折射、圆角跟着一起缩。
+      玻璃只折射场景（R2）：场景里的壁纸、白色分组、App 图块都是 <glass-fill>，应用列表里的标题用位图填充画进场景
+      （.scene-text），所以标签栏的透镜能把它们扭弯。每个场景按手机屏幕 390×780 排版，整块 transform: scale 放大。
     -->
   </head>
   <body>
+    <glass-nav-bar large-title class="page-nav">
+      <button slot="trailing" type="button" data-href="https://github.com/Kerxs/glassium">GitHub</button>
+      <button slot="trailing" type="button" data-href="./playground.html">Playground</button>
+      <h1>Glassium</h1>
+    </glass-nav-bar>
+
     <main>
-      <section class="showcase showcase-phone" aria-labelledby="phone-title">
-        <header class="intro">
-          <p class="brand">Glassium</p>
-          <h1>液态玻璃，画在网页里</h1>
-          <p class="lede">
-            下面这台 iPhone 和这台 Mac 的界面里，每一块玻璃都是 GPU 实时画的：边缘把背后的壁纸和照片弯过来，
-            色散、亮边、按下去的光，都跟着网页的 DOM 走。它们都能点。
-          </p>
-          <nav class="links" aria-label="链接">
-            <a href="./playground.html">Playground：调材质、拿代码</a>
-            <a href="https://github.com/Kerxs/glassium">GitHub</a>
-            <a href="https://www.npmjs.com/package/glassium">npm</a>
-            <a href="https://github.com/Kerxs/glassium/blob/main/docs/api.md">API 文档</a>
-          </nav>
-        </header>
-        <div class="copy">
-          <h2 id="phone-title">iPhone</h2>
-          <p>
-            主屏幕的图标、小组件、Dock 都是清透的玻璃，壁纸是画进场景的 <code>&lt;glass-fill&gt;</code>。
-            边缘那一圈把壁纸上的圆环和条纹弯了过来 —— 这是真的折射，不是模糊。
-          </p>
-          <ul class="try">
-            <li>点「照片」：照片在玻璃标签栏底下滚动，按钮里的「选择」会分出水滴</li>
-            <li>点右上角的电池：拉下控制中心，开关、滑块都能用</li>
-            <li>按住任何一颗玻璃按钮：光从按下的地方亮起来</li>
-          </ul>
-        </div>
-
-        <div class="slot" data-slot="phone">
-          <div class="iphone" id="iphone" role="group" aria-label="iPhone 演示" data-screen="home">
-            <span class="side-btn action" aria-hidden="true"></span>
-            <span class="side-btn vol-up" aria-hidden="true"></span>
-            <span class="side-btn vol-down" aria-hidden="true"></span>
-            <span class="side-btn power" aria-hidden="true"></span>
-
-            <!-- 壁纸：几块填充叠出来，比屏幕大一圈、伸到边框底下（边框是 DOM，盖住多出来的那圈），
-                 屏幕边上的玻璃往外折射时采到的也是壁纸 -->
-            <div class="wall" aria-hidden="true">
-              <glass-fill style="left: 0; top: 0; width: 100%; height: 100%; --glass-fill: linear-gradient(165deg, #1b2c70 0%, #3a2a7c 40%, #151745 72%, #0a0c26 100%)"></glass-fill>
-              <glass-fill style="left: -70px; top: 150px; width: 380px; height: 380px; border-radius: 50%; --glass-fill: radial-gradient(circle at 38% 36%, #ffd29a 0%, #ff8a5c 36%, #ff4f7b 68%, #9b2c7a 100%)"></glass-fill>
-              <glass-fill style="left: 196px; top: 450px; width: 300px; height: 300px; border-radius: 50%; --glass-fill: radial-gradient(circle at 34% 32%, #a5f3ff 0%, #3aa6ff 48%, #2b45c9 100%)"></glass-fill>
-              <glass-fill style="left: 288px; top: 96px; width: 92px; height: 92px; border-radius: 50%; --glass-fill: #ffe07a"></glass-fill>
-              <glass-fill style="left: -40px; top: 596px; width: 480px; height: 176px; border-radius: 50%; rotate: -17deg; --glass-fill: linear-gradient(90deg, #c46bff, #6c5cff 60%, #3b7bff)"></glass-fill>
-              <glass-fill style="left: 30px; top: 226px; width: 250px; height: 250px; border-radius: 50%; --glass-fill: radial-gradient(circle closest-side, transparent 86%, rgba(255, 255, 255, 0.85) 87%, rgba(255, 255, 255, 0.85) 92%, transparent 93%)"></glass-fill>
-              <glass-fill style="left: 168px; top: 150px; width: 330px; height: 330px; border-radius: 50%; --glass-fill: radial-gradient(circle closest-side, transparent 90%, rgba(255, 255, 255, 0.6) 91%, rgba(255, 255, 255, 0.6) 94%, transparent 95%)"></glass-fill>
-              <glass-fill style="left: -30px; top: 736px; width: 490px; height: 150px; rotate: -6deg; --glass-fill: repeating-linear-gradient(90deg, rgba(255, 255, 255, 0.28) 0 4px, transparent 4px 16px)"></glass-fill>
-            </div>
-
-            <div class="screen">
-              <div class="island" aria-hidden="true"></div>
-              <div class="statusbar">
-                <span class="time" data-clock="time">18:42</span>
-                <button class="status-right" id="cc-toggle" type="button" aria-label="打开控制中心" aria-expanded="false" aria-controls="cc">
-                  <span data-icon="signal"></span><span data-icon="wifi"></span><span data-icon="battery"></span>
-                </button>
-              </div>
-
-              <!-- 主屏幕 -->
-              <div class="home" id="home">
-                <div class="widgets">
-                  <glass-card class="widget weather" preset="regular" corner-radius="26">
-                    <span class="w-place">此地</span>
-                    <span class="w-temp">23°</span>
-                    <span class="w-icon" data-icon="weather"></span>
-                    <span class="w-note">多云转晴</span>
-                    <span class="w-range">最高 27° 最低 19°</span>
-                  </glass-card>
-                  <glass-card class="widget cal" preset="regular" corner-radius="26">
-                    <span class="c-week" data-date="weekday">星期四</span>
-                    <span class="c-day" data-date="day">25</span>
-                    <span class="c-event"><i></i>18:30 看电影</span>
-                    <span class="c-event muted"><i></i>明天 08:00 晨跑</span>
-                  </glass-card>
-                </div>
-                <div class="apps" id="apps"></div>
-                <glass-button class="search-pill" preset="thin" type="button" aria-label="搜索">
-                  <span data-icon="search"></span>搜索
-                </glass-button>
-                <glass-card class="dock" preset="thin" corner-radius="36">
-                  <div class="dock-apps" id="dock-apps"></div>
-                </glass-card>
-              </div>
-
-              <!-- 照片 App：从「照片」图标那里放大出来 -->
-              <div class="app photos" id="photos" inert aria-label="照片">
-                <glass-fill class="app-bg"></glass-fill>
-                <div class="grid-scroll" id="grid-scroll" tabindex="-1">
-                  <div class="grid" id="grid" data-layout="library"></div>
-                </div>
-                <h3 class="app-title">图库</h3>
-                <!-- 右上角：一组合并的玻璃，按「选择」时从里面分出「分享」「删除」两颗水滴（morph） -->
-                <glass-container class="top-actions" id="select-group" morph smoothing="16">
-                  <glass-button class="round" type="button" preset="regular" aria-label="更多"><span data-icon="more"></span></glass-button>
-                  <glass-button class="pill" id="select" type="button" preset="regular" aria-pressed="false">选择</glass-button>
-                </glass-container>
-                <glass-container class="bottom-bar" smoothing="14">
-                  <glass-tab-bar id="photo-tabs" value="library" preset="regular" aria-label="照片">
-                    <button value="library"><span class="tab-ico" data-icon="photos"></span><span>图库</span></button>
-                    <button value="featured"><span class="tab-ico" data-icon="sparkle"></span><span>精选</span></button>
-                    <button value="albums"><span class="tab-ico" data-icon="film"></span><span>相簿</span></button>
-                  </glass-tab-bar>
-                  <glass-button class="round big" type="button" preset="regular" aria-label="搜索照片"><span data-icon="search"></span></glass-button>
-                </glass-container>
-              </div>
-
-              <!-- 控制中心：一整块模糊的玻璃铺满屏幕，模块写在它里面（上面一层，看得见它） -->
-              <div class="cc" id="cc" inert>
-                <glass-card
-                  class="cc-backdrop"
-                  id="cc-backdrop"
-                  preset="thick"
-                  corner-radius="0"
-                  blur="26"
-                  refraction="0"
-                  distortion="0"
-                  highlight="0"
-                  shadow="0"
-                  adaptive="0"
-                  saturation="1.6"
-                  tint="rgba(12, 12, 24, 0.3)"
-                >
-                  <div class="cc-grid">
-                    <glass-card class="cc-mod net" preset="thin" corner-radius="30">
-                      <glass-button class="toggle" type="button" data-on="#ff9f0a" aria-pressed="false" aria-label="飞行模式"><span data-icon="airplane"></span></glass-button>
-                      <glass-button class="toggle" type="button" data-on="#30d158" aria-pressed="true" aria-label="蜂窝数据"><span data-icon="cellular"></span></glass-button>
-                      <glass-button class="toggle" type="button" data-on="#0a84ff" aria-pressed="true" aria-label="无线局域网"><span data-icon="wifi"></span></glass-button>
-                      <glass-button class="toggle" type="button" data-on="#0a84ff" aria-pressed="true" aria-label="蓝牙"><span data-icon="waves"></span></glass-button>
-                    </glass-card>
-                    <glass-card class="cc-mod now" preset="thin" corner-radius="30">
-                      <glass-fill class="art"></glass-fill>
-                      <span class="now-title">Evening Lights</span>
-                      <span class="now-artist">Glassium · 城市黄昏</span>
-                      <glass-container class="transport" smoothing="12">
-                        <glass-button type="button" preset="clear" aria-label="上一首"><span data-icon="prev"></span></glass-button>
-                        <glass-button type="button" preset="regular" aria-label="播放" id="cc-play"><span data-icon="play"></span></glass-button>
-                        <glass-button type="button" preset="clear" aria-label="下一首"><span data-icon="next"></span></glass-button>
-                      </glass-container>
-                    </glass-card>
-                    <glass-button class="cc-wide toggle" type="button" preset="thin" corner-radius="26" data-on="#5e5ce6" aria-pressed="false">
-                      <span data-icon="moon"></span>专注模式
-                    </glass-button>
-                    <glass-button class="cc-wide" type="button" preset="thin" corner-radius="26"><span data-icon="mirror"></span>屏幕镜像</glass-button>
-                    <glass-card class="cc-mod bar" preset="thin" corner-radius="26">
-                      <span data-icon="sun"></span>
-                      <glass-slider value="70" aria-label="亮度"></glass-slider>
-                    </glass-card>
-                    <glass-card class="cc-mod bar" preset="thin" corner-radius="26">
-                      <span data-icon="speaker"></span>
-                      <glass-slider value="45" aria-label="音量"></glass-slider>
-                    </glass-card>
-                    <glass-button class="cc-small toggle" type="button" preset="thin" data-on="#ffffff" aria-pressed="false" aria-label="手电筒"><span data-icon="flashlight"></span></glass-button>
-                    <glass-button class="cc-small" type="button" preset="thin" aria-label="计时器"><span data-icon="timer"></span></glass-button>
-                    <glass-button class="cc-small" type="button" preset="thin" aria-label="计算器"><span data-icon="calculator"></span></glass-button>
-                    <glass-button class="cc-small" type="button" preset="thin" aria-label="相机"><span data-icon="camera"></span></glass-button>
-                  </div>
-                </glass-card>
-              </div>
-
-              <button class="home-bar" id="home-bar" type="button" aria-label="回到主屏幕"></button>
-            </div>
-          </div>
-        </div>
+      <section class="intro">
+        <p class="lede">
+          液态玻璃（Liquid Glass）的 Web 实现。下面四块屏幕里的控件都是真的：拖一拖滑块、按住分段控件的选中块、
+          在标签栏上按住左右拖 —— 透镜、折射、亮边都由 GPU 实时画。
+        </p>
+        <pre class="install"><code>npm install glassium</code></pre>
       </section>
 
-      <section class="showcase showcase-mac" aria-labelledby="mac-title">
-        <div class="slot" data-slot="mac">
-          <div class="mac" id="mac" role="group" aria-label="Mac 演示">
-            <div class="lid">
-              <div class="wall" aria-hidden="true">
-                <glass-fill style="left: 0; top: 0; width: 100%; height: 100%; --glass-fill: linear-gradient(168deg, #0e2352 0%, #1d4c9e 38%, #5a3aa8 70%, #22103f 100%)"></glass-fill>
-                <glass-fill style="left: -160px; top: 330px; width: 1560px; height: 520px; border-radius: 50%; rotate: -11deg; --glass-fill: linear-gradient(90deg, #27d7c4, #3b9dff 45%, #7a5cff 80%, #a855f7)"></glass-fill>
-                <glass-fill style="left: -120px; top: 500px; width: 1500px; height: 440px; border-radius: 50%; rotate: -7deg; --glass-fill: linear-gradient(90deg, #ff7aa8, #ff9d5c 55%, #ffd166)"></glass-fill>
-                <glass-fill style="left: -60px; top: 640px; width: 1440px; height: 380px; border-radius: 50%; rotate: -3deg; --glass-fill: linear-gradient(90deg, #4b23c9, #2a1780 60%, #150b4a)"></glass-fill>
-                <glass-fill style="left: 1016px; top: 76px; width: 150px; height: 150px; border-radius: 50%; --glass-fill: radial-gradient(circle at 40% 38%, #fff4c8, #ffc766 55%, #ff9a3d)"></glass-fill>
-                <glass-fill style="left: 34px; top: 96px; width: 300px; height: 300px; border-radius: 50%; --glass-fill: radial-gradient(circle closest-side, transparent 86%, rgba(255, 255, 255, 0.8) 87%, rgba(255, 255, 255, 0.8) 91%, transparent 92%)"></glass-fill>
-                <glass-fill style="left: 900px; top: 190px; width: 380px; height: 380px; border-radius: 50%; --glass-fill: radial-gradient(circle closest-side, transparent 89%, rgba(255, 255, 255, 0.7) 90%, rgba(255, 255, 255, 0.7) 93%, transparent 94%)"></glass-fill>
-                <glass-fill style="left: 250px; top: 702px; width: 820px; height: 110px; rotate: -2deg; --glass-fill: repeating-linear-gradient(90deg, rgba(255, 255, 255, 0.26) 0 4px, transparent 4px 16px)"></glass-fill>
-              </div>
-
-              <div class="screen">
-                <div class="notch" aria-hidden="true"></div>
-
-                <!-- 菜单栏：透明，只有文字（控制中心按钮是单独的一块玻璃） -->
-                <div class="menubar">
-                  <strong>照片</strong><span>文件</span><span>编辑</span><span>图像</span><span>显示</span><span>窗口</span><span>帮助</span>
-                  <span class="menubar-right">
-                    <span data-icon="battery"></span><span data-icon="wifi"></span><span data-icon="search"></span>
-                    <glass-button class="cc-button" id="mac-cc-btn" type="button" preset="regular" aria-label="控制中心" aria-expanded="false" aria-controls="mac-cc">
-                      <span data-icon="controls"></span>
-                    </glass-button>
-                    <span class="menubar-clock" data-clock="long">9月25日 周四 18:42</span>
-                  </span>
+      <div class="scenes">
+        <!-- 1 设置（浅色） -->
+        <section class="scene" aria-labelledby="t-settings">
+          <header class="scene-text-block">
+            <h2 id="t-settings">设置</h2>
+            <p>白底上的玻璃：旋钮平时是白色的胶囊，一按住就变成透明的透镜，边缘一圈淡灰的外线。</p>
+            <ul class="try">
+              <li>按住亮度滑块的旋钮左右拖：透镜顺着速度拉长，停下来慢慢圆回去</li>
+              <li>按住「外观」的选中块拖到别的段上</li>
+            </ul>
+          </header>
+          <div class="slot">
+            <div class="screen light" id="s-settings">
+              <glass-fill class="wall" style="--glass-fill: #f2f2f7"></glass-fill>
+              <div class="st-nav"><span class="st-back">‹ 设置</span><span class="st-title">显示与亮度</span></div>
+              <p class="st-head">外观</p>
+              <glass-fill class="group">
+                <div class="row">
+                  <span>外观</span>
+                  <glass-segmented class="st-seg" value="light" aria-label="外观">
+                    <span value="light">浅色</span>
+                    <span value="dark">深色</span>
+                    <span value="auto">自动</span>
+                  </glass-segmented>
                 </div>
-
-                <div class="desk-widgets">
-                  <glass-card class="mac-widget month" preset="regular" corner-radius="24">
-                    <span class="m-title" data-date="month">九月</span>
-                    <div class="m-grid" id="month-grid"></div>
-                  </glass-card>
-                  <glass-card class="mac-widget forecast" preset="regular" corner-radius="24">
-                    <span class="f-place">此地</span>
-                    <span class="f-temp">23°<span data-icon="weather"></span></span>
-                    <span class="f-note">多云转晴 · 东南风 3 级</span>
-                    <span class="f-range">日落 19:07</span>
-                  </glass-card>
+              </glass-fill>
+              <p class="st-head">亮度</p>
+              <glass-fill class="group">
+                <div class="row bright">
+                  <span class="ico sm" data-icon="sun"></span>
+                  <glass-slider class="st-slider" value="55" aria-label="亮度"></glass-slider>
+                  <span class="ico lg" data-icon="sun"></span>
                 </div>
-
-                <!-- 照片窗口：窗口底色是填充；内容（横幅与照片，都是填充）滚到浮着的玻璃侧栏与工具栏底下 -->
-                <div class="window" id="window" data-state="open" role="group" aria-label="照片窗口">
-                  <glass-fill class="win-bg"></glass-fill>
-                  <div class="win-scroll" id="win-scroll" tabindex="-1">
-                    <glass-fill class="hero"></glass-fill>
-                    <div class="win-grid" id="win-grid" data-cols="all"></div>
-                  </div>
-                  <div class="win-title"><strong>图库</strong><span>1,248 张照片</span></div>
-                  <glass-card class="sidebar" preset="regular" corner-radius="16" tint="rgba(40, 40, 60, 0.25)">
-                    <div class="lights">
-                      <button class="light close" id="win-close" type="button" aria-label="关闭窗口"></button>
-                      <button class="light min" id="win-min" type="button" aria-label="最小化窗口"></button>
-                      <span class="light zoom" aria-hidden="true"></span>
-                    </div>
-                    <glass-fill class="sel" id="side-sel"></glass-fill>
-                    <nav class="side-items" id="side-items" aria-label="照片分类">
-                      <button type="button" aria-current="true"><span data-icon="photos"></span>图库</button>
-                      <button type="button"><span data-icon="sparkle"></span>精选</button>
-                      <button type="button"><span data-icon="person"></span>人物</button>
-                      <button type="button"><span data-icon="pin"></span>地点</button>
-                      <button type="button"><span data-icon="film"></span>回忆</button>
-                      <span class="side-head">相簿</span>
-                      <button type="button"><span data-icon="heart"></span>收藏</button>
-                      <button type="button"><span data-icon="trash"></span>最近删除</button>
-                    </nav>
-                  </glass-card>
-                  <div class="toolbar">
-                    <glass-card class="seg-platter" preset="regular" corner-radius="1frac">
-                      <glass-segmented id="mac-seg" value="all" aria-label="时间范围">
-                        <span value="year">年</span>
-                        <span value="month">月</span>
-                        <span value="day">日</span>
-                        <span value="all">全部</span>
-                      </glass-segmented>
-                    </glass-card>
-                    <glass-container class="tool-btns" smoothing="12">
-                      <glass-button class="round" type="button" preset="regular" aria-label="分享"><span data-icon="share"></span></glass-button>
-                      <glass-button class="round" type="button" preset="regular" aria-label="搜索"><span data-icon="search"></span></glass-button>
-                    </glass-container>
-                  </div>
+                <glass-fill class="sep"></glass-fill>
+                <div class="row">
+                  <span>原彩显示</span>
+                  <glass-switch checked aria-label="原彩显示"></glass-switch>
                 </div>
+              </glass-fill>
+              <p class="st-note">根据环境光自动调整屏幕，让色彩在不同环境下看起来一致。</p>
+              <glass-fill class="group">
+                <div class="row">
+                  <span>自动锁定</span>
+                  <glass-switch aria-label="自动锁定"></glass-switch>
+                </div>
+                <glass-fill class="sep"></glass-fill>
+                <div class="row">
+                  <span>抬起唤醒</span>
+                  <glass-switch checked aria-label="抬起唤醒"></glass-switch>
+                </div>
+              </glass-fill>
+            </div>
+          </div>
+        </section>
 
-                <!-- 控制中心：从菜单栏上那颗按钮变形出来（morphGlass），收起的时候 visibility: hidden -->
-                <glass-card class="mac-cc collapsed" id="mac-cc" preset="regular" corner-radius="26" role="dialog" aria-label="控制中心">
-                  <glass-card class="mod net" preset="thin" corner-radius="18">
-                    <label class="net-row"><span class="net-ico on" data-icon="wifi"></span><span class="net-name">无线局域网<small>家里的网络</small></span><glass-switch checked></glass-switch></label>
-                    <label class="net-row"><span class="net-ico on" data-icon="waves"></span><span class="net-name">蓝牙<small>开</small></span><glass-switch checked></glass-switch></label>
-                    <label class="net-row"><span class="net-ico" data-icon="rings"></span><span class="net-name">隔空投送<small>仅限联系人</small></span><glass-switch></glass-switch></label>
-                  </glass-card>
-                  <glass-card class="mod slide" preset="thin" corner-radius="18">
-                    <span class="mod-title">显示器</span>
-                    <span class="slide-row"><span data-icon="sun"></span><glass-slider value="70" aria-label="显示器亮度"></glass-slider></span>
-                  </glass-card>
-                  <glass-card class="mod slide" preset="thin" corner-radius="18">
-                    <span class="mod-title">声音</span>
-                    <span class="slide-row"><span data-icon="speaker"></span><glass-slider value="45" aria-label="音量"></glass-slider></span>
-                  </glass-card>
-                  <glass-card class="mod look" preset="thin" corner-radius="18">
-                    <span class="mod-title">外观</span>
-                    <glass-segmented value="auto" aria-label="外观">
-                      <span value="light">浅色</span>
-                      <span value="dark">深色</span>
-                      <span value="auto">自动</span>
-                    </glass-segmented>
-                  </glass-card>
-                  <glass-card class="mod now" preset="thin" corner-radius="18">
-                    <glass-fill class="art"></glass-fill>
-                    <span class="now-text"><strong>Evening Lights</strong><span>Glassium · 城市黄昏</span></span>
-                    <glass-container class="transport" smoothing="10">
-                      <glass-button type="button" preset="clear" aria-label="上一首"><span data-icon="prev"></span></glass-button>
-                      <glass-button type="button" preset="regular" aria-label="播放" id="mac-play"><span data-icon="play"></span></glass-button>
-                      <glass-button type="button" preset="clear" aria-label="下一首"><span data-icon="next"></span></glass-button>
-                    </glass-container>
-                  </glass-card>
+        <!-- 2 控制中心（深色） -->
+        <section class="scene" aria-labelledby="t-cc">
+          <header class="scene-text-block">
+            <h2 id="t-cc">控制中心</h2>
+            <p>暗底上的玻璃：亮边明亮，还带着底下内容的颜色；按下时从手指处亮起来。</p>
+            <ul class="try">
+              <li>点连接模块里的圆按钮开关它们</li>
+              <li>在亮度、音量两块上下拖</li>
+            </ul>
+          </header>
+          <div class="slot">
+            <div class="screen dark" id="s-cc">
+              <glass-fill class="wall" style="--glass-fill: linear-gradient(160deg, #20242e, #2a2033 55%, #1b2427)"></glass-fill>
+              <glass-fill class="blob" style="left: -30px; top: 90px; width: 260px; height: 260px; --glass-fill: radial-gradient(circle, rgba(58, 132, 255, 0.85), rgba(58, 132, 255, 0))"></glass-fill>
+              <glass-fill class="blob" style="left: 190px; top: 60px; width: 240px; height: 240px; --glass-fill: radial-gradient(circle, rgba(255, 150, 60, 0.7), rgba(255, 150, 60, 0))"></glass-fill>
+              <glass-fill class="blob" style="left: 150px; top: 330px; width: 220px; height: 220px; --glass-fill: radial-gradient(circle, rgba(255, 70, 110, 0.6), rgba(255, 70, 110, 0))"></glass-fill>
+              <glass-fill class="blob" style="left: -20px; top: 470px; width: 260px; height: 260px; --glass-fill: radial-gradient(circle, rgba(60, 200, 120, 0.55), rgba(60, 200, 120, 0))"></glass-fill>
+              <div class="cc-status"><span>5G</span><span>71%</span></div>
+              <div class="cc-grid">
+                <glass-card class="cc-module conn" corner-radius="32">
+                  <glass-button class="cc-round" type="button" data-toggle aria-pressed="false" aria-label="飞行模式"><span data-icon="airplane"></span></glass-button>
+                  <glass-button class="cc-round" type="button" data-toggle aria-pressed="true" aria-label="隔空投送"><span data-icon="rings"></span></glass-button>
+                  <glass-button class="cc-round" type="button" data-toggle aria-pressed="true" aria-label="无线局域网"><span data-icon="wifi"></span></glass-button>
+                  <glass-button class="cc-round" type="button" data-toggle aria-pressed="true" aria-label="蓝牙"><span data-icon="bluetooth"></span></glass-button>
                 </glass-card>
-
-                <glass-card class="mac-dock" preset="thin" corner-radius="24">
-                  <div class="mac-dock-apps" id="mac-dock-apps"></div>
+                <glass-card class="cc-module media" corner-radius="32">
+                  <p class="media-title" id="cc-title">未在播放</p>
+                  <div class="media-controls">
+                    <glass-button class="media-btn" type="button" aria-label="上一首"><span data-icon="prev"></span></glass-button>
+                    <glass-button class="media-btn" type="button" id="cc-play" aria-label="播放"><span data-icon="play"></span></glass-button>
+                    <glass-button class="media-btn" type="button" aria-label="下一首"><span data-icon="next"></span></glass-button>
+                  </div>
                 </glass-card>
+                <glass-button class="cc-tile" type="button" data-toggle data-light aria-pressed="true" aria-label="屏幕方向锁定"><span data-icon="lock"></span></glass-button>
+                <glass-button class="cc-tile" type="button" data-toggle data-light aria-pressed="false" aria-label="手电筒"><span data-icon="flashlight"></span></glass-button>
+                <glass-card class="vslider" id="cc-bright" corner-radius="1frac" role="slider" aria-label="亮度" aria-valuemin="0" aria-valuemax="100" aria-valuenow="55" tabindex="0">
+                  <glass-fill class="level" style="--glass-fill: rgba(255, 255, 255, 0.92)"></glass-fill>
+                  <span class="vslider-ico" data-icon="sun"></span>
+                </glass-card>
+                <glass-card class="vslider" id="cc-volume" corner-radius="1frac" role="slider" aria-label="音量" aria-valuemin="0" aria-valuemax="100" aria-valuenow="30" tabindex="0">
+                  <glass-fill class="level" style="--glass-fill: rgba(255, 255, 255, 0.92)"></glass-fill>
+                  <span class="vslider-ico" data-icon="speaker"></span>
+                </glass-card>
+                <glass-button class="cc-focus" type="button" data-toggle aria-pressed="false"><span data-icon="moon"></span>专注模式</glass-button>
+                <div class="cc-row">
+                  <glass-button class="cc-round small" type="button" aria-label="计时器"><span data-icon="timer"></span></glass-button>
+                  <glass-button class="cc-round small" type="button" aria-label="相机"><span data-icon="camera"></span></glass-button>
+                  <glass-button class="cc-round small" type="button" data-toggle aria-pressed="false" aria-label="录屏"><span data-icon="rings"></span></glass-button>
+                  <glass-button class="cc-round small" type="button" aria-label="计算器"><span data-icon="calculator"></span></glass-button>
+                </div>
               </div>
             </div>
-            <div class="base" aria-hidden="true"><span class="lip"></span></div>
           </div>
-        </div>
+        </section>
 
-        <div class="copy">
-          <h2 id="mac-title">Mac</h2>
-          <p>
-            菜单栏上的控制中心按钮一按，变形成整块面板（<code>morphGlass</code>）；照片窗口的侧栏和工具栏浮在内容上，
-            横幅和照片从它们底下滚过去。Dock 是一整条玻璃。
-          </p>
-          <ul class="try">
-            <li>点菜单栏右边的按钮：控制中心从按钮里长出来，再点一下缩回去</li>
-            <li>在窗口里滚动照片，或者点工具栏的「年 / 月 / 日」</li>
-            <li>点窗口左上角的红点关掉它，再点 Dock 上的「照片」打开</li>
-          </ul>
-        </div>
-      </section>
+        <!-- 3 应用列表 + 标签栏（浅色） -->
+        <section class="scene" aria-labelledby="t-store">
+          <header class="scene-text-block">
+            <h2 id="t-store">标签栏</h2>
+            <p>长按选中的那一格，它变成比栏还高的透镜，把底下的图标、文字放大；拖动时顺着速度拉长，透镜里的都换成选中色。</p>
+            <ul class="try">
+              <li>在「Today」上按住，往右拖到「App」</li>
+              <li>上下滚动列表：内容从玻璃栏底下滑过，标题被折射</li>
+            </ul>
+          </header>
+          <div class="slot">
+            <div class="screen light" id="s-store">
+              <glass-fill class="wall" style="--glass-fill: #ffffff"></glass-fill>
+              <div class="store-scroll" id="store-scroll">
+                <p class="store-date" id="store-date"></p>
+                <h3 class="store-title scene-text">Today</h3>
+                <glass-fill class="feature" style="--glass-fill: linear-gradient(140deg, #ffb340, #ff5e62 55%, #c644fc)">
+                  <p class="feature-kicker">精选</p>
+                  <p class="feature-title">玻璃的十个小技巧</p>
+                </glass-fill>
+                <h4 class="store-head scene-text">为你推荐</h4>
+                <div class="apps" id="store-apps"></div>
+                <h4 class="store-head scene-text">Essential games</h4>
+                <div class="apps" id="store-games"></div>
+              </div>
+              <glass-tab-bar class="store-tabs" value="today" aria-label="应用商店">
+                <button value="today"><span class="tab-ico" data-icon="today"></span><span>Today</span></button>
+                <button value="games"><span class="tab-ico" data-icon="gamepad"></span><span>游戏</span></button>
+                <button value="apps"><span class="tab-ico" data-icon="layers"></span><span>App</span></button>
+                <button value="search"><span class="tab-ico" data-icon="search"></span><span>搜索</span></button>
+              </glass-tab-bar>
+            </div>
+          </div>
+        </section>
+
+        <!-- 4 锁屏（深色） -->
+        <section class="scene" aria-labelledby="t-lock">
+          <header class="scene-text-block">
+            <h2 id="t-lock">锁屏</h2>
+            <p>壁纸上的圆形玻璃按钮与通知：清透，只有一圈亮边和一点折射，看得见后面的丝带。</p>
+            <ul class="try">
+              <li>点左下角的手电筒，再点一下关掉</li>
+              <li>按住右下角的相机：按下的地方亮起来</li>
+            </ul>
+          </header>
+          <div class="slot">
+            <div class="screen dark" id="s-lock">
+              <div class="wall" id="lock-wall"></div>
+              <p class="lock-date" id="lock-date"></p>
+              <p class="lock-time" id="lock-time"></p>
+              <glass-card class="notif" corner-radius="26" preset="regular">
+                <glass-fill class="notif-ico"><span data-icon="sparkle"></span></glass-fill>
+                <span class="notif-body"><strong>Glassium</strong><span>透镜、亮边、果冻，都在 GPU 上画。</span></span>
+                <span class="notif-time">刚刚</span>
+              </glass-card>
+              <glass-button class="lock-btn left" type="button" data-toggle data-light aria-pressed="false" aria-label="手电筒"><span data-icon="flashlight"></span></glass-button>
+              <glass-button class="lock-btn right" type="button" aria-label="相机"><span data-icon="camera"></span></glass-button>
+            </div>
+          </div>
+        </section>
+      </div>
     </main>
 
     <footer class="fine">
       <p>
-        玻璃折射的是 Glassium 自己画的场景（壁纸与照片都是画进场景的填充），不是它背后的网页 DOM ——
-        所以正文文字不会被折射。原理和限制见 <a href="https://github.com/Kerxs/glassium/blob/main/docs/limitations.md">limitations.md</a>。
-        别的页面：<a href="./playground.html">Playground</a>、<a href="./bench.html">性能测试</a>、
-        <a href="./verify.html">逐项验证</a>、<a href="./debug.html">调试台</a>。
+        玻璃折射的是 Glassium 自己画的场景（壁纸、分组、图块、标题都是画进场景的填充），不是它背后的网页 DOM ——
+        原理和限制见 <a href="https://github.com/Kerxs/glassium/blob/main/docs/limitations.md">limitations.md</a>。
+        别的页面：<a href="./devices.html">iPhone 与 Mac</a>、<a href="./playground.html">Playground</a>、
+        <a href="./bench.html">性能测试</a>、<a href="./verify.html">逐项验证</a>、<a href="./debug.html">调试台</a>、
+        <a href="https://www.npmjs.com/package/glassium">npm</a>。
       </p>
-      <p>iPhone 与 Mac 是 Apple Inc. 的商标。这里的设备外形与界面是为演示液态玻璃画的示意图，图形都是自己画的，与 Apple 无关。</p>
+      <p>这些界面是为演示液态玻璃画的示意，图形都是自己画的，与 Apple 无关。iPhone 是 Apple Inc. 的商标。</p>
     </footer>
 
-    <script type="module" src="./showcase.ts"></script>
+    <script type="module" src="./controls.ts"></script>
   </body>
 </html>

@@ -194,6 +194,13 @@ const BEVEL_GLOW: f32 = 0.02;
 // 体光（材质的 bodyLight = 1 时）：顶上的暗度、下面的亮度（截图：按住的滑块旋钮顶上 −12、下面 +14 级）
 const BODY_SHADE: f32 = 0.047;
 const BODY_LIGHT: f32 = 0.055;
+// 外线：最外一圈往深灰 EDGE_GRAY 混（与亮边一样乘 highlight）—— 一圈半透明的深灰描边，左右深、上下浅
+// （混的比例 EDGE_MIX·(1 − EDGE_TOP·|n·L|)）。iOS 27 截图：白底上左右 −80、上下 −30；暗底上几乎看不见。
+// 宽 EDGE_FRAC 倍亮边（至少 1.5 个设备像素：DPR 1 上再窄，上下两条就被亮边抵消没了）；亮边从它里面开始（截图上是「灰线，紧接着一道白」），不叠在线上。
+const EDGE_GRAY: f32 = 0.16;
+const EDGE_MIX: f32 = 0.5;
+const EDGE_TOP: f32 = 0.62;
+const EDGE_FRAC: f32 = 0.6;
 // 影子的颜色：玻璃背后的平均色压暗到这个比例（截图上浅灰底上的影子偏蓝，不是纯黑）
 const SHADOW_TINT: f32 = 0.5;
 
@@ -327,12 +334,17 @@ fn shade(px: vec2f, s: Shading) -> vec4f {
   // 倒角带里饱和度更高：边上弯过来的颜色更艳（截图上滑块旋钮左缘那圈蓝）
   let bevel2 = s.bevel * s.bevel;
   let filtered = applyColorFilter(sampled, s.saturation * (1.0 + BEVEL_SATURATION * bevel2), workingTint(s.tint));
-  let rgb = filtered * s.veil.x + (vec3f(1.0) - filtered * s.veil.x) * s.veil.y;
+  let veiled = filtered * s.veil.x + (vec3f(1.0) - filtered * s.veil.x) * s.veil.y;
+  let edgeGray = select(vec3f(EDGE_GRAY), srgbToLinear(vec3f(EDGE_GRAY)), stage.linear > 0.5);
+  let edgePx = max(s.rimPx * EDGE_FRAC, 1.5);
+  let edge = rimMask(s.sd, edgePx);
+  let ndl = abs(dot(s.normal, RIM_LIGHT_DIR));
+  let rgb = mix(veiled, edgeGray, EDGE_MIX * (1.0 - EDGE_TOP * ndl) * s.highlight * edge);
 
   // —— 光：亮边、倒角的辉光、体光，都是加性的 ——
   // 法线用纯 SDF 梯度（放大后的角半径），不混 depthEffect —— 与上游一致，
   // 高光描述的是面板轮廓的朝向，不是折射方向。
-  let rim = rimLight(s.normal, RIM_LIGHT_DIR, RIM_BASE, RIM_GLOSS) * rimMask(s.sd, s.rimPx) * RIM_GAIN;
+  let rim = rimLight(s.normal, RIM_LIGHT_DIR, RIM_BASE, RIM_GLOSS) * rimMask(s.sd + edgePx, s.rimPx) * (1.0 - edge) * (1.0 - edge) * RIM_GAIN;
   let body = bodyLight(s.vpos, BODY_SHADE, BODY_LIGHT) * s.body;
   let lit = (rim + BEVEL_GLOW * bevel2 + body) * s.highlight + s.glow;
 

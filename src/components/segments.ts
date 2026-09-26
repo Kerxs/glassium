@@ -8,6 +8,8 @@
  * 不管：表单、初始值、选中之后派发什么事件、旋钮的材质 —— 这些经回调交给组件。
  */
 
+import { Jelly } from './jelly.ts'
+
 /** 拖过这么多 CSS 像素才算拖动（否则是点击）。 */
 const DRAG_THRESHOLD = 3
 
@@ -47,6 +49,13 @@ export class Segments {
   #startX = 0
   #dragging = false
   #grab = 0
+  /** 拖动时的果冻：旋钮与跟随者顺着速度拉长，停下来平滑地回去（jelly.ts）。 */
+  readonly #jelly = new Jelly((sx, sy) => {
+    for (const el of this.#movers()) {
+      el.style.setProperty('--_jx', String(sx))
+      el.style.setProperty('--_jy', String(sy))
+    }
+  })
 
   constructor(options: SegmentsOptions) {
     this.#o = options
@@ -130,6 +139,7 @@ export class Segments {
 
   /** 松开指针、结束拖动（禁用、离开文档时）。 */
   release(): void {
+    this.#jelly.reset()
     const pressed = this.#pointerId !== null
     this.#endPointer()
     if (pressed) this.#o.onPress(false)
@@ -189,6 +199,7 @@ export class Segments {
     const inset = this.#o.inset
     const x = Math.min(host.offsetWidth - inset - w, Math.max(inset, center - w / 2))
     this.#set('--_x', `${x}px`)
+    this.#jelly.move(e.clientX, e.timeStamp)
   }
 
   #onPointerUp = (e: PointerEvent): void => {
@@ -210,6 +221,7 @@ export class Segments {
   }
 
   #endPointer(): void {
+    this.#jelly.release()
     this.#pointerId = null
     this.#dragging = false
     this.#o.host.removeAttribute('data-dragging')

@@ -22,6 +22,7 @@
 
 import type { GlassPanel } from '../renderer/panels.ts'
 import { HTMLElementBase, sharedSheet } from './base.ts'
+import { Jelly } from './jelly.ts'
 import { StageLink } from './stage-link.ts'
 import { PressTween, thumbMaterial } from './thumb.ts'
 
@@ -75,19 +76,19 @@ const CSS = `
   aspect-ratio: 13 / 8;
   border-radius: 999px;
   translate: 0 0;
-  scale: 1;
+  scale: var(--_jx, 1) var(--_jy, 1);
   transition: translate 0.35s cubic-bezier(0.3, 1.3, 0.5, 1), scale 0.2s ease;
 }
 :host([checked]) [part='thumb'] {
   translate: calc(100cqw - 100% - ${2 * INSET}px) 0;
 }
 :host([data-pressed]) [part='thumb'] {
-  scale: 1.25;
+  scale: calc(1.25 * var(--_jx, 1)) calc(1.25 * var(--_jy, 1));
 }
 /* 拖动时旋钮直接跟着手指，不走过渡 */
 :host([data-dragging]) [part='thumb'] {
   translate: var(--glass-switch-drag, 0px) 0;
-  transition: scale 0.2s ease;
+  transition: scale 0.06s linear;
 }
 /* 没有玻璃时（stage 没建好、没有 GPU、高对比度），或者在对话框 / popover 里用 CSS 画（data-glassium-overlay）：
    CSS 画轨道与白色旋钮 */
@@ -142,6 +143,11 @@ export class GlassSwitch extends HTMLElementBase {
   readonly #internals: ElementInternals | null
   readonly #track: HTMLElement
   readonly #thumb: HTMLElement
+  /** 拖动时的果冻（jelly.ts）。 */
+  readonly #jelly = new Jelly((sx, sy) => {
+    this.#thumb.style.setProperty('--_jx', String(sx))
+    this.#thumb.style.setProperty('--_jy', String(sy))
+  })
   #panel: GlassPanel | null = null
   readonly #link = new StageLink(this, (stage) => {
     const panel = stage.register(this.#thumb, thumbMaterial(this.#tween.energy))
@@ -257,6 +263,7 @@ export class GlassSwitch extends HTMLElementBase {
     this.#tween.reset()
     this.toggleAttribute('data-pressed', false)
     this.#endPointer()
+    this.#jelly.reset()
   }
 
   attributeChangedCallback(name: string, oldValue: string | null, newValue: string | null): void {
@@ -330,6 +337,7 @@ export class GlassSwitch extends HTMLElementBase {
     this.toggleAttribute('data-dragging', true)
     // 写在旋钮上而不是宿主的 style 上：宿主的 style 是作者（或框架）的
     this.#thumb.style.setProperty('--glass-switch-drag', `${this.#offset}px`)
+    this.#jelly.move(e.clientX, e.timeStamp)
   }
 
   #onPointerUp = (e: PointerEvent): void => {
@@ -354,6 +362,7 @@ export class GlassSwitch extends HTMLElementBase {
   }
 
   #endPointer(): void {
+    this.#jelly.release()
     this.#pointerId = null
     this.#dragging = false
     this.removeAttribute('data-dragging')

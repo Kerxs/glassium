@@ -61,6 +61,7 @@ import { unchangedFrame, type FrameSnapshot } from './idle.ts'
 import { LayerWatcher, type LayerProblem } from './layering.ts'
 import {
   PanelRegistry,
+  type BitmapFillOptions,
   type BitmapPainter,
   type GlassGroup,
   type GlassPanel,
@@ -257,8 +258,9 @@ export interface GlassStage {
    *
    * painter 收到的 ctx 原点在盒子左上角（变换之前）、单位是 CSS 像素，已经按设备像素缩放、裁好、清空。
    * 只在看得见时画，画一次缓存；尺寸、缩放变了或者调过 invalidate() 之后，下次看得见时重画。
+   * `options.anchor`：painter 改在锚点元素的盒子里画，填充自己的盒子只决定露出哪一块（见 BitmapFillOptions）。
    */
-  registerBitmapFill(element: HTMLElement, painter: BitmapPainter): SceneBitmapFill
+  registerBitmapFill(element: HTMLElement, painter: BitmapPainter, options?: BitmapFillOptions): SceneBitmapFill
   /**
    * 玻璃后面画什么：一张图、一段视频或一块画布，按 fit 铺满视口。传 null 回到内置场景。
    *
@@ -1270,8 +1272,8 @@ async function buildStage(options: GlassStageOptions): Promise<GlassStage> {
     registerFill(element: HTMLElement): SceneFill {
       return panels.registerFill(element)
     },
-    registerBitmapFill(element: HTMLElement, painter: BitmapPainter): SceneBitmapFill {
-      return panels.registerBitmapFill(element, painter)
+    registerBitmapFill(element: HTMLElement, painter: BitmapPainter, options?: BitmapFillOptions): SceneBitmapFill {
+      return panels.registerBitmapFill(element, painter, options)
     },
     setScene(source: GlassSceneSource | null, sceneOptions: SceneOptions = {}): Promise<void> {
       return scene.set(source, sceneOptions).then(() => {
