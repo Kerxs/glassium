@@ -5,7 +5,10 @@
 
 ## [未发布]
 
-按 iOS 27 实机截图再调一轮（docs/calibration.md「iOS 27 截图」）。外观又有变化。
+## [0.2.0] — 2026-09-27
+
+按 iOS 27 实机截图再调一轮（docs/calibration.md「iOS 27 截图」）。**默认外观与交互又变了**：白底上多了外线，按住时的
+透镜大得多，用户切换时选中块会飞过去 —— 要接近 0.1.0 的大小，写 `--glass-press-scale`（见下面「变化」）。
 
 ### 变化（不兼容）
 
@@ -97,6 +100,7 @@
 玻璃折射的是 Glassium 自己画的场景，不是它背后的 DOM；盖在 DOM 上的玻璃没有折射。完整的列表在
 [docs/limitations.md](docs/limitations.md)，先读开头那三条编写规则。
 
-[未发布]: https://github.com/Kerxs/glassium/compare/v0.1.0...HEAD
+[未发布]: https://github.com/Kerxs/glassium/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/Kerxs/glassium/releases/tag/v0.2.0
 [0.1.0]: https://github.com/Kerxs/glassium/releases/tag/v0.1.0
 [0.0.1]: https://github.com/Kerxs/glassium/releases/tag/v0.0.1

@@ -1,6 +1,6 @@
 {
   "name": "glassium",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Liquid Glass（液态玻璃）UI 的 Web 实现：GPU 渲染的折射、色散与融合的玻璃，以 Web Components 交付（WebGPU → WebGL2 → CSS 兜底）",
   "keywords": [
     "liquid-glass",
