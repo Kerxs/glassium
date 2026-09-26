@@ -26,7 +26,7 @@ import type { PanelDebugMode } from '../shaders/glass.wgsl.ts'
 import type { BackdropState, SceneImage } from './backend.ts'
 import type { RoundedBox } from './clipping.ts'
 import { sameMask } from './mask.ts'
-import type { FillBitmap, MeasuredFill } from './fills.ts'
+import type { FillBitmap, FillHole, MeasuredFill } from './fills.ts'
 import type { MeasuredGroup, MeasuredPanel } from './panels.ts'
 
 /** 决定一帧像素的全部输入（FrameInput 去掉回读与探针请求）。 */
@@ -140,7 +140,12 @@ function sameGroups(a: readonly MeasuredGroup[], b: readonly MeasuredGroup[]): b
 
 function sameBitmap(a: FillBitmap | null | undefined, b: FillBitmap | null | undefined): boolean {
   if (!a || !b) return !a && !b
-  return a.version === b.version && sameTuple(a.geom, b.geom)
+  return a.version === b.version && sameTuple(a.geom, b.geom) && sameTuple(a.cell, b.cell)
+}
+
+function sameHole(a: FillHole | null | undefined, b: FillHole | null | undefined): boolean {
+  if (!a || !b) return !a && !b
+  return a.alpha === b.alpha && sameRoundedBox(a.shape, b.shape)
 }
 
 function sameFill(a: MeasuredFill, b: MeasuredFill): boolean {
@@ -165,6 +170,7 @@ function sameFill(a: MeasuredFill, b: MeasuredFill): boolean {
     sameTuple(a.color, b.color) &&
     a.gradient === b.gradient &&
     sameBitmap(a.bitmap, b.bitmap) &&
+    sameHole(a.hole, b.hole) &&
     a.layer === b.layer
   )
 }

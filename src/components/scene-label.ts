@@ -294,6 +294,12 @@ export interface LensLabels {
   readonly color: () => string | undefined
 }
 
+/**
+ * 透镜里的那一份画得比设备像素细几倍：按住时透镜把它放大 1.2 倍（SEGMENT_THUMB_PRESSED.magnify）、边缘还要再拉，
+ * 按 1 倍画放大之后发虚。
+ */
+const LENS_OVERSAMPLE = 1.5
+
 export class SceneLabels {
   readonly #host: HTMLElement
   readonly #element: HTMLElement
@@ -327,11 +333,14 @@ export class SceneLabels {
    * 返回注销它们的函数（StageLink 的 attach 里调）。
    */
   attach(stage: GlassStage): () => void {
-    const fill = stage.registerBitmapFill(this.#element, (ctx) =>
-      paintContent(ctx, this.#element, this.#sources(), () => this.invalidate())
+    const lens = this.#lens
+    // 镜像在透镜的窗口里挖掉（hole）：那里只有选中色的那一份，半透明的边缘底下不再垫着原色
+    const fill = stage.registerBitmapFill(
+      this.#element,
+      (ctx) => paintContent(ctx, this.#element, this.#sources(), () => this.invalidate()),
+      lens ? { hole: lens.element } : {}
     )
     this.#fill = fill
-    const lens = this.#lens
     const lensFill = lens
       ? stage.registerBitmapFill(
           lens.element,
@@ -340,7 +349,7 @@ export class SceneLabels {
             const sources = this.#sources().map((s) => (color ? { ...s, color } : s))
             paintContent(ctx, this.#element, sources, () => this.invalidate())
           },
-          { anchor: this.#element }
+          { anchor: this.#element, oversample: LENS_OVERSAMPLE }
         )
       : null
     this.#lensFill = lensFill

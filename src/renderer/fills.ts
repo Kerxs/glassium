@@ -22,6 +22,7 @@ import { packMask, type DeviceMask } from './mask.ts'
 import {
   CLIP_UNBOUNDED_PX,
   packClipExtras,
+  packRoundedBox,
   parseCornerRadius,
   scaleRadii,
   type Box,
@@ -156,6 +157,10 @@ export interface BitmapState {
   readonly painter: BitmapPainter
   /** 锚点（registerBitmapFill 的 anchor）：画在它的盒子里；null 是画在元素自己的盒子里。 */
   readonly anchor: HTMLElement | null
+  /** 洞（registerBitmapFill 的 hole）：那块填充画的地方这块让出来；null 是没有。 */
+  readonly hole: HTMLElement | null
+  /** 画得比设备像素细几倍（registerBitmapFill 的 oversample）。 */
+  readonly oversample: number
   /** 图集里的那一格；还没分配、或者图集清空过是 null / 过期的。 */
   cell: AtlasCell | null
   /** 画的时候格子的像素尺寸与缩放（一个 CSS 像素是几个图集像素）：变了要重新分配、重画。 */
@@ -233,6 +238,8 @@ export interface MeasuredFill {
   readonly gradient: ResolvedPaint | null
   /** 位图（纯色、渐变是 null 或没有）：在图集里取样，color 只用 alpha。 */
   readonly bitmap?: FillBitmap | null
+  /** 挖掉的洞（registerBitmapFill 的 hole）：那块填充这一帧的形状与不透明度；没有是 null 或没有。 */
+  readonly hole?: FillHole | null
   /**
    * 在第几层（见 panels.ts 的 MAX_GLASS_LAYER）：0 是场景里、所有玻璃之下；写在一块玻璃里面的填充在那块玻璃之上，
    * 是它的层号加一 —— 同一层的玻璃看得见它，下面那层的玻璃看不见。
@@ -240,10 +247,21 @@ export interface MeasuredFill {
   readonly layer: number
 }
 
+/** 填充上挖掉的洞：形状里（画布设备像素、不转）按 alpha 让出来。 */
+export interface FillHole {
+  readonly shape: RoundedBox
+  readonly alpha: number
+}
+
 /** 位图填充这一帧在图集里的位置。 */
 export interface FillBitmap {
   /** 图集 uv = geom.xy + 盒子里的位置（画布设备像素，盒子左上角为原点、转之前）× geom.zw。 */
   readonly geom: readonly [number, number, number, number]
+  /**
+   * 格子的范围（图集 uv：u0, v0, u1, v1）：范围外按透明。有锚点时填充的盒子可以比画的那块大（透镜比那排字高），
+   * 不限住就会采样到图集里旁边的格子。
+   */
+  readonly cell: readonly [number, number, number, number]
   /** 这一格画过几次（BitmapState.version）：内容变了它就变。 */
   readonly version: number
 }
@@ -292,6 +310,12 @@ export function packFill(data: Float32Array, index: number, fill: MeasuredFill):
   packClipExtras(data, o + 76, o + 88, fill.clipRadii, fill.clipRadiiY, fill.clipShape)
   // 遮罩 @ 432
   packMask(data, o + 108, fill.mask)
+  // 洞 @ 544：holeBox、holeRadii、holeRadiiY、holeInv，holeAlpha @ 624（没有洞时 0：逐位不变）
+  const hole = fill.hole
+  if (hole && hole.alpha > 0) {
+    packRoundedBox(data, o + 136, hole.shape)
+    data[o + 156] = Math.min(hole.alpha, 1)
+  }
   const bitmap = fill.bitmap
   if (bitmap) {
     // paint @ 96：种类 3 是位图；geom @ 112：图集 uv 的原点与每个画布设备像素走多少 uv
@@ -300,6 +324,11 @@ export function packFill(data: Float32Array, index: number, fill: MeasuredFill):
     data[o + 29] = bitmap.geom[1]
     data[o + 30] = bitmap.geom[2]
     data[o + 31] = bitmap.geom[3]
+    // stops[0] @ 128：格子的范围（图集 uv），范围外按透明
+    data[o + 32] = bitmap.cell[0]
+    data[o + 33] = bitmap.cell[1]
+    data[o + 34] = bitmap.cell[2]
+    data[o + 35] = bitmap.cell[3]
     return
   }
   const g = fill.gradient

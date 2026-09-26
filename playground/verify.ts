@@ -1652,7 +1652,11 @@ async function run(): Promise<void> {
       await sleep(0)
       finish()
       const t2 = thumb.getBoundingClientRect()
-      const colors = async (box: Box): Promise<{ red: number; black: number }> => {
+      /**
+       * red：红字的墨迹；black：黑字的墨迹；muddy：发暗的红 —— 红字压在透镜的白底上时，半透明的边缘是红与白的混合，
+       * R 一直很高（透镜里提亮过，≈ 255）；底下垫着一份黑字时混进黑，R 掉到 225 以下、还是偏红（透镜里的灰边）。
+       */
+      const colors = async (box: Box): Promise<{ red: number; black: number; muddy: number }> => {
         const x0 = Math.floor((box.left - canvasBox.left) * s)
         const y0 = Math.floor((box.top - canvasBox.top) * s)
         const w = Math.max(1, Math.ceil((box.right - box.left) * s))
@@ -1660,13 +1664,17 @@ async function run(): Promise<void> {
         const d = await readback({ x: x0, y: y0, width: w, height: h })
         let red = 0
         let black = 0
+        let muddy = 0
         for (let i = 0; i < d.length; i += 4) {
           if (d[i]! > 130 && d[i + 1]! < 90 && d[i + 2]! < 90) red++
           else if (d[i]! < 70 && d[i + 1]! < 70 && d[i + 2]! < 70) black++
+          if (d[i]! - d[i + 1]! > 20 && d[i]! < 225) muddy++
         }
-        return { red, black }
+        return { red, black, muddy }
       }
       const yearIn = await colors({ left: Math.max(yearText.left, t2.left + 3), right: Math.min(yearText.right, t2.right - 3), top: yearText.top - 3, bottom: yearText.bottom + 3 })
+      // 灰边只在字的墨迹旁边量：离透镜的边（圆角、外线、轨道）远一点
+      const yearCore = await colors({ left: Math.max(yearText.left, t2.left + 8), right: Math.min(yearText.right, t2.right - 8), top: yearText.top, bottom: yearText.bottom })
       const yearOut = await colors({ left: Math.max(yearText.left, t2.right + 2), right: yearText.right + 2, top: yearText.top - 3, bottom: yearText.bottom + 3 })
       seg.dispatchEvent(
         new PointerEvent('pointerup', { pointerId: 16, button: 0, clientX: dragX, clientY: t0.top + t0.height / 2, bubbles: true })
@@ -1689,9 +1697,11 @@ async function run(): Promise<void> {
         `静止：场景里「Week」处的墨迹 ${f(rest)} · 按住：data-lensing ${lensing}、DOM 字的 opacity ${domOpacity}、` +
         `「Week」墨迹 ${f(outside)}（DOM 矩形 ${weekText.left.toFixed(1)}–${weekText.right.toFixed(1)} × ` +
         `${weekText.top.toFixed(1)}–${weekText.bottom.toFixed(1)}）· 透镜里「Month」宽 ${widen.toFixed(2)} 倍 · ` +
-        `拖到「Year」上：透镜里的「Year」红 ${yearIn.red} / 黑 ${yearIn.black} 个像素，透镜外红 ${yearOut.red} / 黑 ${yearOut.black} · ` +
+        `拖到「Year」上：透镜里的「Year」红 ${yearIn.red} / 黑 ${yearIn.black} 个像素、字的中段发暗的红 ${yearCore.muddy} / ${yearCore.red}，透镜外红 ${yearOut.red} / 黑 ${yearOut.black} · ` +
         `松手：墨迹 ${f(after)}、data-lensing ${released ? '撤了' : '还在'}`
-      const selectedColor = yearIn.red > 10 && yearIn.red > yearIn.black && yearOut.black > 5 && yearOut.red <= 2
+      // 灰边（镜像在透镜的窗口里没挖掉）：发暗的红占字的中段红像素的 1/4 以上；挖掉之后只剩几个
+      const noFringe = yearCore.red > 10 && yearCore.muddy * 10 <= yearCore.red
+      const selectedColor = yearIn.red > 10 && yearIn.red > yearIn.black && yearOut.black > 5 && yearOut.red <= 2 && noFringe
       return rest.n === 0 && lensing && domOpacity === '0' && aligned && widen >= 1.1 && widen <= 1.7 && selectedColor &&
         after.n === 0 && released
         ? pass(detail)

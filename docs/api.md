@@ -333,7 +333,7 @@ GPU 玻璃画在最底下，盖不住滚上来的 DOM 文字。
 | `register(element, material?)` → `GlassPanel` | 把任意元素注册成玻璃面板（组件背后就是它）。材质写错在这里就抛 |
 | `group({ smoothing? })` → `GlassGroup` | 建一个合并组（`<glass-container>` 背后就是它） |
 | `registerFill(element)` → `SceneFill` | 把任意元素注册成填充（`<glass-fill>` 背后就是它）：颜色取它的 `--glass-fill`。返回 `{ element, unregister() }` |
-| `registerBitmapFill(element, painter, { anchor }?)` → `SceneBitmapFill` | 位图填充：盒子与普通填充一样来自 CSS，内容由 `painter(ctx, width, height)` 用 2D 画布画（原点在盒子左上角、单位 CSS 像素，已按设备像素缩放、裁好、清空）。只在看得见时画、画一次缓存在共享图集里；尺寸、缩放变了或调过 `invalidate()` 之后重画。分段控件、标签栏按住时把字画进场景用的就是它。返回 `{ element, invalidate(), unregister() }` |
+| `registerBitmapFill(element, painter, { anchor, oversample, hole }?)` → `SceneBitmapFill` | 位图填充：盒子与普通填充一样来自 CSS，内容由 `painter(ctx, width, height)` 用 2D 画布画（原点在盒子左上角、单位 CSS 像素，已按设备像素缩放、裁好、清空）。只在看得见时画、画一次缓存在共享图集里；尺寸、缩放变了或调过 `invalidate()` 之后重画。分段控件、标签栏按住时把字画进场景用的就是它。返回 `{ element, invalidate(), unregister() }` |
 | `setScene(source, options?)` → `Promise` | 换场景，见下 |
 | `refreshScene()` | 非 dynamic 的画布、ImageData 内容变了：下一帧重新上传 |
 | `blendSpace` | 现在的混合空间 |
@@ -492,7 +492,7 @@ reject 一个 `name === 'AbortError'` 的 DOMException。跨源的图片与视�
 | `GlassSceneSource`、`SceneOptions`、`SceneFit`、`SceneKind` | `setScene` 的参数与选项、`object-fit` 的取值、当前场景的种类 |
 | `BlendSpace` | `'srgb' \| 'linear'` |
 | `GlassPanel`、`GlassGroup`、`SceneFill`、`PanelLight` | `register` / `group` / `registerFill` 的返回值；按压处的光 |
-| `SceneBitmapFill`、`BitmapPainter`、`BitmapFillOptions` | `registerBitmapFill` 的返回值、画内容的函数、选项（`anchor`：在锚点元素的盒子里画，填充自己的盒子只决定露出哪一块） |
+| `SceneBitmapFill`、`BitmapPainter`、`BitmapFillOptions` | `registerBitmapFill` 的返回值、画内容的函数、选项：`anchor` 在锚点元素的盒子里画，填充自己的盒子只决定露出哪一块（盒子比锚点大时，锚点画面以外是透明的）；`oversample` 画得比设备像素细几倍（被透镜放大的内容用，默认 1）；`hole` 另一块注册过的填充 —— 它画的地方（圆角形状 × 不透明度）这一块让出来，两块不叠 |
 | `GlassStats`、`BackendReport`、`Gl2Report`、`ProbeReport` | `debug.stats()` 的结果；后端、WebGL2、WebGPU 适配器的报告 |
 | `ReadbackRegion`、`ReadbackResult`、`PanelDebugMode`、`DEBUG_MODES` | `debug.readback` 的参数与结果；面板的调试视图 |
 | `prefersReducedMotion`、`prefersReducedTransparency`、`prefersMoreContrast` | 读系统设置（或下面的模拟值） |

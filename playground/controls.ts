@@ -130,30 +130,69 @@ function paintRibbons(ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingCo
   base.addColorStop(1, '#6f6b70')
   ctx.fillStyle = base
   ctx.fillRect(0, 0, w, h)
+  // 右上角一团暖光：丝带有个受光的方向
+  const glow = ctx.createRadialGradient(w * 0.85, h * 0.08, 0, w * 0.85, h * 0.08, w * 0.9)
+  glow.addColorStop(0, 'rgba(255, 226, 190, 0.35)')
+  glow.addColorStop(1, 'rgba(255, 226, 190, 0)')
+  ctx.fillStyle = glow
+  ctx.fillRect(0, 0, w, h)
+
+  /** 一条丝带：上下两条贝塞尔围成的带子。edge 是上沿（t = 0）到下沿（t = 1）之间第 t 处的曲线。 */
   const ribbon = (y0: number, amp: number, thick: number, c0: string, c1: string, phase: number): void => {
+    const edge = (t: number): void => {
+      const d = thick * t
+      ctx.moveTo(-20, y0 + d)
+      ctx.bezierCurveTo(w * 0.3, y0 - amp * Math.cos(phase) + d * 1.4, w * 0.6, y0 + amp + d, w + 20, y0 - amp * 0.4 + d)
+    }
+    const outline = (): void => {
+      ctx.beginPath()
+      edge(0)
+      ctx.lineTo(w + 20, y0 - amp * 0.4 + thick)
+      ctx.bezierCurveTo(w * 0.6, y0 + amp + thick, w * 0.3, y0 - amp * Math.cos(phase) + thick * 1.4, -20, y0 + thick)
+      ctx.closePath()
+    }
     const g = ctx.createLinearGradient(0, y0 - amp, w, y0 + amp)
     g.addColorStop(0, c0)
     g.addColorStop(1, c1)
-    ctx.beginPath()
-    ctx.moveTo(-20, y0)
-    ctx.bezierCurveTo(w * 0.3, y0 - amp * Math.cos(phase), w * 0.6, y0 + amp, w + 20, y0 - amp * 0.4)
-    ctx.lineTo(w + 20, y0 - amp * 0.4 + thick)
-    ctx.bezierCurveTo(w * 0.6, y0 + amp + thick, w * 0.3, y0 - amp * Math.cos(phase) + thick * 1.4, -20, y0 + thick)
-    ctx.closePath()
+    // 投在下面那条上的影子
+    ctx.save()
+    ctx.shadowColor = 'rgba(20, 16, 12, 0.45)'
+    ctx.shadowBlur = 36
+    ctx.shadowOffsetY = 14
+    outline()
     ctx.fillStyle = g
     ctx.fill()
+    ctx.restore()
+    // 横过带子的明暗：上沿亮、下沿暗（丝带是弯的）
+    ctx.save()
+    outline()
+    ctx.clip()
+    const shade = ctx.createLinearGradient(0, y0 - amp * 0.5, 0, y0 + amp + thick)
+    shade.addColorStop(0, 'rgba(255, 255, 255, 0.22)')
+    shade.addColorStop(0.55, 'rgba(255, 255, 255, 0)')
+    shade.addColorStop(1, 'rgba(0, 0, 0, 0.28)')
+    ctx.fillStyle = shade
+    ctx.fillRect(0, 0, w, h)
+    // 里面一道折痕
+    ctx.beginPath()
+    edge(0.42)
+    ctx.strokeStyle = 'rgba(255, 250, 240, 0.16)'
+    ctx.lineWidth = 6
+    ctx.stroke()
+    ctx.restore()
     // 上沿一道亮线（丝带的折边）
     ctx.beginPath()
-    ctx.moveTo(-20, y0)
-    ctx.bezierCurveTo(w * 0.3, y0 - amp * Math.cos(phase), w * 0.6, y0 + amp, w + 20, y0 - amp * 0.4)
+    edge(0)
     ctx.strokeStyle = 'rgba(255, 250, 240, 0.75)'
     ctx.lineWidth = 1.4
     ctx.stroke()
   }
-  ribbon(h * 0.18, 150, 230, '#d9d2c7', '#8a8178', 0.3)
+  ribbon(h * 0.08, 90, 150, '#e6ddd0', '#9c8f80', 2.6)
+  ribbon(h * 0.22, 150, 230, '#d9d2c7', '#8a8178', 0.3)
   ribbon(h * 0.45, 120, 200, '#c9c4bf', '#6d6660', 1.4)
-  ribbon(h * 0.68, 160, 260, '#b8b3b0', '#5d5a5f', 2.2)
-  ribbon(h * 0.9, 110, 220, '#a7a3a6', '#4c4a50', 0.8)
+  ribbon(h * 0.6, 90, 140, '#d8cbbd', '#7d7066', 3.4)
+  ribbon(h * 0.72, 160, 260, '#b8b3b0', '#5d5a5f', 2.2)
+  ribbon(h * 0.92, 110, 220, '#a7a3a6', '#4c4a50', 0.8)
 }
 
 // —— 开关状态的按钮：打开时染色（蓝），白色的那几颗打开时变白 ——

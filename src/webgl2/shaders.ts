@@ -318,8 +318,8 @@ const float BEVEL_GLOW = 0.02;
 const float BODY_SHADE = 0.047;
 const float BODY_LIGHT = 0.055;
 const float EDGE_GRAY = 0.16;
-const float EDGE_MIX = 0.5;
-const float EDGE_TOP = 0.62;
+const float EDGE_MIX = 0.6;
+const float EDGE_TOP = 0.68;
 const float EDGE_FRAC = 0.6;
 const float SHADOW_TINT = 0.5;
 
@@ -396,7 +396,7 @@ vec4 shade(vec2 px, Shading s) {
   float ndl = abs(dot(s.normal, RIM_LIGHT_DIR));
   vec3 rgb = mix(veiled, edgeGray, EDGE_MIX * (1.0 - EDGE_TOP * ndl) * s.highlight * edge);
   float rim = rimLight(s.normal, RIM_LIGHT_DIR, RIM_BASE, RIM_GLOSS) * rimMask(s.sd + edgePx, s.rimPx) * (1.0 - edge) * (1.0 - edge) * RIM_GAIN;
-  float body = bodyLight(s.vpos, BODY_SHADE, BODY_LIGHT) * s.body;
+  float body = bodyLight(s.vpos, BODY_SHADE, BODY_LIGHT) * s.body * (1.0 - edge);
   float lit = (rim + BEVEL_GLOW * bevel2 + body) * s.highlight + s.glow;
   float a = s.coverage * s.opacity;
   vec3 color = max(rgb + vec3(lit, lit, lit), vec3(0.0));
@@ -637,6 +637,11 @@ struct Fill {
   vec4 maskAlpha[2];
   vec4 maskAt[2];
   vec4 maskSpan;
+  vec4 holeBox;
+  vec4 holeRadii;
+  vec4 holeRadiiY;
+  vec4 holeInv[2];
+  vec4 holeAlpha;
 };
 layout(std140) uniform FillBlock {
   Fill fill;
@@ -715,12 +720,19 @@ void main() {
   vec2 c = toLocal(px - (fill.rect.xy + halfSize), fill.pose);
   float sd = fillSd(c, halfSize);
   float shape = clamp(0.5 - sd / uDest.z, 0.0, 1.0);
-  float clip = clamp(0.5 - clipSd(px) / uDest.z, 0.0, 1.0) *
+  float covered = clamp(0.5 - clipSd(px) / uDest.z, 0.0, 1.0) *
     maskAlpha(px, fill.maskPaint, fill.maskGeom, fill.maskAlpha[0], fill.maskAlpha[1], fill.maskAt[0], fill.maskAt[1], fill.maskSpan);
+  // 洞（见 fill.wgsl.ts）：没有时 holeAlpha 是 0
+  float hole = fill.holeAlpha.x *
+    clamp(0.5 - roundedBoxSd(px, fill.holeBox, fill.holeRadii, fill.holeRadiiY, fill.holeInv[0], fill.holeInv[1]) / uDest.z, 0.0, 1.0);
+  float clip = covered * (1.0 - hole);
   if (fill.paint.x > 2.5) {
     // 与 fill.wgsl.ts 的位图一支对应
-    vec4 texel = textureLod(uAtlas, fill.geom.xy + (c + halfSize) * fill.geom.zw, 0.0);
-    float kb = fill.color.a * shape * clip;
+    vec2 uv = fill.geom.xy + (c + halfSize) * fill.geom.zw;
+    vec4 texel = textureLod(uAtlas, uv, 0.0);
+    vec4 cell = fill.stops[0];
+    float inCell = all(greaterThanEqual(uv, cell.xy)) && all(lessThanEqual(uv, cell.zw)) ? 1.0 : 0.0;
+    float kb = fill.color.a * shape * clip * inCell;
     if (texel.a * kb <= 0.0) {
       discard;
     }

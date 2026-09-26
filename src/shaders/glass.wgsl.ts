@@ -198,8 +198,8 @@ const BODY_LIGHT: f32 = 0.055;
 // （混的比例 EDGE_MIX·(1 − EDGE_TOP·|n·L|)）。iOS 27 截图：白底上左右 −80、上下 −30；暗底上几乎看不见。
 // 宽 EDGE_FRAC 倍亮边（至少 1.5 个设备像素：DPR 1 上再窄，上下两条就被亮边抵消没了）；亮边从它里面开始（截图上是「灰线，紧接着一道白」），不叠在线上。
 const EDGE_GRAY: f32 = 0.16;
-const EDGE_MIX: f32 = 0.5;
-const EDGE_TOP: f32 = 0.62;
+const EDGE_MIX: f32 = 0.6;
+const EDGE_TOP: f32 = 0.68;
 const EDGE_FRAC: f32 = 0.6;
 // 影子的颜色：玻璃背后的平均色压暗到这个比例（截图上浅灰底上的影子偏蓝，不是纯黑）
 const SHADOW_TINT: f32 = 0.5;
@@ -345,7 +345,8 @@ fn shade(px: vec2f, s: Shading) -> vec4f {
   // 法线用纯 SDF 梯度（放大后的角半径），不混 depthEffect —— 与上游一致，
   // 高光描述的是面板轮廓的朝向，不是折射方向。
   let rim = rimLight(s.normal, RIM_LIGHT_DIR, RIM_BASE, RIM_GLOSS) * rimMask(s.sd + edgePx, s.rimPx) * (1.0 - edge) * (1.0 - edge) * RIM_GAIN;
-  let body = bodyLight(s.vpos, BODY_SHADE, BODY_LIGHT) * s.body;
+  // 体光在外线里退掉：外线是描在最外面的一圈，不跟着里面上暗下亮（截图：按住的滑块外线上 −37、下 −45，下面不比上面浅）
+  let body = bodyLight(s.vpos, BODY_SHADE, BODY_LIGHT) * s.body * (1.0 - edge);
   let lit = (rim + BEVEL_GLOW * bevel2 + body) * s.highlight + s.glow;
 
   let a = s.coverage * s.opacity;

@@ -235,6 +235,21 @@ main,
   height: 26px;
 }
 
+.st-a {
+  width: 26px;
+  text-align: center;
+  color: #8e8e93;
+  line-height: 1;
+}
+
+.st-a.sm {
+  font-size: 13px;
+}
+
+.st-a.lg {
+  font-size: 24px;
+}
+
 .sep {
   display: block;
   height: 1px;

@@ -29,8 +29,8 @@ import { MASK_WGSL, POSE_WGSL, ROUNDED_BOX_WGSL } from './glass.wgsl.ts'
 import { OPTICS_WGSL } from './optics.wgsl.ts'
 import { SRGB_WGSL } from './srgb.wgsl.ts'
 
-/** Fill 结构体的字节数（34 个 vec4f）。按 768B 步长排进一条 buffer（动态偏移要对齐 256），用动态偏移切换。 */
-export const FILL_STRUCT_BYTES = 544
+/** Fill 结构体的字节数（40 个 vec4f）。按 768B 步长排进一条 buffer（动态偏移要对齐 256），用动态偏移切换。 */
+export const FILL_STRUCT_BYTES = 640
 export const FILL_STRIDE = 768
 export const FILL_STRIDE_FLOATS = FILL_STRIDE / 4
 /** Dest 结构体：scale.xy、aa、linear。 */
@@ -53,7 +53,7 @@ struct Fill {
   paint: vec4f,         // 种类（0 纯色 · 1 线性 · 2 径向 · 3 位图）、色标数、重复（0 / 1）、空
   geom: vec4f,          // 线性：起点 xy、(终点 − 起点) ÷ 长度²；径向：中心 xy、1/rx、1/ry（盒子左上角为原点、转之前，画布设备像素）；
                         // 位图：图集 uv 的原点 xy、每个画布设备像素走多少 uv
-  stops: array<vec4f, ${MAX_GRADIENT_STOPS}>,  // 色标的颜色：未预乘的 rgb（sRGB 编码）+ a
+  stops: array<vec4f, ${MAX_GRADIENT_STOPS}>,  // 色标的颜色：未预乘的 rgb（sRGB 编码）+ a；位图：stops[0] 是格子的范围（图集 uv）
   at: array<vec4f, 2>,  // 色标的位置（0–1 是 0%–100%）：at[0] 是第 0–3 个，at[1].x 第 4 个；at[1].y、z 是重复的周期的倒数与周期
   span: vec4f,          // 相邻两个色标之间：1 ÷ 位置之差（第 0–3 段；重合的是 0）
   radiiY: vec4f,        // 四角的竖直半径（与 radii 同序，radii 是水平的）；两个相等的角是圆角
@@ -69,6 +69,11 @@ struct Fill {
   maskAlpha: array<vec4f, 2>,
   maskAt: array<vec4f, 2>,
   maskSpan: vec4f,
+  holeBox: vec4f,       // 洞（registerBitmapFill 的 hole）：另一块填充的圆角形状，画布设备像素、不转；
+  holeRadii: vec4f,     //   形状里按 holeAlpha.x 让出来（透镜里只留选中色的那一份字）。没有洞时 holeAlpha 是 0
+  holeRadiiY: vec4f,
+  holeInv: array<vec4f, 2>,
+  holeAlpha: vec4f,
 }
 
 // 这一次画到哪里。（不叫 target：那是 WGSL 的保留字。）
@@ -172,12 +177,20 @@ fn gradientAt(t0: f32) -> vec4f {
   let c = toLocal(px - (fill.rect.xy + halfSize), fill.pose);
   let sd = fillSd(c, halfSize);
   let shape = clamp(0.5 - sd / dest.aa, 0.0, 1.0);
-  let clip = clamp(0.5 - clipSd(px) / dest.aa, 0.0, 1.0) *
+  let covered = clamp(0.5 - clipSd(px) / dest.aa, 0.0, 1.0) *
     maskAlpha(px, fill.maskPaint, fill.maskGeom, fill.maskAlpha[0], fill.maskAlpha[1], fill.maskAt[0], fill.maskAt[1], fill.maskSpan);
+  // 洞：没有时 holeAlpha 是 0，乘 1 —— 逐位不变
+  let hole = fill.holeAlpha.x *
+    clamp(0.5 - roundedBoxSd(px, fill.holeBox, fill.holeRadii, fill.holeRadiiY, fill.holeInv[0], fill.holeInv[1]) / dest.aa, 0.0, 1.0);
+  let clip = covered * (1.0 - hole);
   if (fill.paint.x > 2.5) {
-    // 位图：盒子里的位置（左上角为原点、转之前）→ 图集 uv。textureSampleLevel 不要求一致控制流
-    let texel = textureSampleLevel(atlas, atlasSampler, fill.geom.xy + (c + halfSize) * fill.geom.zw, 0.0);
-    let kb = fill.color.a * shape * clip;
+    // 位图：盒子里的位置（左上角为原点、转之前）→ 图集 uv。textureSampleLevel 不要求一致控制流。
+    // 格子的范围（stops[0]）外按透明：盒子比画的那块大（有锚点）时不采样到旁边的格子
+    let uv = fill.geom.xy + (c + halfSize) * fill.geom.zw;
+    let texel = textureSampleLevel(atlas, atlasSampler, uv, 0.0);
+    let cell = fill.stops[0];
+    let inCell = select(0.0, 1.0, all(uv >= cell.xy) && all(uv <= cell.zw));
+    let kb = fill.color.a * shape * clip * inCell;
     if (texel.a * kb <= 0.0) {
       discard;
     }

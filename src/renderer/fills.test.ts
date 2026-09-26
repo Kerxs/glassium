@@ -103,15 +103,35 @@ test('packFill 写入的每个字段都落在 WGSL struct 的对应偏移上', (
   near(at('maskAt', 4 + 2), 0.5, '遮罩周期')
   assert.ok(data.subarray(0, base).every((v) => v === 0), '写越界到了前一个槽位')
 
-  // 位图：种类 3，geom 是图集 uv 的原点与每个画布设备像素走多少 uv；色标那一段清零
-  packFill(data, 2, { ...fill, bitmap: { geom: [0.25, 0.5, 1 / 1024, 1 / 2048], version: 3 } })
+  // 位图：种类 3，geom 是图集 uv 的原点与每个画布设备像素走多少 uv；stops[0] 是格子的范围，其余色标清零
+  packFill(data, 2, { ...fill, bitmap: { geom: [0.25, 0.5, 1 / 1024, 1 / 2048], cell: [0.25, 0.5, 0.375, 0.5625], version: 3 } })
   near(at('paint', 0), 3, '位图：种类 3')
   near(at('geom', 0), 0.25, '图集 u 原点')
   near(at('geom', 1), 0.5, '图集 v 原点')
   near(at('geom', 2), 1 / 1024, '每像素的 u')
   near(at('geom', 3), 1 / 2048, '每像素的 v')
-  near(at('stops', 0), 0, '色标清零')
+  near(at('stops', 0), 0.25, '格子的 u0')
+  near(at('stops', 1), 0.5, '格子的 v0')
+  near(at('stops', 2), 0.375, '格子的 u1')
+  near(at('stops', 3), 0.5625, '格子的 v1')
+  near(at('stops', 4), 0, '其余色标清零')
   near(at('maskPaint', 0), 2, '位图照样有遮罩')
+
+  // 洞：另一块填充的圆角形状与不透明度，按 packRoundedBox 的布局；alpha 钳到 1
+  packFill(data, 2, {
+    ...fill,
+    hole: { shape: { box: { x0: 30, y0: 12, x1: 130, y1: 60 }, rx: [24, 24, 24, 24], ry: [20, 24, 24, 24] }, alpha: 0.75 }
+  })
+  near(at('holeBox', 0), 30, '洞 x0')
+  near(at('holeBox', 3), 60, '洞 y1')
+  near(at('holeRadii', 1), 24, '洞的水平半径')
+  near(at('holeRadiiY', 0), 20, '洞的竖直半径')
+  near(at('holeInv', 0), 1 / 24, '洞：1 ÷ 水平半径')
+  near(at('holeInv', 4), 1 / 20, '洞：1 ÷ 竖直半径')
+  near(at('holeAlpha', 0), 0.75, '洞的不透明度')
+  packFill(data, 2, { ...fill, hole: { shape: { box: { x0: 0, y0: 0, x1: 1, y1: 1 }, rx: [0, 0, 0, 0], ry: [0, 0, 0, 0] }, alpha: 0 } })
+  near(at('holeAlpha', 0), 0, '看不见的洞不挖')
+  near(at('holeBox', 2), 0, '槽位清零')
 
   // 渐变：线性（方向除以长度²）、位置、重复的周期、相邻两个位置之差的倒数（重合的是 0）
   const linear: MeasuredFill = {
@@ -151,7 +171,9 @@ test('packFill 写入的每个字段都落在 WGSL struct 的对应偏移上', (
   near(g('span', 2), 2, '第 2 段')
   near(g('span', 3), 0, '没有第 3 段')
   near(g('maskPaint', 0), 2, '遮罩跟着填充走（换成渐变的那一次也写了）')
-  assert.equal(fields.get('maskSpan')! + 16, FILL_STRUCT_BYTES, 'maskSpan 是最后一项')
+  assert.equal(fields.get('holeBox'), fields.get('maskSpan')! + 16, '洞接在遮罩后面')
+  assert.equal(fields.get('holeAlpha')! + 16, FILL_STRUCT_BYTES, 'holeAlpha 是最后一项')
+  near(g('holeAlpha', 0), 0, '没有洞：0（逐位不变）')
   assert.equal(fields.get('maskPaint'), 432, '遮罩接在裁剪后面')
   assert.equal(fields.get('radiiY'), 256, '椭圆角接在渐变后面：前面的布局没挪')
   assert.equal(fields.get('clipRadiiY'), 304, '裁剪的后半截接在椭圆角后面')

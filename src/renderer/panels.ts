@@ -21,7 +21,7 @@ import {
 } from '../shaders/glass.wgsl.ts'
 import { levelForSigma } from './blur.ts'
 import { parseFillPaint, resolvePaint, type FillPaint, type ResolvedPaint } from '../core/gradient.ts'
-import { LabelAtlas } from './atlas.ts'
+import { LabelAtlas, bitmapUv, rasterFit } from './atlas.ts'
 import {
   fillRadii,
   parseFillColor,
@@ -30,6 +30,7 @@ import {
   type BitmapPainter,
   type FillBitmap,
   type FillRecord,
+  type FillHole,
   type FillStyle,
   type MeasuredFill,
   type Rgba
@@ -86,6 +87,16 @@ export interface BitmapFillOptions {
    * 只按包围盒换算，锚点不能旋转。
    */
   readonly anchor?: HTMLElement
+  /**
+   * 画得比设备像素细几倍（默认 1）。被透镜放大的内容给放大倍数，放大之后不虚；图集一格的上限照旧。
+   */
+  readonly oversample?: number
+  /**
+   * 洞：另一块注册过的填充（通常是同一个组件里后注册、盖在上面的那一块）。它画的地方 —— 圆角形状 × 不透明度 ——
+   * 这一块让出来，两块在那里不叠。透镜里只留选中色的那一份字就这么写：普通的那一份在透镜的窗口里挖掉，
+   * 半透明的边缘底下不再垫着原色。洞只按盒子与圆角算（不转、不算它自己的裁剪与遮罩）。
+   */
+  readonly hole?: HTMLElement
 }
 
 /** 位图画的那一块：画布设备像素的原点与尺寸（转之前）、CSS 尺寸、一个 CSS 像素几个设备像素。 */
@@ -483,6 +494,8 @@ export class PanelRegistry {
     record.bitmap = {
       painter,
       anchor: options.anchor ?? null,
+      oversample: options.oversample ?? 1,
+      hole: options.hole ?? null,
       cell: null,
       pxW: 0,
       pxH: 0,
@@ -520,10 +533,8 @@ export class PanelRegistry {
     if (this.#atlas === undefined) this.#atlas = LabelAtlas.create()
     const atlas = this.#atlas
     if (!atlas) return null
-    // 按设备像素画（与旁边的 DOM 一样锐利）；比图集一格的上限还大就整体缩小
-    const fit = Math.min(1, atlas.maxCell / deviceW, atlas.maxCell / deviceH)
-    const pxW = Math.max(1, Math.ceil(deviceW * fit))
-    const pxH = Math.max(1, Math.ceil(deviceH * fit))
+    // 按设备像素画（与旁边的 DOM 一样锐利，oversample 更细）；比图集一格的上限还大就整体缩小
+    const { fit, pxW, pxH } = rasterFit(deviceW, deviceH, atlas.maxCell, b.oversample)
     const rasterScale = scale * fit
     if (!atlas.holds(b.cell) || pxW !== b.pxW || pxH !== b.pxH || rasterScale !== b.scale) {
       b.cell = atlas.allocate(pxW, pxH)
@@ -547,12 +558,8 @@ export class PanelRegistry {
       }
     }
     return {
-      geom: [
-        (cell.x + (boxX - target.x) * fit) / atlas.width,
-        (cell.y + (boxY - target.y) * fit) / atlas.height,
-        fit / atlas.width,
-        fit / atlas.height
-      ],
+      geom: bitmapUv(cell, target, boxX, boxY, fit, atlas.width, atlas.height),
+      cell: [cell.x / atlas.width, cell.y / atlas.height, (cell.x + cell.w) / atlas.width, (cell.y + cell.h) / atlas.height],
       version: b.version
     }
   }
@@ -1040,6 +1047,22 @@ export class PanelRegistry {
         const again = this.#bitmapOf(f.record, args[0], args[1], args[2])
         if (again) fills[i] = { ...f, bitmap: again }
         else fills.splice(i, 1)
+      }
+    }
+    // 洞：挖的那块这一帧也画了才挖（它看不见、或者图集满了这一帧没画，就不挖）
+    if (fills.some((f) => f.record.bitmap?.hole)) {
+      const byElement = new Map<HTMLElement, MeasuredFill>()
+      for (const f of fills) byElement.set(f.record.element, f)
+      for (let i = 0; i < fills.length; i++) {
+        const f = fills[i]!
+        const holeElement = f.record.bitmap?.hole
+        const h = holeElement ? byElement.get(holeElement) : undefined
+        if (!h || !(h.color[3] > 0)) continue
+        const hole: FillHole = {
+          shape: { box: { x0: h.x, y0: h.y, x1: h.x + h.w, y1: h.y + h.h }, rx: h.radii, ry: h.radiiY },
+          alpha: h.color[3]
+        }
+        fills[i] = { ...f, hole }
       }
     }
     return { panels, groups, fills }

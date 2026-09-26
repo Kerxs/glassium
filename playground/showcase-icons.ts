@@ -84,7 +84,10 @@ const PATHS: Record<string, string> = {
     '<path d="M7.4 7.6h9.2a4.4 4.4 0 014.2 5.6l-1 3.6a2.4 2.4 0 01-4 1l-1.8-2H9.9l-1.8 2a2.4 2.4 0 01-4-1l-1-3.6a4.4 4.4 0 014.3-5.6z"/><path d="M8 10.6v3.2M6.4 12.2h3.2"/><circle cx="15.6" cy="11.2" r="0.9"/><circle cx="17.2" cy="13.2" r="0.9"/>',
   bluetooth: '<path d="M7.4 7.8l9.2 8.4L12 20.4V3.6l4.6 4.2-9.2 8.4"/>',
   lock: '<rect x="5.4" y="10.6" width="13.2" height="9.4" rx="2.2"/><path d="M8.4 10.6V8a3.6 3.6 0 017.2 0v2.6"/>',
-  power: '<path d="M12 3.6v7.2"/><path d="M7.2 6.6a7.2 7.2 0 109.6 0"/>'
+  power: '<path d="M12 3.6v7.2"/><path d="M7.2 6.6a7.2 7.2 0 109.6 0"/>',
+  bell: '<path d="M6.4 16.6V11a5.6 5.6 0 0111.2 0v5.6l1.6 1.8H4.8z"/><path d="M10 20.6a2.2 2.2 0 004 0"/>',
+  contrast: '<circle cx="12" cy="12" r="8.4"/><path d="M12 3.6a8.4 8.4 0 010 16.8z" fill="currentColor"/>',
+  home: '<path d="M4 11.2L12 4.4l8 6.8"/><path d="M6.4 9.6v10h11.2v-10"/><path d="M10.2 19.6v-5h3.6v5"/>'
 }
 
 /** 某个图形的 SVG。没有这个名字就抛：展示页里写错名字要当场看出来。 */

@@ -18,6 +18,42 @@ export const ATLAS_GUTTER = 1
 export const ATLAS_INITIAL_SIZE = 1024
 export const ATLAS_MAX_SIZE = 2048
 
+/**
+ * 位图填充在图集里画多大：fit 是一个设备像素画成几个图集像素 —— 默认 1（与旁边的 DOM 一样锐利），
+ * oversample > 1 画得更细（透镜放大之后不虚）；比一格的上限还大就整体缩小。
+ */
+export function rasterFit(
+  deviceW: number,
+  deviceH: number,
+  maxCell: number,
+  oversample = 1
+): { readonly fit: number; readonly pxW: number; readonly pxH: number } {
+  const fit = Math.min(Math.max(1, oversample), maxCell / deviceW, maxCell / deviceH)
+  return { fit, pxW: Math.max(1, Math.ceil(deviceW * fit)), pxH: Math.max(1, Math.ceil(deviceH * fit)) }
+}
+
+/**
+ * 位图填充的 uv（填充着色器的 geom）：xy 是填充盒子原点在图集里的 uv，zw 是一个设备像素的 uv 步长。
+ * 画的那块（target，元素自己或者锚点）的原点在格子的左上角；盒子原点与它不同（有锚点）时 uv 的原点跟着挪，
+ * 只露出锚点画面里盒子盖住的那一块。坐标都是画布设备像素。
+ */
+export function bitmapUv(
+  cell: { readonly x: number; readonly y: number },
+  target: { readonly x: number; readonly y: number },
+  boxX: number,
+  boxY: number,
+  fit: number,
+  atlasW: number,
+  atlasH: number
+): [number, number, number, number] {
+  return [
+    (cell.x + (boxX - target.x) * fit) / atlasW,
+    (cell.y + (boxY - target.y) * fit) / atlasH,
+    fit / atlasW,
+    fit / atlasH
+  ]
+}
+
 export interface AtlasCell {
   /** 格子的左上角与尺寸（不含空隙），图集像素。 */
   readonly x: number

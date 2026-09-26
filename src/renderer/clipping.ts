@@ -161,6 +161,15 @@ export function packClipExtras(
     data[radiiYAt + 4 + c] = reciprocal(rx[c]!)
     data[radiiYAt + 8 + c] = reciprocal(ry[c]!)
   }
+  packRoundedBox(data, shapeAt, shape)
+}
+
+/**
+ * 一个圆角形状写进 uniform：box（x0, y0, x1, y1）、水平半径、竖直半径、两组倒数，共 5 个 vec4。
+ * null 写成没有边界、半径 0（裁剪时等于不裁）。
+ */
+export function packRoundedBox(data: Float32Array, at: number, shape: RoundedBox | null): void {
+  const shapeAt = at
   const bound = (v: number): number => Math.max(-CLIP_UNBOUNDED_PX, Math.min(CLIP_UNBOUNDED_PX, v))
   const b = shape?.box ?? UNBOUNDED
   data[shapeAt + 0] = bound(b.x0)
