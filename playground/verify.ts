@@ -195,7 +195,13 @@ async function sha(bytes: Uint8Array): Promise<string> {
 let stage: GlassStage
 
 /** 回读并同步出一帧：不等 rAF。 */
-/** 同一个资源换一个源：localhost ↔ 127.0.0.1（跨源，不用联网）。 */
+/** 同源的测试图（写成 new URL(…, import.meta.url)，打包时才会带上它 —— 小图内联成 data:，也是同源）。 */
+const HILLS_URL = new URL('./assets/runtime-hills.svg', import.meta.url).href
+
+/**
+ * 当前页旁边的一个路径换一个源：localhost ↔ 127.0.0.1（线上是 127.0.0.1）。加载多半失败（没有那个服务），
+ * 不要紧：跨不跨源按 URL 判断，要验的只是警告与场景不被污染。
+ */
 function crossOriginUrl(path: string): string {
   const url = new URL(path, location.href)
   url.hostname = url.hostname === '127.0.0.1' ? 'localhost' : '127.0.0.1'
@@ -2855,7 +2861,8 @@ async function run(): Promise<void> {
     try {
       const solid = await run('rgb(210, 40, 40)')
       const grad = await run('linear-gradient(90deg, rgb(20, 40, 220), rgb(20, 40, 220))')
-      const image = await run(`url('./assets/runtime-hills.svg') center / cover no-repeat`)
+      // 双引号：内联成 data: 的 SVG 里有单引号
+      const image = await run(`url("${HILLS_URL}") center / cover no-repeat`)
       configure({ absorbBackgrounds: false })
       await sleep(0)
       const off = await run('rgb(210, 40, 40)')
@@ -2978,9 +2985,9 @@ async function run(): Promise<void> {
     wrap.innerHTML =
       '<p class="t" style="margin:0;font:700 44px/1.1 system-ui,sans-serif;color:#000">GLASS text</p>' +
       '<div class="m" style="display:flex;gap:8px;margin-top:12px">' +
-      '<img src="./assets/runtime-hills.svg" width="120" height="80" style="object-fit:cover">' +
+      `<img src="${HILLS_URL}" width="120" height="80" style="object-fit:cover">` +
       '<canvas width="80" height="80"></canvas><video width="60" height="80" muted playsinline></video>' +
-      `<img class="x" width="40" height="40" src="${crossOriginUrl('./assets/runtime-hills.svg')}"></div>`
+      `<img class="x" width="40" height="40" src="${crossOriginUrl('./cross-origin.svg')}"></div>`
     // 跨源的图片：只警告一次，块照收，场景不被污染（下面的回读照常）
     const warnings: string[] = []
     const warn = console.warn
@@ -3022,8 +3029,9 @@ async function run(): Promise<void> {
       await (wrap.querySelector('img') as HTMLImageElement).decode().catch(() => undefined)
       if (typeof source.captureStream === 'function') {
         video.srcObject = source.captureStream(30)
-        await video.play().catch(() => undefined)
+        // 先开始画：流在画布画了之后才出帧，没有帧 play() 不会 resolve；面板隐藏时可能一直不 resolve，最多等半秒
         pump = setInterval(drawSource, 40)
+        await Promise.race([video.play().catch(() => undefined), sleep(500)])
       }
       await settle()
       await sleep(200)
