@@ -20,6 +20,7 @@ import { glass as mergeMaterial, type GlassMaterial } from '../core/material.ts'
 import { PressInteraction } from '../interaction/press.ts'
 import type { GlassPanel } from '../renderer/panels.ts'
 import { GlassBinding } from './binding.ts'
+import { scheduleAbsorb } from './absorb.ts'
 import { ensureStage } from './ensure-stage.ts'
 import { cornerRadiusFromCss, isInteractiveElement, runtimePreset, runtimePresetNames, RUNTIME_PRESETS } from './presets.ts'
 import { GLASS_ID_ATTRIBUTE, installRuntimeStyles, removeGlassVars, setGlassVars } from './styles.ts'
@@ -110,6 +111,7 @@ class RuntimeGlass implements GlassHandle {
     this.#syncInteraction()
     if (element.isConnected) this.#binding.connect()
     void ensureStage()
+    scheduleAbsorb(true)
   }
 
   get panel(): GlassPanel | null {
@@ -154,6 +156,7 @@ class RuntimeGlass implements GlassHandle {
       this.#binding.disconnect()
       this.#press?.reset()
     }
+    scheduleAbsorb(true)
   }
 
   destroy(): void {
@@ -165,6 +168,7 @@ class RuntimeGlass implements GlassHandle {
     removeGlassVars(this.#id)
     this.element.removeAttribute(GLASS_ID_ATTRIBUTE)
     if (handles.get(this.element) === this) handles.delete(this.element)
+    scheduleAbsorb(true)
   }
 
   #resolve(): void {

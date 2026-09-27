@@ -97,6 +97,21 @@ export interface BitmapFillOptions {
    * 半透明的边缘底下不再垫着原色。洞只按盒子与圆角算（不转、不算它自己的裁剪与遮罩）。
    */
   readonly hole?: HTMLElement
+  /** 背景层：排在所有普通填充的前面画（与 FillOptions 的 back 相同）。 */
+  readonly back?: boolean
+}
+
+/** registerFill 的选项。 */
+export interface FillOptions {
+  /**
+   * 颜色或渐变的来源：返回 CSS 文本（与 `--glass-fill` 同样的写法）。有它时不读元素的 `--glass-fill` —— runtime 把别的
+   * 元素的 CSS 背景收进场景时用（runtime/absorb.ts）。每帧调，返回同一段文本就不重新解析。
+   */
+  readonly paint?: () => string
+  /**
+   * 背景层：排在所有普通填充的前面画（同样是背景层的按注册的顺序）。收进场景的页面背景在最底下，作者自己的填充盖在上面。
+   */
+  readonly back?: boolean
 }
 
 /** 位图画的那一块：画布设备像素的原点与尺寸（转之前）、CSS 尺寸、一个 CSS 像素几个设备像素。 */
@@ -460,12 +475,17 @@ export class PanelRegistry {
    * 把一个元素注册成填充：它的盒子与 `--glass-fill` 颜色画进场景（见 fills.ts）。
    * 重复注册同一个元素返回同一块。
    */
-  registerFill(element: HTMLElement): SceneFill {
+  registerFill(element: HTMLElement, options: FillOptions = {}): SceneFill {
     let record = this.#fills.find((r) => r.element === element)
     if (!record) {
       record = { element }
-      this.#fills.push(record)
+      if (options.back) record.back = true
+      this.#insertFill(record)
       this.#onChange()
+    }
+    if (options.paint) {
+      record.paintSource = options.paint
+      delete record.paintText
     }
     const r = record
     return {
@@ -489,7 +509,8 @@ export class PanelRegistry {
     let record = this.#fills.find((r) => r.element === element)
     if (!record) {
       record = { element }
-      this.#fills.push(record)
+      if (options.back) record.back = true
+      this.#insertFill(record)
     }
     record.bitmap = {
       painter,
@@ -519,6 +540,17 @@ export class PanelRegistry {
         this.#onChange()
       }
     }
+  }
+
+  /** 新填充放进列表：背景层排在最后一个背景层后面，普通填充排在最后。 */
+  #insertFill(record: FillRecord): void {
+    if (!record.back) {
+      this.#fills.push(record)
+      return
+    }
+    let i = 0
+    while (i < this.#fills.length && this.#fills[i]!.back) i++
+    this.#fills.splice(i, 0, record)
   }
 
   /**
@@ -1104,7 +1136,7 @@ function markOverlay(el: HTMLElement, on: boolean): void {
  * 太多）照画 —— 两种都只警告一次。
  */
 function fillPaintOf(record: FillRecord, style: FillStyle): FillPaint | null {
-  let text = style.color.trim()
+  let text = (record.paintSource ? record.paintSource() : style.color).trim()
   if (text.toLowerCase() === 'currentcolor') text = style.currentColor.trim()
   // 渐变里有 currentcolor 时，元素的 color 变了也要重新解析
   const key = /currentcolor/i.test(text) ? `${text}|${style.currentColor}` : text

@@ -62,6 +62,7 @@ import { LayerWatcher, type LayerProblem } from './layering.ts'
 import {
   PanelRegistry,
   type BitmapFillOptions,
+  type FillOptions,
   type BitmapPainter,
   type GlassGroup,
   type GlassPanel,
@@ -251,7 +252,7 @@ export interface GlassStage {
    * `--glass-fill` 的颜色画进场景 —— 玻璃折射它、模糊它，与场景里的任何东西一样。
    * `<glass-fill>` 背后就是它。元素自己的 CSS 背景要透明（R1），颜色只写在 `--glass-fill` 上。
    */
-  registerFill(element: HTMLElement): SceneFill
+  registerFill(element: HTMLElement, options?: FillOptions): SceneFill
   /**
    * 把一个元素注册成**位图**填充：盒子与普通填充一样来自 CSS，里面的内容由 painter 画进场景 ——
    * 玻璃就能折射、放大它。`<glass-segmented>`、`<glass-tab-bar>` 按住时把文字与图标画进场景用的就是它。
@@ -1274,8 +1275,8 @@ async function buildStage(options: GlassStageOptions): Promise<GlassStage> {
     group(options: { readonly smoothing?: number } = {}): GlassGroup {
       return panels.group(options)
     },
-    registerFill(element: HTMLElement): SceneFill {
-      return panels.registerFill(element)
+    registerFill(element: HTMLElement, options?: FillOptions): SceneFill {
+      return panels.registerFill(element, options)
     },
     registerBitmapFill(element: HTMLElement, painter: BitmapPainter, options?: BitmapFillOptions): SceneBitmapFill {
       return panels.registerBitmapFill(element, painter, options)

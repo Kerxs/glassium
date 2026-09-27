@@ -14,6 +14,7 @@
 import {
   compareGroupOptics,
   compareOptics,
+  configure,
   createGlassStage,
   defineGlassElements,
   GlassPresets,
@@ -2797,6 +2798,78 @@ async function run(): Promise<void> {
     return a === b && c !== b && d !== c && panels1 === panels0 + 1 && panels2 === panels0 && active && released
       ? pass(detail)
       : fail(detail)
+  })
+
+  await check('absorb-background', async () => {
+    // 玻璃后面挡着的 CSS 背景自动收进场景（runtime/absorb.ts）：一个有不透明背景的方块里放 <div glass> ——
+    // 方块被收进场景（挂 data-glassium-absorbed、CSS 背景的计算值变透明），画布上玻璃里透出那块背景的颜色，
+    // 层级检查 0 个问题；纯色、渐变、同源图片各一例。玻璃拿掉之后全部还原（属性摘掉、背景回来、根背景元素拿掉）。
+    // 反向对照：configure({ absorbBackgrounds: false }) 时不收，画布上玻璃里看不到那块颜色。
+    stage.debug.setBackdrop({ scene: 'flat' })
+    const v = stage.debug.stats().viewport!
+    const s = v.compositeWidth / v.cssWidth
+    const canvasBox = stage.canvas.getBoundingClientRect()
+    const pixel = async (x: number, y: number): Promise<[number, number, number]> => {
+      const d = await readback({ x: Math.floor((x - canvasBox.left) * s), y: Math.floor((y - canvasBox.top) * s), width: 1, height: 1 })
+      return [d[0]!, d[1]!, d[2]!]
+    }
+    const run = async (background: string): Promise<{ absorbed: boolean; cleared: boolean; inGlass: [number, number, number]; problems: number; restored: boolean; rootGone: boolean }> => {
+      const box = document.createElement('div')
+      Object.assign(box.style, { position: 'absolute', left: '440px', top: '480px', width: '240px', height: '120px', background })
+      const g = document.createElement('div')
+      Object.assign(g.style, { position: 'absolute', left: '60px', top: '30px', width: '120px', height: '60px', borderRadius: '16px' })
+      g.setAttribute('glass', 'clear')
+      g.setAttribute('glass-refraction', '0')
+      box.append(g)
+      document.body.append(box)
+      await sleep(0)
+      await sleep(0)
+      stage.debug.renderNow()
+      const before = getComputedStyle(box).backgroundImage + getComputedStyle(box).backgroundColor
+      const absorbed = box.hasAttribute('data-glassium-absorbed')
+      const cs = getComputedStyle(box)
+      const cleared = cs.backgroundImage === 'none' && cs.backgroundColor === 'rgba(0, 0, 0, 0)'
+      await sleep(80) // 同源图片解码
+      stage.debug.renderNow()
+      const r = g.getBoundingClientRect()
+      const inGlass = await pixel(r.left + r.width / 2, r.top + r.height / 2)
+      const problems = stage.debug.checkLayers().filter((p) => p.panel === g).length
+      box.remove()
+      await sleep(0)
+      await sleep(0)
+      stage.debug.renderNow()
+      const restored = !box.hasAttribute('data-glassium-absorbed') && getComputedStyle(box).backgroundImage + getComputedStyle(box).backgroundColor !== before
+      const rootGone = document.querySelector('[data-glassium-root]') === null
+      return { absorbed, cleared, inGlass, problems, restored, rootGone }
+    }
+    try {
+      const solid = await run('rgb(210, 40, 40)')
+      const grad = await run('linear-gradient(90deg, rgb(20, 40, 220), rgb(20, 40, 220))')
+      const image = await run(`url('./assets/runtime-hills.svg') center / cover no-repeat`)
+      configure({ absorbBackgrounds: false })
+      await sleep(0)
+      const off = await run('rgb(210, 40, 40)')
+      configure({ absorbBackgrounds: true })
+      const red = (c: readonly number[]): boolean => c[0]! > 150 && c[1]! < 90 && c[2]! < 90
+      const blue = (c: readonly number[]): boolean => c[2]! > 150 && c[0]! < 90
+      const f = (c: readonly number[]): string => c.join('/')
+      const detail =
+        `纯色：收了 ${solid.absorbed}、CSS 背景透明 ${solid.cleared}、玻璃里 ${f(solid.inGlass)}、层级问题 ${solid.problems} · ` +
+        `渐变：收了 ${grad.absorbed}、玻璃里 ${f(grad.inGlass)} · 图片：收了 ${image.absorbed}、玻璃里 ${f(image.inGlass)} · ` +
+        `拿掉后还原 ${solid.restored && grad.restored && image.restored}、根背景元素拿掉 ${solid.rootGone && image.rootGone} · ` +
+        `关掉收背景：收了 ${off.absorbed}、玻璃里 ${f(off.inGlass)}`
+      const ok =
+        solid.absorbed && solid.cleared && red(solid.inGlass) && solid.problems === 0 &&
+        grad.absorbed && blue(grad.inGlass) &&
+        image.absorbed && !red(image.inGlass) && !blue(image.inGlass) && image.inGlass[0]! > 60 &&
+        solid.rootGone && image.rootGone &&
+        !off.absorbed && !red(off.inGlass)
+      return ok ? pass(detail) : fail(detail)
+    } finally {
+      configure({ absorbBackgrounds: true })
+      calibrationScene()
+      stage.debug.renderNow()
+    }
   })
 
   await check('button-form', async () => {

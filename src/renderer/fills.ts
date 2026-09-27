@@ -180,6 +180,10 @@ export interface FillRecord {
   readonly element: HTMLElement
   /** 位图填充（registerBitmapFill）才有：颜色不从 `--glass-fill` 来，由 painter 画。 */
   bitmap?: BitmapState
+  /** 颜色或渐变的来源（registerFill 的 paint）：有它时不读 `--glass-fill`，读它返回的 CSS 文本。 */
+  paintSource?: () => string
+  /** 背景层（registerFill / registerBitmapFill 的 back）：排在所有普通填充的后面（先画）。 */
+  back?: boolean
   /** 与面板相同的几何缓存（panels.ts 的测量读写它们）。 */
   clips?: readonly ClipEntry[]
   clipGeneration?: number

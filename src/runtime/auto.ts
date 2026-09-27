@@ -16,6 +16,7 @@ import { getConfig } from './config.ts'
 import { ensureStage } from './ensure-stage.ts'
 import { glass, runtimeGlassOf } from './glass.ts'
 import { GLASS_MATERIAL_ATTRIBUTES, parseGlassAttributes } from './presets.ts'
+import { restyleAbsorbed, ROOT_FILL_ATTRIBUTE, scheduleAbsorb } from './absorb.ts'
 import { installRuntimeStyles } from './styles.ts'
 
 const WATCHED = ['glass', ...GLASS_MATERIAL_ATTRIBUTES, 'class', 'style']
@@ -88,12 +89,21 @@ function release(el: HTMLElement): void {
   fromAttribute.delete(el)
 }
 
+/** runtime 自己动的元素（画布：层级检查时切 pointer-events；根背景）的变化不算，不然扫描会自己把自己叫醒。 */
+function ours(node: Node): boolean {
+  return node instanceof HTMLElement && (node.hasAttribute('data-glassium-scene') || node.hasAttribute(ROOT_FILL_ATTRIBUTE))
+}
+
 function onMutations(records: MutationRecord[]): void {
+  let changed = false
   for (const r of records) {
+    if (ours(r.target)) continue
+    changed = true
     if (r.type === 'attributes') {
       const el = r.target as HTMLElement
       if (r.attributeName === 'class' || r.attributeName === 'style') {
         runtimeGlassOf(el)?.restyle()
+        restyleAbsorbed(el)
         continue
       }
       if (el.hasAttribute('glass')) adopt(el)
@@ -113,6 +123,8 @@ function onMutations(records: MutationRecord[]): void {
       for (const el of withDescendants(node)) if (!el.isConnected) runtimeGlassOf(el)?.setConnected(false)
     }
   }
+  // 布局可能变了：玻璃后面挡着的元素要重新看一遍（节流）
+  if (changed) scheduleAbsorb()
 }
 
 /** 节点自己和它里面的 `[glass]` / runtime 玻璃。 */
