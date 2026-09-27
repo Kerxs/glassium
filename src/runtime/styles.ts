@@ -31,6 +31,26 @@ const BASE_CSS = `
 [${ABSORBED_ATTRIBUTE}] {
   background: transparent !important;
 }
+[data-glassium-hit] {
+  pointer-events: auto !important;
+}
+[data-glassium-content],
+[data-glassium-content] * {
+  color: transparent !important;
+  -webkit-text-fill-color: transparent !important;
+  text-shadow: none !important;
+  text-decoration-color: transparent !important;
+  background-color: transparent !important;
+}
+[data-glassium-content] :is(img, svg, canvas, video) {
+  opacity: 0 !important;
+}
+:is(img, canvas, video)[data-glassium-content] {
+  object-position: -99999px -99999px !important;
+}
+svg[data-glassium-content] > * {
+  opacity: 0 !important;
+}
 @media (forced-colors: active) {
   :where([glass]) {
     forced-color-adjust: auto;

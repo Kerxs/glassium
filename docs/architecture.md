@@ -24,7 +24,7 @@ Glassium 的定位是**面向 Web 的 Liquid Glass 渲染运行时**：让任意
 | Default Glass / Material | 预设、材质参数、降级成效果链 | `src/runtime/presets.ts`、`src/core/material.ts`、`src/core/pipeline.ts` | 有 |
 | Interaction | 悬停、按压、焦点、果冻、飞行 | `src/interaction/`（press、jelly、glide、motion） | 有（果冻、飞行目前只给组件用） |
 | DOM Adapter | DOM → 场景的中间表示：几何、变换、裁剪、遮罩、不透明度、层 | `src/renderer/panels.ts`（测量）、`clipping.ts`、`clip-path.ts`、`mask.ts`、`pose.ts`、`layers.ts` | 有（面板、填充） |
-| 场景内容 | 页面背景、填充、位图、文字 | `src/renderer/fills.ts`、`atlas.ts`、`scene-source.ts`、`src/components/scene-label.ts`、`src/runtime/absorb.ts` | 背景自动收进场景（0.3）；文字只在组件里 |
+| 场景内容 | 页面背景、填充、位图、文字、图片、画布、视频 | `src/renderer/fills.ts`、`atlas.ts`、`scene-source.ts`、`src/components/scene-label.ts`、`src/runtime/absorb.ts`、`src/runtime/content.ts` | 背景自动收进场景（0.3）；玻璃后面的内容块画进场景（0.4 DOM Renderer） |
 | Scene Graph | 层级、Z 序、脏状态 | 隐含在 `panels.ts` 的测量结果与 `idle.ts` 的逐帧比较里 | 没有独立的场景图 |
 | Compositor | 分层合成、嵌套玻璃、顶层（对话框 / popover）、morph | `src/renderer/layers.ts`、`gpu.ts` / `webgl2/renderer.ts` 的分层绘制、`core/overlay.ts`、`components/morph-glass.ts` | 有（共享场景与一条模糊链） |
 | Renderer | WebGPU / WebGL2 / CSS / 普通 DOM | `src/renderer/gpu.ts`、`src/webgl2/`、`core/overlay.ts` + `runtime/styles.ts`、`[glass]` 没有 active 时的 CSS | 有 |
@@ -48,11 +48,29 @@ Glassium 的定位是**面向 Web 的 Liquid Glass 渲染运行时**：让任意
   不振荡，结果记在 localStorage；后端不因为掉帧切换。
 - **调试面板**：`glassium.debug.enable()`。
 
+## DOM Renderer（0.4）
+
+玻璃后面的内容画进场景（`runtime/content.ts`），接在收背景的同一次扫描后面：
+
+1. **找**：每块 runtime 玻璃里 6×4 个点做命中测试（`renderer/layering.ts` 的 `hitStacksBehind`：夹在玻璃与画布之间的元素，
+   离玻璃最近的在前）。从最近的往后试三个，往上找到块级元素；碰到有背景的元素（或者玻璃自己有背景的祖先之外的）就停。
+   块不嵌套，外面的赢。
+2. **收**：块注册成位图填充（`registerBitmapFill`），painter 是 `paintContent(…, { backgrounds, media })`：背景色 → 图片 →
+   画布与视频（`object-fit`）→ SVG → 文字。画的时候临时摘掉 `data-glassium-content`，读到原样式；挂着时 runtime 样式表把
+   DOM 那一份变透明。块原来的背景若已被 absorb 收成背景层，交给这一块画（不画两遍）。
+3. **更新**：MutationObserver（文字、子元素、class / style）→ `invalidateContentAt` 只作废那一块；图片 load、字体 loadingdone；
+   视频 `requestVideoFrameCallback` 每帧作废一次；画布每 32ms 比 16×16 的缩略指纹。作废只让下一帧重画这块位图，别的块、
+   别的填充不动。
+4. **放**：不在玻璃后面、离玻璃的盒子超过 48px（滞回），或者 `absorbContent` 关掉 —— 摘属性、注销填充。
+
+扫描的时机：新的玻璃、玻璃的 style / class 变了、滚动与尺寸变化（合并到一个 rAF）。新收的块同步画一帧，DOM 变透明与
+场景里出现在同一帧。
+
 ## 路线：后续版本（范围与验收）
 
 每一版的验收都包括：单元测试、verify.html 两个后端 × 两种视口全过、新功能各有一项验证并做反向对照、零配置示例页与首页照旧。
 
-### 0.4 —— DOM Renderer
+### 0.4 —— DOM Renderer（已做，见上）
 - 玻璃后面的**文字、`<img>`、SVG、`<canvas>`、`<video>`** 画进场景（把 `scene-label.ts` 的 `paintContent` 推广成通用的子树光栅化，
   视频用 `requestVideoFrameCallback` 只在帧变化时上传）。
 - 增量更新：只重画变了的节点（MutationObserver + 尺寸观察）。

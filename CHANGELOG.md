@@ -20,7 +20,12 @@ Glassium 从组件库转向 **Web Liquid Glass 渲染运行时**（docs/architec
   页面的根背景做场景底色。填充多了 `paint`、`back` 两个选项。
 - **自适应质量**：`AdaptiveQuality`、`FrameMonitor`、`QualityController`、`factorsFor`；`stage.setQuality`、`stage.onFrame`。
   runtime 建的 stage 默认自适应（掉帧快降、宽裕慢升、不振荡、结果记在 localStorage），后端不因为掉帧切换。
-- 零配置示例页 `/runtime.html`；验证页新增 glass-attribute、absorb-background、adaptive-quality。
+- **DOM Renderer**：`[glass]` 后面的内容块（文字、`<img>`、内联 SVG、`<canvas>`、`<video>`）画进场景、DOM 那一份变透明，
+  玻璃折射、放大得到；块里变了只重画这一块，视频按 `requestVideoFrameCallback` 出一帧画一次，画布按缩略指纹变了才画；
+  跨源的内容只警告、不污染场景；不在玻璃后面了就还给 DOM。`configure({ absorbContent })`、`contentBlocks()`、`contentStats()`、
+  `glassium.debug.info()`、`hitStacksBehind()`；`paintContent` 多了 `PaintOptions`（背景色、画布与视频、`object-fit`）。
+- 零配置示例页 `/runtime.html`（加了一段文字、图片、画布、视频和跟着指针走的放大镜）；验证页新增 glass-attribute、
+  absorb-background、adaptive-quality、dom-renderer。
 
 ### 变化
 

@@ -21,6 +21,7 @@ import { inspectPanel } from '../renderer/layering.ts'
 import type { SceneBitmapFill, SceneFill } from '../renderer/panels.ts'
 import { currentStage, onStageChange, type GlassStage } from '../renderer/stage.ts'
 import { placeImage, planBackground, type BackgroundPlan, type BackgroundStyle } from './background.ts'
+import { isContentBlock, releaseContent, scanContent } from './content.ts'
 import { getConfig, onConfigChange } from './config.ts'
 import { ABSORBED_ATTRIBUTE, GLASS_ID_ATTRIBUTE } from './styles.ts'
 
@@ -45,6 +46,7 @@ const warned = new WeakSet<Element>()
 let rootEl: HTMLElement | null = null
 let stageOf: GlassStage | null = null
 let timer: ReturnType<typeof setTimeout> | null = null
+let frame = 0
 let microtask = false
 let subscribed = false
 
@@ -65,6 +67,18 @@ export function scheduleAbsorb(immediate = false): void {
     timer = null
     scan()
   }, 150)
+}
+
+/**
+ * 在下一帧画之前扫（滚动时：玻璃后面换了一块内容，要赶在这一帧画出来之前收进场景，不然 DOM 里的字先露一帧）。
+ */
+export function scheduleAbsorbFrame(): void {
+  subscribe()
+  if (frame !== 0 || typeof requestAnimationFrame === 'undefined') return
+  frame = requestAnimationFrame(() => {
+    frame = 0
+    scan()
+  })
 }
 
 /** 这个元素的样式变了：收进去的背景要重读。返回它是不是收进去的元素。 */
@@ -100,10 +114,13 @@ function subscribe(): void {
       releaseAbsorbed()
       scheduleAbsorb(true)
     }
+    if (c.absorbContent !== prev.absorbContent) {
+      releaseContent()
+      scheduleAbsorb(true)
+    }
   })
-  const later = (): void => scheduleAbsorb()
-  window.addEventListener('scroll', later, { passive: true, capture: true })
-  window.addEventListener('resize', later, { passive: true })
+  window.addEventListener('scroll', scheduleAbsorbFrame, { passive: true, capture: true })
+  window.addEventListener('resize', scheduleAbsorbFrame, { passive: true })
 }
 
 function scan(): void {
@@ -116,8 +133,11 @@ function scan(): void {
   }
   const selector = config.absorbForComponents ? `[${GLASS_ID_ATTRIBUTE}], [data-glassium-active]` : `[${GLASS_ID_ATTRIBUTE}]`
   const panels = typeof document === 'undefined' ? [] : [...document.querySelectorAll<HTMLElement>(selector)]
+  const content = stage && stage.active && config.absorbContent && panels.length > 0
+  if (!content) releaseContent()
   if (!stage || !stage.active || !config.absorbBackgrounds || panels.length === 0) {
     if (entries.size > 0) releaseAbsorbed()
+    if (content) scanContent(stage!, runtimePanels(), takeOverBackground)
     return
   }
   let added = false
@@ -134,12 +154,27 @@ function scan(): void {
     for (const p of problems) {
       if (p.kind !== 'covered') continue
       const el = p.element as HTMLElement
-      if (entries.has(el) || el === document.documentElement || !(el instanceof HTMLElement)) continue
+      if (entries.has(el) || isContentBlock(el) || el === document.documentElement || !(el instanceof HTMLElement)) continue
       if (absorb(el)) added = true
     }
   }
   if (added) reorder(stage)
   else for (const e of entries.values()) if (!e.fill) register(stage, e)
+  if (content) scanContent(stage, runtimePanels(), takeOverBackground)
+}
+
+/** 内容块只看 runtime 的玻璃（组件里的字本来就在组件自己的层里）。 */
+function runtimePanels(): HTMLElement[] {
+  return [...document.querySelectorAll<HTMLElement>(`[${GLASS_ID_ATTRIBUTE}]`)]
+}
+
+/** 内容块接管它自己的背景（背景色由内容的 painter 画）：背景层那一份放手。 */
+function takeOverBackground(el: HTMLElement): void {
+  const e = entries.get(el)
+  if (!e || e.root) return
+  e.fill?.unregister()
+  el.removeAttribute(ABSORBED_ATTRIBUTE)
+  entries.delete(el)
 }
 
 function ensureRoot(): void {

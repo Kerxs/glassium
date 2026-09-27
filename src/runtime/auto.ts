@@ -16,7 +16,8 @@ import { getConfig } from './config.ts'
 import { ensureStage } from './ensure-stage.ts'
 import { glass, runtimeGlassOf } from './glass.ts'
 import { GLASS_MATERIAL_ATTRIBUTES, parseGlassAttributes } from './presets.ts'
-import { restyleAbsorbed, ROOT_FILL_ATTRIBUTE, scheduleAbsorb } from './absorb.ts'
+import { restyleAbsorbed, ROOT_FILL_ATTRIBUTE, scheduleAbsorb, scheduleAbsorbFrame } from './absorb.ts'
+import { invalidateContentAt } from './content.ts'
 import { installRuntimeStyles } from './styles.ts'
 
 const WATCHED = ['glass', ...GLASS_MATERIAL_ATTRIBUTES, 'class', 'style']
@@ -47,7 +48,13 @@ export function startRuntime(): void {
   const begin = (): void => {
     for (const el of document.querySelectorAll<HTMLElement>('[glass]')) adopt(el)
     observer = new MutationObserver(onMutations)
-    observer.observe(document.documentElement, { subtree: true, childList: true, attributes: true, attributeFilter: WATCHED })
+    observer.observe(document.documentElement, {
+      subtree: true,
+      childList: true,
+      characterData: true,
+      attributes: true,
+      attributeFilter: WATCHED
+    })
   }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', begin, { once: true })
   else begin()
@@ -99,10 +106,18 @@ function onMutations(records: MutationRecord[]): void {
   for (const r of records) {
     if (ours(r.target)) continue
     changed = true
+    // 收进场景的内容块里的文字、子元素、样式变了：只重画那一块
+    invalidateContentAt(r.target)
+    if (r.type === 'characterData') continue
     if (r.type === 'attributes') {
       const el = r.target as HTMLElement
       if (r.attributeName === 'class' || r.attributeName === 'style') {
-        runtimeGlassOf(el)?.restyle()
+        const g = runtimeGlassOf(el)
+        if (g) {
+          g.restyle()
+          // 玻璃挪了（拖动、动画）：它后面换了一块内容，要赶在这一帧画出来之前收进场景
+          scheduleAbsorbFrame()
+        }
         restyleAbsorbed(el)
         continue
       }

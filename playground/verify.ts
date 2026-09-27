@@ -16,6 +16,8 @@ import {
   compareGroupOptics,
   compareOptics,
   configure,
+  contentBlocks,
+  contentStats,
   createGlassStage,
   defineGlassElements,
   GlassPresets,
@@ -193,6 +195,13 @@ async function sha(bytes: Uint8Array): Promise<string> {
 let stage: GlassStage
 
 /** 回读并同步出一帧：不等 rAF。 */
+/** 同一个资源换一个源：localhost ↔ 127.0.0.1（跨源，不用联网）。 */
+function crossOriginUrl(path: string): string {
+  const url = new URL(path, location.href)
+  url.hostname = url.hostname === '127.0.0.1' ? 'localhost' : '127.0.0.1'
+  return url.href
+}
+
 async function readback(region?: ReadbackRegion): Promise<Uint8Array> {
   const p = stage.debug.readback(region)
   stage.debug.renderNow()
@@ -2924,6 +2933,170 @@ async function run(): Promise<void> {
       return ok ? pass(detail) : fail(detail)
     } finally {
       aq.dispose()
+      stage.debug.renderNow()
+    }
+  })
+
+  await check('dom-renderer', async () => {
+    // DOM Renderer（runtime/content.ts）：玻璃后面的内容画进场景。
+    // - 一段黑色大字后面（z 序上在它上面）放一块 clear 的 [glass]：字被收进场景（挂 data-glassium-content、DOM 里的字变透明），
+    //   画布上玻璃里有墨迹；改一下字，只重画这一块（画的次数 +1），墨迹跟着变；
+    // - 同源的 <img>（橙色的山）与红色的 <canvas> 在玻璃后面：玻璃里透出它们的颜色；
+    // - <video>（画布录的流）：视频出了几帧最多画几次，暂停之后怎么出帧都不再画；
+    // - 玻璃挪开：块还给 DOM（属性摘掉、字的颜色回来）；
+    // - 反向对照：configure({ absorbContent: false }) 时不收，玻璃里没有墨迹。
+    stage.debug.setBackdrop({ scene: 'flat' })
+    const v = stage.debug.stats().viewport!
+    const sc = v.compositeWidth / v.cssWidth
+    const canvasBox = stage.canvas.getBoundingClientRect()
+    const region = async (r: DOMRect): Promise<Uint8Array> =>
+      readback({
+        x: Math.floor((r.left - canvasBox.left) * sc),
+        y: Math.floor((r.top - canvasBox.top) * sc),
+        width: Math.max(1, Math.ceil(r.width * sc)),
+        height: Math.max(1, Math.ceil(r.height * sc))
+      })
+    const ink = (d: Uint8Array): number => {
+      let n = 0
+      for (let i = 0; i < d.length; i += 4) if (0.2126 * d[i]! + 0.7152 * d[i + 1]! + 0.0722 * d[i + 2]! < 70) n++
+      return n
+    }
+    const count = (d: Uint8Array, test: (r: number, g: number, b: number) => boolean): number => {
+      let n = 0
+      for (let i = 0; i < d.length; i += 4) if (test(d[i]!, d[i + 1]!, d[i + 2]!)) n++
+      return n
+    }
+    const settle = async (): Promise<void> => {
+      await sleep(0)
+      await sleep(0)
+      await sleep(30)
+      stage.debug.renderNow()
+    }
+    const wrap = document.createElement('div')
+    // 白底：收成背景层之后挡住页面自己的东西（窄视口下报告区在这里），命中测试到它为止
+    Object.assign(wrap.style, { position: 'absolute', left: '400px', top: '460px', width: '380px', height: '220px', background: '#fff' })
+    wrap.innerHTML =
+      '<p class="t" style="margin:0;font:700 44px/1.1 system-ui,sans-serif;color:#000">GLASS text</p>' +
+      '<div class="m" style="display:flex;gap:8px;margin-top:12px">' +
+      '<img src="./assets/runtime-hills.svg" width="120" height="80" style="object-fit:cover">' +
+      '<canvas width="80" height="80"></canvas><video width="60" height="80" muted playsinline></video>' +
+      `<img class="x" width="40" height="40" src="${crossOriginUrl('./assets/runtime-hills.svg')}"></div>`
+    // 跨源的图片：只警告一次，块照收，场景不被污染（下面的回读照常）
+    const warnings: string[] = []
+    const warn = console.warn
+    console.warn = (...args: unknown[]) => {
+      warnings.push(String(args[0]))
+      warn.apply(console, args)
+    }
+    document.body.append(wrap)
+    const text = wrap.querySelector<HTMLElement>('.t')!
+    const media = wrap.querySelector<HTMLElement>('.m')!
+    // 收的是包着它的那一块（空隙里命中的是外层，外层赢；见 content.ts 的「不嵌套」）
+    const holder = (el: HTMLElement): HTMLElement | undefined => contentBlocks().find((b) => b === el || b.contains(el))
+    const statsOf = (el: HTMLElement): { videoFrames: number; paints: number } | null => {
+      const h = holder(el)
+      return h ? contentStats(h) : null
+    }
+    const red = wrap.querySelector('canvas')!
+    const rctx = red.getContext('2d')!
+    rctx.fillStyle = 'rgb(230, 20, 20)'
+    rctx.fillRect(0, 0, 80, 80)
+    const video = wrap.querySelector('video')!
+    const source = document.createElement('canvas')
+    source.width = 120
+    source.height = 80
+    const sctx = source.getContext('2d')!
+    let frameNo = 0
+    const drawSource = (): void => {
+      sctx.fillStyle = frameNo++ % 2 === 0 ? 'rgb(20, 60, 230)' : 'rgb(20, 200, 90)'
+      sctx.fillRect(0, 0, 120, 80)
+    }
+    drawSource()
+    let pump: ReturnType<typeof setInterval> | null = null
+    const lens = document.createElement('div')
+    lens.setAttribute('glass', 'clear')
+    lens.setAttribute('glass-refraction', '0')
+    Object.assign(lens.style, { position: 'absolute', left: '0px', top: '0px', width: '360px', height: '150px', borderRadius: '20px', pointerEvents: 'none' })
+    wrap.append(lens)
+    try {
+      await (wrap.querySelector('img') as HTMLImageElement).decode().catch(() => undefined)
+      if (typeof source.captureStream === 'function') {
+        video.srcObject = source.captureStream(30)
+        await video.play().catch(() => undefined)
+        pump = setInterval(drawSource, 40)
+      }
+      await settle()
+      await sleep(200)
+      await settle()
+      const absorbedText = holder(text) !== undefined && text.closest('[data-glassium-content]') !== null
+      const domTransparent = getComputedStyle(text).color === 'rgba(0, 0, 0, 0)'
+      const tr = text.getBoundingClientRect()
+      const lr = lens.getBoundingClientRect()
+      const inGlass = new DOMRect(tr.left, tr.top, Math.min(tr.width, lr.width), tr.height)
+      const ink0 = ink(await region(inGlass))
+      const paints0 = statsOf(text)?.paints ?? 0
+      text.textContent = 'MOVED'
+      await settle()
+      const paints1 = statsOf(text)?.paints ?? 0
+      const ink1 = ink(await region(inGlass))
+      const absorbedMedia = holder(media) !== undefined
+      const img = wrap.querySelector('img')!.getBoundingClientRect()
+      const cv = red.getBoundingClientRect()
+      const orange = count(await region(new DOMRect(img.left + 10, img.top + 10, img.width - 20, 20)), (r, g, b) => r > 180 && g > 80 && b < 170)
+      const reds = count(await region(new DOMRect(cv.left + 10, cv.top + 10, cv.width - 20, cv.height - 20)), (r, g, b) => r > 170 && g < 80 && b < 80)
+      // 视频：放一会儿，看帧数与画的次数；再暂停，画的次数不再涨
+      const vs0 = statsOf(media) ?? { videoFrames: 0, paints: 0 }
+      await sleep(400)
+      for (let i = 0; i < 6; i++) {
+        await sleep(40)
+        stage.debug.renderNow()
+      }
+      const vs = statsOf(media)
+      video.pause()
+      await sleep(80)
+      const pausedAt = statsOf(media)?.paints ?? 0
+      for (let i = 0; i < 6; i++) {
+        drawSource()
+        await sleep(40)
+        stage.debug.renderNow()
+      }
+      const pausedAfter = statsOf(media)?.paints ?? 0
+      // 挪开：还给 DOM
+      lens.style.top = '400px'
+      await settle()
+      await sleep(200)
+      await settle()
+      const released = holder(text) === undefined && text.closest('[data-glassium-content]') === null && getComputedStyle(text).color === 'rgb(0, 0, 0)'
+      // 反向对照
+      lens.style.top = '0px'
+      configure({ absorbContent: false })
+      await settle()
+      await sleep(200)
+      await settle()
+      const offAbsorbed = holder(text) !== undefined
+      const offInk = ink(await region(inGlass))
+      // 放视频的这段时间里：画的次数不超过出的帧数（+1：最后一帧出了还没画）
+      const framesDuring = (vs?.videoFrames ?? 0) - vs0.videoFrames
+      const paintsDuring = (vs?.paints ?? 0) - vs0.paints
+      const videoOk = framesDuring === 0 || (paintsDuring >= 1 && paintsDuring <= framesDuring + 1)
+      const pausedOk = pausedAfter === pausedAt
+      const xoWarnings = warnings.filter((w) => w.includes('跨源的')).length
+      const detail =
+        `字：收了 ${absorbedText}、DOM 里透明 ${domTransparent}、玻璃里墨迹 ${ink0} · 改字：画 ${paints0} → ${paints1} 次、墨迹 ${ink1} · ` +
+        `图片与画布：收了 ${absorbedMedia}、橙 ${orange}、红 ${reds} · 视频：放的时候出了 ${framesDuring} 帧、这一块画了 ${paintsDuring} 次；` +
+        `暂停后画的次数 ${pausedAt} → ${pausedAfter} · 跨源图片警告 ${xoWarnings} 次 · 挪开后还给 DOM ${released} · 关掉：收了 ${offAbsorbed}、墨迹 ${offInk}` +
+        (framesDuring === 0 ? '（视频帧回调没触发 —— 面板隐藏时浏览器不出视频帧）' : '')
+      const ok =
+        absorbedText && domTransparent && ink0 > 200 && paints1 > paints0 && ink1 !== ink0 &&
+        absorbedMedia && orange > 20 && reds > 20 && videoOk && pausedOk && xoWarnings === 1 && released && !offAbsorbed && offInk < 20
+      return ok ? pass(detail) : fail(detail)
+    } finally {
+      console.warn = warn
+      if (pump) clearInterval(pump)
+      configure({ absorbContent: true })
+      wrap.remove()
+      await sleep(0)
+      calibrationScene()
       stage.debug.renderNow()
     }
   })

@@ -39,6 +39,16 @@ main { width: min(960px, calc(100% - 32px)); margin: 0 auto; padding: 40px 0 80p
 .tile-mint { background: #3ddc97; }
 .tile-night { background: radial-gradient(circle at 30% 30%, #4cc9f0, #3a0ca3 70%); }
 .badge { padding: 10px 16px; border-radius: 16px; font-weight: 600; color: #fff; }
+.content { position: relative; margin-top: 56px; }
+.content h2 { font-size: 26px; margin: 0 0 12px; }
+.article { max-width: 720px; font-size: 18px; }
+.article mark { background: #ffe066; color: #3a2a00; border-radius: 4px; padding: 0 4px; }
+.media { display: flex; flex-wrap: wrap; gap: 16px; margin-top: 16px; }
+.media img, .media canvas, .media video { border-radius: 16px; display: block; }
+.lens {
+  position: absolute; left: 40px; top: 60px; width: 200px; height: 130px; border-radius: 999px;
+  pointer-events: none; transition: translate 0.08s linear;
+}
 .controls {
   display: flex; flex-wrap: wrap; align-items: center; gap: 16px; margin-top: 48px;
 }

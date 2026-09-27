@@ -4,6 +4,7 @@
 
 import { currentStage } from '../renderer/stage.ts'
 import { absorbedElements } from '../runtime/absorb.ts'
+import { contentBlocks } from '../runtime/content.ts'
 import { currentAdaptive } from '../runtime/quality-link.ts'
 
 export function debugRows(): Array<[string, string]> {
@@ -38,6 +39,7 @@ export function debugRows(): Array<[string, string]> {
     `分辨率 ${f.resolution.toFixed(2)} · 模糊 ${f.blur.toFixed(2)} · 折射 ${f.refraction.toFixed(2)} · 深 ${f.depth.toFixed(2)} · 色散 ${f.dispersion.toFixed(2)} · 投影 ${f.shadow.toFixed(2)}`
   ])
   rows.push(['收进场景的背景', String(absorbedElements().length)])
+  rows.push(['收进场景的内容块', String(contentBlocks().length)])
   rows.push(['层级问题', String(stage.debug.checkLayers().length)])
   return rows
 }

@@ -44,6 +44,21 @@
         </div>
       </section>
 
+      <section class="content" id="content">
+        <h2>玻璃后面的内容也被折射</h2>
+        <p class="article">
+          这一段是普通的 DOM 文字，里面有<mark>高亮</mark>、<a href="#content">链接</a>与 <strong>粗体</strong>。
+          把鼠标移到这一块上，玻璃透镜跟着走：它后面的文字、图片、画布动画、视频都被 runtime 画进场景（DOM Renderer），
+          玻璃把它们模糊、弯折、放大。离开玻璃的内容照旧由浏览器画，选中、链接、读屏都不受影响。
+        </p>
+        <div class="media">
+          <img src="./assets/runtime-hills.svg" alt="黄昏的山丘" width="240" height="150" />
+          <canvas id="spin" width="240" height="150" aria-label="转动的色环"></canvas>
+          <video id="clip" width="240" height="150" muted playsinline aria-label="由画布生成的视频"></video>
+        </div>
+        <div class="lens" glass="clear" glass-refraction="0.45" glass-magnify="0.25" aria-hidden="true"></div>
+      </section>
+
       <section class="controls">
         <label>质量
           <select id="quality">

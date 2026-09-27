@@ -309,6 +309,56 @@ function composedContains(outer: Element, inner: Element): boolean {
 }
 
 /**
+ * 命中测试时面板自己也要能被点到：`pointer-events: none` 的玻璃（装饰用的透镜、浮层）命中栈里没有它，
+ * 就分不出谁在它前面、谁在它后面。挂上这个属性，runtime 的样式表（runtime/styles.ts）让它临时可点；属性不在任何
+ * MutationObserver 的过滤表里，挂上摘下不惊动谁。没有 runtime 样式表时这个属性什么都不做。
+ */
+export const HIT_ATTRIBUTE = 'data-glassium-hit'
+
+/** 在这几个点上做命中测试：画布与面板临时可点，测完复原。 */
+function hitTest(panel: HTMLElement, canvas: HTMLCanvasElement, scope: DocumentOrShadowRoot, points: readonly (readonly [number, number])[]): Element[][] {
+  const previous = canvas.style.pointerEvents
+  canvas.style.pointerEvents = 'auto'
+  panel.setAttribute(HIT_ATTRIBUTE, '')
+  try {
+    return points.map(([x, y]) => scope.elementsFromPoint(x, y))
+  } finally {
+    canvas.style.pointerEvents = previous
+    panel.removeAttribute(HIT_ATTRIBUTE)
+  }
+}
+
+/**
+ * 面板后面画着什么：在面板里一格一格地（cols × rows 个采样点）做命中测试，每个点返回夹在面板与画布之间、
+ * 又不是面板祖先的元素（从上到下，也就是离面板最近的在前）。runtime 把玻璃后面的内容画进场景时用（runtime/content.ts）。
+ * 面板不在视口里、没画、用 CSS 画时返回 null。
+ */
+export function hitStacksBehind(panel: HTMLElement, canvas: HTMLCanvasElement, cols = 5, rows = 3): Element[][] | null {
+  if (!isRendered(panel) || panel.hasAttribute(OVERLAY_ATTRIBUTE)) return null
+  const rect = panel.getBoundingClientRect()
+  if (rect.width <= 0 || rect.height <= 0) return null
+  const vw = document.documentElement.clientWidth
+  const vh = document.documentElement.clientHeight
+  const points: [number, number][] = []
+  for (let j = 0; j < rows; j++) {
+    for (let i = 0; i < cols; i++) {
+      const x = rect.left + (rect.width * (i + 0.5)) / cols
+      const y = rect.top + (rect.height * (j + 0.5)) / rows
+      if (x >= 0 && y >= 0 && x < vw && y < vh) points.push([x, y])
+    }
+  }
+  if (points.length === 0) return null
+  const root = panel.getRootNode()
+  const scope: DocumentOrShadowRoot = root instanceof ShadowRoot ? root : document
+  return hitTest(panel, canvas, scope, points).map((stack) => {
+    const pi = stack.indexOf(panel)
+    const ci = stack.indexOf(canvas)
+    if (pi < 0 || ci < 0 || ci < pi) return []
+    return stack.slice(pi + 1, ci).filter((e) => !composedContains(e, panel))
+  })
+}
+
+/**
  * 查一块面板。面板不在视口里、或者根本没画（完全透明、visibility: hidden）时返回 null。
  */
 export function inspectPanel(
@@ -337,14 +387,7 @@ export function inspectPanel(
   const root = panel.getRootNode()
   const scope: DocumentOrShadowRoot = root instanceof ShadowRoot ? root : document
 
-  const previous = canvas.style.pointerEvents
-  canvas.style.pointerEvents = 'auto'
-  let stacks: Element[][]
-  try {
-    stacks = points.map(([x, y]) => scope.elementsFromPoint(x, y))
-  } finally {
-    canvas.style.pointerEvents = previous
-  }
+  const stacks = hitTest(panel, canvas, scope, points)
 
   const problems: LayerProblem<Element>[] = []
   for (const stack of stacks) {

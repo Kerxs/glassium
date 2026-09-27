@@ -14,7 +14,9 @@
  */
 
 import { currentStage, onStageChange, stageOrPending, type GlassStage } from '../renderer/stage.ts'
+import { absorbedElements } from './absorb.ts'
 import { startRuntime } from './auto.ts'
+import { contentBlocks, contentStats } from './content.ts'
 import { detectSync, detectWebGpu, tierOf, type GlassiumCapabilities, type RendererKind } from './capabilities.ts'
 import { configure, getConfig, type GlassiumConfig } from './config.ts'
 import { glass, glassOf } from './glass.ts'
@@ -56,6 +58,16 @@ const debug = {
   async disable(): Promise<void> {
     const { disableDebugPanel } = await import('../debug/panel.ts')
     disableDebugPanel()
+  },
+  /** 收进场景的背景与内容块（内容块带着视频出了几帧、画了几次）。 */
+  info(): {
+    readonly backgrounds: HTMLElement[]
+    readonly content: Array<{ readonly element: HTMLElement; readonly videoFrames: number; readonly paints: number }>
+  } {
+    return {
+      backgrounds: absorbedElements(),
+      content: contentBlocks().map((element) => ({ element, ...(contentStats(element) ?? { videoFrames: 0, paints: 0 }) }))
+    }
   }
 }
 

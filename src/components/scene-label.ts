@@ -35,17 +35,42 @@ const MAX_PER_CHAR = 400
 /** 画布上的字与 DOM 量到的宽度差在这个比例以内，就水平拉到一样宽（更大的差说明字体不一样，拉了反而难看）。 */
 const FIT_TOLERANCE = 0.15
 
+/** paintContent 的选项：默认只画文字、SVG、图片（组件的标签用）；runtime 把玻璃后面的内容画进场景时全开。 */
+export interface PaintOptions {
+  /** 元素的纯色背景（含圆角；内联元素按每一行的矩形）也画，画在最底下。 */
+  readonly backgrounds?: boolean
+  /** `<canvas>` 与 `<video>` 的当前画面也画（按 object-fit / object-position）。跨源的、被污染的跳过。 */
+  readonly media?: boolean
+}
+
 /**
  * 把 sources 里的内容画进 ctx。ctx 的原点是 origin 元素盒子的左上角（变换之前）、单位是 CSS 像素 ——
  * 与 registerBitmapFill 给 painter 的 ctx 相同。异步的东西（SVG 图标）准备好之后调 onReady。
  */
-export function paintContent(ctx: Context2D, origin: Element, sources: readonly LabelSource[], onReady: () => void): void {
+export function paintContent(
+  ctx: Context2D,
+  origin: Element,
+  sources: readonly LabelSource[],
+  onReady: () => void,
+  options: PaintOptions = {}
+): void {
   const map = localMapping(origin)
   if (!map) return
+  const full = options.backgrounds === true || options.media === true
   for (const source of sources) {
-    paintTexts(ctx, source, map)
-    paintSvgs(ctx, source, map, onReady)
+    if (!full) {
+      // 组件标签的老顺序（逐位不变）
+      paintTexts(ctx, source, map)
+      paintSvgs(ctx, source, map, onReady)
+      paintImages(ctx, source, map)
+      continue
+    }
+    // 从下往上：背景 → 图片与画面 → 图标 → 文字
+    if (options.backgrounds) paintBackgrounds(ctx, source, map)
     paintImages(ctx, source, map)
+    if (options.media) paintMedia(ctx, source, map)
+    paintSvgs(ctx, source, map, onReady)
+    paintTexts(ctx, source, map)
   }
 }
 
@@ -273,7 +298,146 @@ function paintImages(ctx: Context2D, source: LabelSource, map: LocalMapping): vo
     const box = toLocal(map, r)
     ctx.save()
     ctx.globalAlpha = opacityUpTo(img, root)
-    ctx.drawImage(img, box.x, box.y, box.w, box.h)
+    drawFitted(ctx, img, img.naturalWidth, img.naturalHeight, box, getComputedStyle(img))
+    ctx.restore()
+  }
+}
+
+/**
+ * 按 object-fit / object-position 算一张图（或一帧）在 box 里的位置。fill（img 的默认值）就是 box 本身，
+ * 画出来与原来的 drawImage(box) 逐位相同。
+ */
+export function objectFitRect(
+  box: { x: number; y: number; w: number; h: number },
+  naturalW: number,
+  naturalH: number,
+  fit: string,
+  position: string
+): { x: number; y: number; w: number; h: number } {
+  if (fit === 'fill' || fit === '' || !(naturalW > 0 && naturalH > 0)) return box
+  let k: number
+  if (fit === 'contain') k = Math.min(box.w / naturalW, box.h / naturalH)
+  else if (fit === 'cover') k = Math.max(box.w / naturalW, box.h / naturalH)
+  else if (fit === 'scale-down') k = Math.min(1, box.w / naturalW, box.h / naturalH)
+  else k = 1 // none
+  const w = naturalW * k
+  const h = naturalH * k
+  const [px = '50%', py = '50%'] = position.trim().split(/\s+/)
+  const at = (v: string, free: number): number => (v.endsWith('%') ? (parseFloat(v) / 100) * free : parseFloat(v) || 0)
+  return { x: box.x + at(px, box.w - w), y: box.y + at(py, box.h - h), w, h }
+}
+
+function drawFitted(
+  ctx: Context2D,
+  image: CanvasImageSource,
+  naturalW: number,
+  naturalH: number,
+  box: { x: number; y: number; w: number; h: number },
+  cs: CSSStyleDeclaration
+): void {
+  const dest = objectFitRect(box, naturalW, naturalH, cs.objectFit, cs.objectPosition)
+  if (dest === box) {
+    ctx.drawImage(image, box.x, box.y, box.w, box.h)
+    return
+  }
+  ctx.save()
+  ctx.beginPath()
+  ctx.rect(box.x, box.y, box.w, box.h)
+  ctx.clip()
+  ctx.drawImage(image, dest.x, dest.y, dest.w, dest.h)
+  ctx.restore()
+}
+
+let probe: CanvasRenderingContext2D | null = null
+
+/**
+ * 画布能不能画进图集：把它缩画到一块 1×1 的小画布上读一个像素（被跨源内容污染过的会抛）。
+ * 不在画布本身上 getContext —— 还没有上下文的画布会被占成 2D，页面之后就拿不到 WebGL 了。
+ */
+export function canvasIsClean(canvas: HTMLCanvasElement): boolean {
+  if (!(canvas.width > 0 && canvas.height > 0)) return true
+  try {
+    probe ??= canvas.ownerDocument.createElement('canvas').getContext('2d', { willReadFrequently: true })
+    if (!probe) return true
+    probe.clearRect(0, 0, 1, 1)
+    probe.drawImage(canvas, 0, 0, 1, 1)
+    probe.getImageData(0, 0, 1, 1)
+    return true
+  } catch {
+    // 污染过的画布画上去之后小画布也被污染了：换一块新的
+    probe = null
+    return false
+  }
+}
+
+/** 视频能不能画进图集：同源（含 blob / data）的 src，或者 srcObject（摄像头、MediaStream）；还没有来源的也算（没有东西可画）。 */
+export function videoIsClean(video: HTMLVideoElement): boolean {
+  if (video.srcObject) return true
+  const src = video.currentSrc || video.src
+  return src === '' || sameOriginImage(src, video.ownerDocument.baseURI)
+}
+
+function paintMedia(ctx: Context2D, source: LabelSource, map: LocalMapping): void {
+  const root = source.element
+  const media: Array<HTMLCanvasElement | HTMLVideoElement> = []
+  if (root instanceof HTMLCanvasElement || root instanceof HTMLVideoElement) media.push(root)
+  media.push(...Array.from(root.querySelectorAll<HTMLCanvasElement | HTMLVideoElement>('canvas, video')))
+  for (const el of media) {
+    if (!visible(el)) continue
+    const r = el.getBoundingClientRect()
+    if (!(r.width > 0 && r.height > 0)) continue
+    let natW: number
+    let natH: number
+    if (el instanceof HTMLVideoElement) {
+      if (el.readyState < 2 || !videoIsClean(el)) continue
+      natW = el.videoWidth
+      natH = el.videoHeight
+    } else {
+      if (!(el.width > 0 && el.height > 0) || !canvasIsClean(el)) continue
+      natW = el.width
+      natH = el.height
+    }
+    const box = toLocal(map, r)
+    ctx.save()
+    ctx.globalAlpha = opacityUpTo(el, root)
+    drawFitted(ctx, el, natW, natH, box, getComputedStyle(el))
+    ctx.restore()
+  }
+}
+
+/** 颜色的 alpha 是不是 0（计算值是 rgb() / rgba() / transparent）。 */
+function transparentColor(color: string): boolean {
+  const c = color.trim().toLowerCase()
+  if (c === '' || c === 'transparent') return true
+  const m = /^rgba\(([^)]*)\)$/.exec(c)
+  if (!m) return false
+  const parts = m[1]!.split(/[\s,/]+/).filter(Boolean)
+  return parts.length >= 4 && parseFloat(parts[3]!) === 0
+}
+
+/** 元素的纯色背景：块级按盒子与圆角，内联按每一行的矩形。渐变、背景图不画（那是 absorb 的事）。 */
+function paintBackgrounds(ctx: Context2D, source: LabelSource, map: LocalMapping): void {
+  const root = source.element
+  const els = [root, ...Array.from(root.querySelectorAll('*'))]
+  for (const el of els) {
+    if (el.localName !== 'svg' && el.closest('svg')) continue
+    const cs = getComputedStyle(el)
+    if (cs.visibility === 'hidden' || cs.display === 'none') continue
+    if (transparentColor(cs.backgroundColor)) continue
+    ctx.save()
+    ctx.globalAlpha = el === root ? 1 : opacityUpTo(el, root)
+    ctx.fillStyle = cs.backgroundColor
+    const inline = cs.display === 'inline'
+    const rects = inline ? Array.from(el.getClientRects()) : [el.getBoundingClientRect()]
+    for (const r of rects) {
+      if (!(r.width > 0 && r.height > 0)) continue
+      const b = toLocal(map, r)
+      const radius = inline ? 0 : parseFloat(cs.borderTopLeftRadius) || 0
+      ctx.beginPath()
+      if (radius > 0 && 'roundRect' in ctx) ctx.roundRect(b.x, b.y, b.w, b.h, Math.min(radius, b.w / 2, b.h / 2))
+      else ctx.rect(b.x, b.y, b.w, b.h)
+      ctx.fill()
+    }
     ctx.restore()
   }
 }

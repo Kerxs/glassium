@@ -79,6 +79,7 @@ handle.destroy()
 | `glassium.start()` | `configure({ auto: false })` 之后手动启动 |
 | `glassium.stage` | 当前的 `GlassStage`（高级用法） |
 | `glassium.debug.enable()` / `disable()` | 右下角的调试面板：后端、质量、帧时间、面板数、draw calls、层级问题，可切面板调试视图 |
+| `glassium.debug.info()` | `{ backgrounds, content }`：收进场景的背景元素；收进场景的内容块，每块带 `videoFrames`（视频出了几帧）与 `paints`（画了几次） |
 
 `GlassiumConfig`：
 
@@ -89,6 +90,7 @@ handle.destroy()
 | `quality` | `'auto'` | `QualitySetting`：`'auto'`（按实测帧时间自适应）、`'high'` / `'medium'` / `'low'`、或 0–1 |
 | `absorbBackgrounds` | `true` | 玻璃后面挡着的 CSS 背景自动收进场景 |
 | `absorbForComponents` | `false` | 组件（`<glass-*>`）也收 |
+| `absorbContent` | `true` | 玻璃后面的内容（文字、图片、SVG、画布、视频）画进场景（DOM Renderer） |
 | `rememberQuality` | `true` | 自适应的结果记在 localStorage，下次从附近起步 |
 
 `GlassiumCapabilities`：`webgpu`（ready 之前是 null）、`webgl2`、`backdropFilter`、`maxTextureSize`、
@@ -103,6 +105,28 @@ GPU 玻璃画在页面底下的画布上、只折射场景（limitations.md 的 
 页面的根背景（`<html>` 的，或传播过去的 `<body>` 的）做场景的底色。`absorbedElements()` 列出收进来的元素。
 多层背景、`background-attachment: fixed`、跨源图片收不了，照旧警告。`configure({ absorbBackgrounds: false })` 关掉并还原；
 组件要 `absorbForComponents: true`。边界见 limitations.md。
+
+### 玻璃后面的内容画进场景（DOM Renderer）
+
+背景之外，玻璃后面的**内容**也收：runtime 在每块玻璃里按 6×4 个点做命中测试（`hitStacksBehind(panel, canvas, cols, rows)`：
+每个点上夹在玻璃与画布之间的元素，离玻璃最近的在前，不含玻璃的祖先），离玻璃最近的那个往上找到块级的内容块（段落、
+标题、列表项、图片容器……），整块注册成位图填充，用 `paintContent(ctx, origin, sources, onReady, { backgrounds: true, media: true })`
+（`PaintOptions`）从下往上画：背景色 → 图片 → 画布与视频 → 内联 SVG → 文字。块挂 `data-glassium-content`，runtime 的样式表把
+DOM 里的字变透明、图片与画面变成不透明度 0 —— 布局、选中、链接、焦点、读屏都还是 DOM 的，看得见的那一份在场景里，
+玻璃折射、放大得到。
+
+- **找哪块**：块不嵌套（外面的赢：弹性容器里块级化的 `<img>` 与容器都被命中时收容器）；命中栈往后找时碰到有背景的元素
+  （或者玻璃自己有背景的祖先）就停 —— 再往后的内容被它挡着。块里有别的玻璃、表单控件、`contenteditable`，块有背景图，
+  或者块比视口大一半以上 / 超过 2048px 的不收；最多 64 块。
+- **更新**：块里的文字、子元素、class / style 变了（MutationObserver）、图片加载完、字体加载完，只重画这一块。
+  `<video>` 按 `requestVideoFrameCallback` 每出一帧重画一次（暂停、没有新帧不上传）。`<canvas>` 没有变化通知：帧循环
+  每转一圈最多每 32ms 把它缩到 16×16 比一次，变了才重画。
+- **放**：块不在任何玻璃后面、并且离玻璃的盒子超过 48px 就还给 DOM（滞回：滚动时边缘上的块不来回换）。
+- **画不了的**：跨源的图片 / 视频、被跨源内容污染的画布在场景里缺着，警告一次，块照收；场景不会被污染。
+  `canvasIsClean(canvas)`、`videoIsClean(video)` 是这两个判断（不在画布本身上取上下文）。图片与画面按 `object-fit` /
+  `object-position` 摆（`objectFitRect(box, naturalW, naturalH, fit, position)`，纯函数）。
+- `contentBlocks()` 列出收进来的块，`contentStats(el)` 是一块的 `{ videoFrames, paints }`。
+- 只对 runtime 管的玻璃做；`configure({ absorbContent: false })` 关掉并全部还回去。边界见 limitations.md 的「Runtime：内容画进场景的边界」。
 
 ### 自适应质量
 
@@ -650,7 +674,8 @@ reject 一个 `name === 'AbortError'` 的 DOMException。跨源的图片与视�
 |---|---|
 | `Segments`、`SegmentsOptions`、`segmentValue` | 分段控件与标签栏共用的一排可选的段（选中、键盘、拖动）；一段的值 |
 | `PressTween`、`THUMB_REST`、`THUMB_PRESSED`、`SEGMENT_THUMB_PRESSED`、`thumbMaterial`、`ThumbParams`、`bubbleMaterial` | 旋钮按下变成透镜的缓动与两头的材质（分段控件的选中块按下时放大）；标签栏气泡的材质 |
-| `SceneLabels`、`paintContent`、`LabelSource` | 文字进场景：一排段的镜像（注册成位图填充、内容变了作废重画）；把元素里的文字、内联 SVG、同源图片画进 2D 画布 |
+| `SceneLabels`、`paintContent`、`LabelSource`、`PaintOptions` | 文字进场景：一排段的镜像（注册成位图填充、内容变了作废重画）；把元素里的文字、内联 SVG、同源图片画进 2D 画布（`PaintOptions` 的 `backgrounds` / `media` 另画背景色与画布、视频，DOM Renderer 用） |
+| `objectFitRect`、`canvasIsClean`、`videoIsClean` | 按 object-fit / object-position 摆一张图；画布、视频能不能画进场景（见上面的 DOM Renderer） |
 | `sliderDefaultValue`、`parseSliderRange`、`sliderRatio`、`snapSliderValue`、`SliderRange` | 滑块的默认值、`min` / `max` / `step` 的解析、值 ↔ 比例、按步长规整（原生 range 的规则） |
 
 ### 验证（进阶）

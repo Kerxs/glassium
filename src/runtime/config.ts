@@ -19,6 +19,8 @@ export interface GlassiumConfig {
   readonly absorbBackgrounds: boolean
   /** 组件（`<glass-*>`）也收背景。默认 false：组件照旧按 R1（祖先背景透明）。 */
   readonly absorbForComponents: boolean
+  /** 玻璃后面的内容（文字、图片、SVG、画布、视频）画进场景（DOM Renderer，见 content.ts）。默认 true。 */
+  readonly absorbContent: boolean
   /** 自适应质量把上次的结果记在 localStorage 里，下次从附近起步。默认 true。 */
   readonly rememberQuality: boolean
 }
@@ -29,6 +31,7 @@ export const DEFAULT_CONFIG: GlassiumConfig = Object.freeze({
   quality: 'auto',
   absorbBackgrounds: true,
   absorbForComponents: false,
+  absorbContent: true,
   rememberQuality: true
 })
 
