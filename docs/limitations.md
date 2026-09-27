@@ -496,6 +496,27 @@ NVIDIA RTX 4070 Laptop + ANGLE（D3D11）上，静止的画面连着画，玻璃
 （验证页 deterministic，WebGL2、1280×720、DPR 1）。输入逐字节相同、只在这个组合上出现，没查到原因；肉眼看不出。
 WebGPU 没有。排查记录见 docs/calibration.md「WebGL2 帧间差 1 级：未解决的一例」。
 
+### Runtime：背景自动收进场景的边界
+
+`[glass]` / `glass()` 的玻璃后面挡着的元素，runtime 把它的 CSS 背景画进场景、原背景换成透明（runtime/absorb.ts）。
+
+- 认得的：纯色、一层 `linear-gradient` / `radial-gradient`、一层同源的 `url()`（`background-size` 的 cover / contain / auto /
+  长度 / 百分比，`background-position` 的长度 / 百分比，`background-repeat`）。背景色与半透明的渐变叠在一起时只画渐变（警告一次）。
+- 收不了的（照旧警告、照旧挡住玻璃）：多层背景、`background-attachment: fixed`、跨源图片、conic-gradient、image-set()。
+- 图片按 border-box 铺（`background-origin` / `background-clip` 不管）。
+- 只看挡在玻璃**后面**的元素（命中测试里夹在玻璃与画布之间的）；在玻璃上面的元素本来就不挡。
+- 元素的 class / style 属性变了会重读；`:hover`、`:focus` 这类不改属性的样式变化察觉不到。
+- 页面的根背景（`<html>` 的，或传播过去的 `<body>` 的）用一块铺满视口的填充画，不随页面滚动（根背景是图片且很长时会不一样）。
+- 正文文字、`<img>`、`<video>`、iframe 不收（DOM Renderer 是后续版本的事）；它们照旧画在玻璃上面、不被折射。
+- 组件（`<glass-*>`）默认不收，照旧按 R1；`configure({ absorbForComponents: true })` 打开。
+
+### Runtime：自适应质量
+
+- 只对 runtime 自己建的 stage 生效；自己调 `createGlassStage` 的页面是满质量（要的话 `new AdaptiveQuality(stage)`）。
+- 按 CPU 时间与掉帧判断，不测 GPU 时间（还没用 timestamp query）；GPU 很慢但 CPU 很闲时，靠掉帧那一条察觉。
+- 页面隐藏、浏览器节流时不计；减少动效时帧循环本来就停着，质量停在原地。
+- 这一版是全局的质量，不分每块玻璃；果冻的系数（`jellyFactor`）已经算出来，组件还没接。
+
 ### CI 不覆盖像素
 
 见 [../spec/golden/README.md](../spec/golden/README.md)。

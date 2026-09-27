@@ -1,18 +1,24 @@
 # Glassium
 
-Liquid Glass（液态玻璃）UI 的 Web 实现。玻璃的折射、色散、亮边、融合都由 GPU 画（WebGPU，没有时 WebGL2），
-以 Web Components 交付：写 `<glass-card>`、`<glass-button>`，原生 HTML、Vue、React、Svelte 里都能用。
-
-**在线看**：[首页](https://kerxs.github.io/glassium/)（设置、控制中心、标签栏、锁屏四个场景里的控件，都能操作）·
-[iPhone 与 Mac](https://kerxs.github.io/glassium/devices.html) ·
-[Playground](https://kerxs.github.io/glassium/playground.html)（调材质、拿代码）· [性能测试](https://kerxs.github.io/glassium/bench.html)
+面向 Web 的 Liquid Glass（液态玻璃）渲染运行时。让任意 DOM 元素获得同一套可自适应的液态玻璃：折射、色散、亮边、融合
+由 GPU 画（WebGPU，没有时 WebGL2，再不行是 CSS 玻璃，最后是普通 DOM），质量按实测帧时间自己调。
 
 ```html
-<glass-card preset="regular" corner-radius="24">
-  <h2>黄昏 · 18:42</h2>
-  <p>正文照常选中、聚焦、输入 —— 内容全在 DOM 里，玻璃画在底下。</p>
-</glass-card>
+<script type="module">import 'glassium'</script>
+
+<div glass>Hello World</div>
+<button glass>Continue</button>
+<div glass="tinted" glass-blur="20">…</div>
 ```
+
+不用选后端、不用写着色器、不用把页面背景挪走：玻璃后面的 CSS 背景由 runtime 自动收进场景，玻璃折射得到。
+元素还是它自己 —— 语义、焦点、键盘、读屏都不变，玻璃只是画在它后面。建在同一个 runtime 上的组件（开关、滑块、分段控件、
+标签栏……）照旧可用。
+
+**在线看**：[零配置示例](https://kerxs.github.io/glassium/runtime.html)（一个普通网页，只写了 glass 属性）·
+[首页](https://kerxs.github.io/glassium/)（设置、控制中心、标签栏、锁屏四个场景里的控件，都能操作）·
+[iPhone 与 Mac](https://kerxs.github.io/glassium/devices.html) ·
+[Playground](https://kerxs.github.io/glassium/playground.html)（调材质、拿代码）· [性能测试](https://kerxs.github.io/glassium/bench.html)
 
 - **真的折射**：边缘的透镜按圆角矩形的距离场弯折背景，浮点精度，没有 SVG 位移贴图的 ±128px 与色阶。
 - **逐通道色散**、一整圈的亮边（上下最亮）与白底上看得见的淡灰外线、按压时的放大与体光、按压处的光、投影、
@@ -24,16 +30,18 @@ Liquid Glass（液态玻璃）UI 的 Web 实现。玻璃的折射、色散、亮
 - **完整的控件**：开关、滑块、分段控件、标签栏、导航栏、工具栏 —— 行为与原生控件相同（键盘、表单、无障碍）。
 - **退得下来**：WebGPU → WebGL2 → CSS 兜底；减少动效、减少透明度、更高对比度、强制配色都有反应。
 
-## 先知道：玻璃折射的是 Glassium 自己画的背景
+## 先知道：玻璃折射的是 Glassium 自己画的场景
 
-Glassium 持有一张画布，页面背景（图片、视频、渐变）画在它上面，玻璃折射的是这张画布 —— **不是玻璃背后的 DOM**。
-正文文字、`<img>`、iframe 不参与折射。这是 Web 平台今天的边界：能对实时 DOM 做几何位移的 `backdrop-filter: url(#svg)`
-只有 Chromium 支持（Safari 解析成功却静默不画），读 DOM 像素的 HTML-in-Canvas 还只是 origin trial。
+Glassium 持有一张画布，玻璃折射的是这张画布上的场景 —— **不是玻璃背后的 DOM 像素**（浏览器不让脚本读任意 DOM 的像素：
+能对实时 DOM 做几何位移的 `backdrop-filter: url(#svg)` 只有 Chromium 支持，读 DOM 像素的 HTML-in-Canvas 还只是 origin trial）。
 
-所以有三条编写规则（[docs/limitations.md](docs/limitations.md) 开头有详细说明）：
+runtime 替你把看得见的背景搬进场景：`[glass]` 后面挡着的元素的 CSS 背景（纯色、一层渐变、一层同源图片）与页面的根背景
+自动画进场景，原来的 CSS 背景换成透明 —— 看上去没变。正文文字、`<img>`、iframe、视频还不参与折射（后续版本的 DOM Renderer）。
 
-1. **玻璃到 `<body>` 之间的祖先背景必须透明。** 页面背景交给 `stage.setScene()`，不写在 CSS 里。写了不透明背景的祖先会
-   把玻璃整块盖住 —— Glassium 会在控制台点名是哪个元素。
+用组件（`<glass-*>`）直接写时照旧是三条编写规则（[docs/limitations.md](docs/limitations.md) 开头有详细说明）：
+
+1. **玻璃到 `<body>` 之间的祖先背景必须透明**（或者 `configure({ absorbForComponents: true })` 让 runtime 收）。写了不透明
+   背景的祖先会把玻璃整块盖住 —— Glassium 会在控制台点名是哪个元素。
 2. **玻璃折射的是场景和它下面的玻璃，不是 DOM。** 玻璃底下要有颜色（开关的轨道、卡片后面的色块）就用 `<glass-fill>`。
 3. **每个页面一个 stage。**
 
@@ -49,7 +57,31 @@ ESM + 类型声明，不打包、不压缩（交给你的打包器）。没有�
 
 ## 快速开始
 
-页面上写组件，脚本里注册组件、建一个 stage：
+```js
+import 'glassium' // 自动启动：页面上的 [glass] 变成玻璃；<glass-*> 组件也注册好了
+```
+
+```html
+<nav glass="clear">…</nav>
+<div class="card" glass>…</div>
+<button glass>保存</button>
+```
+
+要的时候再往下一层（[docs/api.md](docs/api.md) 的「Runtime」一节）：
+
+```js
+import glassium, { glass } from 'glassium'
+
+glassium.configure({ quality: 'auto' })          // 自适应质量（默认）；也可以 'high' / 'medium' / 'low' / 0–1
+const handle = glass(el, { preset: 'frosted', material: { blur: 20 }, interaction: { press: true } })
+await glassium.ready
+console.log(glassium.capabilities)               // { webgpu, webgl2, backdropFilter, tier, renderer, … }
+glassium.debug.enable()                          // 右下角的调试面板：后端、质量、帧时间、面板数……
+```
+
+### 组件
+
+页面上写组件，脚本里建一个 stage（用组件时不需要 `[glass]`）：
 
 ```html
 <style>
@@ -73,7 +105,7 @@ ESM + 类型声明，不打包、不压缩（交给你的打包器）。没有�
 import 'glassium/glassium.css' // 兜底样式：upgrade 之前、没有 GPU、高对比度时组件有一层可读的表面
 import { createGlassStage, defineGlassElements } from 'glassium'
 
-defineGlassElements() // 注册全部组件（不在 import 时自动注册）
+defineGlassElements() // 注册全部组件（import 'glassium' 在浏览器里也会自动注册，写上无妨）
 await createGlassStage({ scene: '/wallpaper.jpg' }) // 背景图；不写就是内置的程序化场景
 ```
 
@@ -152,8 +184,10 @@ npm ci
 npm run dev   # http://localhost:5174
 ```
 
-六个页面，在线版和本地一样：
+七个页面，在线版和本地一样：
 
+- [`/runtime.html`](https://kerxs.github.io/glassium/runtime.html)：零配置示例 —— 一个普通网页（背景色、渐变、背景图），
+  只写了 `import 'glassium'` 与 `glass` 属性；可以切质量档位、打开调试面板
 - [`/`](https://kerxs.github.io/glassium/)：首页 —— 照着 iOS 27 实机截图搭的四个场景（设置、控制中心、应用列表与标签栏、锁屏），
   控件都能操作；只用公开 API，壁纸、分组、图块是 `<glass-fill>`，列表标题与锁屏壁纸用位图填充画进场景
 - [`/devices.html`](https://kerxs.github.io/glassium/devices.html)：iPhone 与 Mac 的界面 —— 清透的玻璃图标、照片在玻璃标签栏底下滚动、

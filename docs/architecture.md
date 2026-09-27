@@ -3,6 +3,87 @@
 一句话：**Glassium 自己持有一块画布，场景和玻璃都画在上面；玻璃折射的是 Glassium 的场景，
 不是它背后的任意 DOM。** 为什么只能这样，见 [limitations.md](limitations.md) 的「为什么玻璃折射不了任意 DOM」。
 
+## 定位：Web Liquid Glass 渲染运行时（0.3 起）
+
+Glassium 的定位是**面向 Web 的 Liquid Glass 渲染运行时**：让任意 DOM 元素获得统一、可扩展、可自适应的液态玻璃，
+而不是提供越来越多的固定组件。
+
+```html
+<script type="module">import 'glassium'</script>
+<div glass>Hello World</div>
+```
+
+用户不需要知道 WebGPU、WebGL2、着色器、纹理、模糊链、帧预算。同一份代码，高端设备上是完整的 GPU 玻璃，普通设备上自动
+降低效果，低端设备上是简化的玻璃，不支持的环境里是正常的 DOM。
+
+## 运行时的分层与现有模块
+
+| 层 | 职责 | 现在在哪里 | 状态 |
+|---|---|---|---|
+| Runtime 入口 | 自动发现 `[glass]`、`glass()`、configure、capabilities、ready | `src/runtime/`（auto、glass、config、capabilities、glassium） | 0.3 起有 |
+| Default Glass / Material | 预设、材质参数、降级成效果链 | `src/runtime/presets.ts`、`src/core/material.ts`、`src/core/pipeline.ts` | 有 |
+| Interaction | 悬停、按压、焦点、果冻、飞行 | `src/interaction/`（press、jelly、glide、motion） | 有（果冻、飞行目前只给组件用） |
+| DOM Adapter | DOM → 场景的中间表示：几何、变换、裁剪、遮罩、不透明度、层 | `src/renderer/panels.ts`（测量）、`clipping.ts`、`clip-path.ts`、`mask.ts`、`pose.ts`、`layers.ts` | 有（面板、填充） |
+| 场景内容 | 页面背景、填充、位图、文字 | `src/renderer/fills.ts`、`atlas.ts`、`scene-source.ts`、`src/components/scene-label.ts`、`src/runtime/absorb.ts` | 背景自动收进场景（0.3）；文字只在组件里 |
+| Scene Graph | 层级、Z 序、脏状态 | 隐含在 `panels.ts` 的测量结果与 `idle.ts` 的逐帧比较里 | 没有独立的场景图 |
+| Compositor | 分层合成、嵌套玻璃、顶层（对话框 / popover）、morph | `src/renderer/layers.ts`、`gpu.ts` / `webgl2/renderer.ts` 的分层绘制、`core/overlay.ts`、`components/morph-glass.ts` | 有（共享场景与一条模糊链） |
+| Renderer | WebGPU / WebGL2 / CSS / 普通 DOM | `src/renderer/gpu.ts`、`src/webgl2/`、`core/overlay.ts` + `runtime/styles.ts`、`[glass]` 没有 active 时的 CSS | 有 |
+| Performance | 帧监测、自适应质量、预算、profile | `src/performance/`、`renderer/quality.ts`、`stage.setQuality` / `onFrame` | 第一版（全局质量） |
+| Resources | 纹理、目标、管线、缓存、显存预算 | 分散在各后端（目标池、管线缓存、图集） | 没有统一的管理器 |
+| Accessibility | 语义、ARIA、键盘、焦点、减少动效 / 透明度、高对比度 | 元素本身不被改写；`stage.ts` 的四个系统设置 | 有 |
+| Debug | 调试面板、统计、验证页 | `src/debug/`、`stage.debug`、`playground/verify.html`、`debug.html` | 有 |
+
+原则：DOM 是内容，材质是外观，交互是行为，场景是中间表示，合成器负责分层，后端只管画，自适应质量控性能，兜底保兼容，
+无障碍是基础能力。
+
+## Runtime 入口（0.3）
+
+- **Runtime 入口**：`import 'glassium'` 自动启动（微任务里，`configure({ auto: false })` 关掉）；`[glass]` / `glass="预设"` /
+  `glass-*` 材质属性；`glass(el, { preset, material, interaction })` → `GlassHandle`；`glassium` 命名空间（`configure`、
+  `capabilities`、`ready`、`debug`）。组件与 runtime 走同一条注册路径（`GlassBinding`）。
+- **Default Glass**：default（= regular）/ clear / tinted / frosted；圆角跟着 CSS；可交互的元素默认有悬停、按压、焦点反馈。
+- **背景自动收进场景**：挡在玻璃后面的 CSS 背景与页面根背景画进场景（`runtime/absorb.ts`），零配置的页面不用遵守 R1。
+- **能力检测**：WebGPU（请求 adapter）、WebGL2、backdrop-filter、纹理上限、视频帧回调；tier 按能力定。
+- **自适应质量第一版**：CPU 时间与掉帧 → 质量 q → 各项系数（色散 → 高级折射 → 分辨率 → 投影 → 折射 → 模糊），快降慢升、
+  不振荡，结果记在 localStorage；后端不因为掉帧切换。
+- **调试面板**：`glassium.debug.enable()`。
+
+## 路线：后续版本（范围与验收）
+
+每一版的验收都包括：单元测试、verify.html 两个后端 × 两种视口全过、新功能各有一项验证并做反向对照、零配置示例页与首页照旧。
+
+### 0.4 —— DOM Renderer
+- 玻璃后面的**文字、`<img>`、SVG、`<canvas>`、`<video>`** 画进场景（把 `scene-label.ts` 的 `paintContent` 推广成通用的子树光栅化，
+  视频用 `requestVideoFrameCallback` 只在帧变化时上传）。
+- 增量更新：只重画变了的节点（MutationObserver + 尺寸观察）。
+- 验收：玻璃后面的一段文字被折射、放大；视频在玻璃后面播放时上传次数等于视频帧数；跨源内容照旧只警告。
+
+### 0.5 —— 统一的交互与动画
+- `interaction: { jelly, glide, morph }` 对任意元素生效（按元素的位移速度拉长；morph 用现有的 `morphGlass`）。
+- 统一的时间轴：材质、变换、morph 的动画走同一个调度器，减少动效时统一关掉。
+- 每块玻璃的局部质量（贵的那块单独降，不拖累整页）。
+
+### 0.6 —— 合成器
+- 独立的场景图（层、Z 序、脏状态），嵌套玻璃共享场景采集与模糊链的规则写成显式的；Portal、Overlay、Popover、离屏渲染。
+
+### 0.7 —— 性能与资源
+- 统一的 GPU 资源管理：纹理缓存、目标池、管线缓存、显存估算与预算、超预算时降分辨率 / 驱逐缓存。
+- GPU 计时（timestamp query）进自适应质量；120 / 144 / 240Hz 的预算；脏区域。
+- 性能测试：1 / 10 / 50 / 100 块玻璃、嵌套、视频、大模糊，记帧时间、GPU 时间、显存、目标数。
+
+### 0.8 —— 兼容性
+- Chrome、Edge、Firefox、Safari × 桌面 / 移动 × WebGPU / WebGL2 / CSS / 普通 DOM 的兼容矩阵，逐格有结论。
+- 视觉回归：每个后端存标准场景（基本玻璃、嵌套、折射、色散、文字、裁剪、遮罩、morph、果冻）的基准图。
+
+### 0.9 —— 无障碍与开发体验、API 冻结
+- 场景检查器、材质检查器、资源检查器；文档与 playground 覆盖全部 runtime API。
+- 冻结 Runtime / Material / Interaction / Animation / Renderer / Capability / Adaptive Quality 的 API。
+
+### 1.0 —— 生产可用的运行时
+- 组件是否拆成 `@glassium/components` 在这之前决定（现在它们留在主包里、建在 runtime 上）。
+
+下面几节是引擎本身（画布、模块、一帧怎么画、组件、验证），runtime 建在它上面。
+
 ## 三层宿主
 
 ```
@@ -45,13 +126,19 @@ src/renderer/      与后端无关的一层
   clipping.ts        面板的裁剪祖先（按包含块链）与裁剪矩形
   scene-source.ts    用户场景：图片 / 视频 / 画布 → 每帧交给后端的场景图（缩放、上传时机、CSS 兜底）
   verify.ts          GPU 探针与 CPU 实现的逐像素比对工具
+  quality.ts         自适应质量的系数（stage.setQuality 乘在打包与场景像素预算上）
 
 src/webgpu/        设备单例、能力探测、创建计数
 src/webgl2/        WebGL2 后端与它的 GLSL 入口
-src/components/    <glass-card> / <glass-button> / <glass-container>，glassium.css
+src/components/    <glass-*> 组件，glassium.css
+src/interaction/   悬停 / 按压（press）、果冻（jelly）、飞行（glide）、能量缓动（motion）
+src/runtime/       零配置入口：自动发现 [glass]、glass()、预设、configure、能力、背景收进场景（absorb）、注册路径（binding）
+src/performance/   帧监测、质量控制、profile、AdaptiveQuality
+src/debug/         glassium.debug.enable() 的调试面板
 ```
 
-依赖只往下走：components → renderer → core；shaders 只被后端引用。`src/core` 与 `src/shaders`
+依赖只往下走：runtime / components → interaction → renderer → core；performance 只接 stage 的 setQuality / onFrame；
+shaders 只被后端引用。`src/core` 与 `src/shaders`
 不碰任何浏览器全局，所以整个包在 Node 里 import 是安全的（SSR），有测试钉住。
 
 ## stage 与后端

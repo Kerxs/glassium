@@ -5,8 +5,28 @@
 
 ## [未发布]
 
+Glassium 从组件库转向 **Web Liquid Glass 渲染运行时**（docs/architecture.md）：`import 'glassium'` 之后 `<div glass>` 就是玻璃。
+组件照旧可用，改成建在同一个 runtime 上。
+
+### 新增
+
+- **零配置**：`import 'glassium'` 在浏览器里自动启动，接管页面上的 `[glass]`（`glass="tinted"` 选预设，`glass-blur` 之类覆盖材质），
+  第一次出现 `[glass]` 才建 stage；`configure({ auto: false })` 关掉。包的 `sideEffects` 加上了 `dist/index.js`。
+- **`glass(element, options)`** → `GlassHandle`（update / destroy），`glassOf(el)`；Default Glass 与 default / clear / tinted / frosted 预设；
+  圆角跟着 CSS 的 border-radius；可交互的元素默认有悬停、按压、焦点反馈（`PressInteraction`，`<glass-button>` 用的也是它）。
+- **`glassium` 命名空间**（默认导出、`window.glassium`）：`configure`、`capabilities`（tier 按能力定）、`ready`、`start`、`stage`、
+  `debug.enable()` 调试面板。
+- **背景自动收进场景**：`[glass]` 后面挡着的元素的 CSS 背景（纯色、一层渐变、一层同源图片）画进场景、原背景换成透明，
+  页面的根背景做场景底色。填充多了 `paint`、`back` 两个选项。
+- **自适应质量**：`AdaptiveQuality`、`FrameMonitor`、`QualityController`、`factorsFor`；`stage.setQuality`、`stage.onFrame`。
+  runtime 建的 stage 默认自适应（掉帧快降、宽裕慢升、不振荡、结果记在 localStorage），后端不因为掉帧切换。
+- 零配置示例页 `/runtime.html`；验证页新增 glass-attribute、absorb-background、adaptive-quality。
+
 ### 变化
 
+- 组件的注册路径抽成 `GlassBinding`，与 runtime 共用；jelly / glide / motion 挪到 `src/interaction/`。
+- 旧的 `glass(preset, overrides)`（返回材质）照旧能用，标为废弃。
+- `VERSION` 挪到 `src/version.ts`（入口照旧导出）。
 - 切换时的飞行快了：抬起 70 → 40ms，飞 300–560 → 180–300ms（跳一格约 0.2 秒）。
 - 切换时看得见果冻：飞行的果冻不再平滑速度、形状跟得更紧（拉得最长的时候在中段），纵向压扁得更明显（`sx^−0.7`，
   原来 `1/√sx`，拖动也一样）。开关的旋钮行程短，速度放大 3 倍再算果冻。

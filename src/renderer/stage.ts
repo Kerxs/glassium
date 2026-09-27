@@ -731,8 +731,10 @@ async function buildStage(options: GlassStageOptions): Promise<GlassStage> {
     const cssWidth = Math.max(1, box.width)
     const cssHeight = Math.max(1, box.height)
     const dpr = window.devicePixelRatio || 1
+    // 自适应质量的分辨率缩的是**实际**的场景像素（视口比预算小时预算不起作用，要按视口算）；满质量时照旧用预算，逐位不变
     const res = quality.resolution
-    const budget = (pixelBudget ?? options.maxPixels ?? MAX_PIXELS) * res * res
+    const cap = pixelBudget ?? options.maxPixels ?? MAX_PIXELS
+    const budget = res < 1 ? Math.min(cap, cssWidth * cssHeight * dpr * dpr) * res * res : pixelBudget ?? options.maxPixels
     const next = resolveViewport(cssWidth, cssHeight, dpr, budget, options.minSceneRatio)
 
     const changed =
