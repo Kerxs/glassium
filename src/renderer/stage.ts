@@ -464,6 +464,11 @@ export function simulateReducedMotion(on: boolean | null): void {
   onReducedMotionOverrideChange?.()
 }
 
+/** 已经建好或正在建的 stage（不警告，runtime 的自动启动用它判断要不要自己建）。 */
+export function stageOrPending(): Promise<GlassStage> | null {
+  return activeStage ? Promise.resolve(activeStage) : pendingStage
+}
+
 /**
  * 创建 stage。每文档一个（R3）。
  *

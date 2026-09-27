@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Glassium · 零配置的玻璃</title>
+    <meta name="description" content="import 'glassium' 之后写 <div glass> 就是玻璃：一个普通的网页，背景、渐变、图片都被玻璃折射。" />
+    <link rel="stylesheet" href="./runtime.css" />
+    <!--
+      Runtime 的示例：一个普通的网页（有背景色、渐变、背景图），只写了 import 'glassium' 与 glass 属性。
+      玻璃后面的 CSS 背景由 runtime 自动收进场景（runtime/absorb.ts），玻璃能折射它们。
+    -->
+  </head>
+  <body>
+    <header class="top" glass="clear">
+      <strong>Glassium</strong>
+      <nav>
+        <a href="./index.html">首页</a>
+        <a href="./playground.html">Playground</a>
+        <a href="./verify.html">验证</a>
+      </nav>
+    </header>
+
+    <main>
+      <section class="hero">
+        <h1>写一个属性，就是玻璃</h1>
+        <p class="lede">这一页只有 <code>import 'glassium'</code> 与 <code>glass</code> 属性。后端、质量、背景都是 runtime 自己定的。</p>
+        <div class="card" glass>
+          <h2>&lt;div glass&gt;</h2>
+          <p>Default Glass：模糊、折射、色散、亮边、投影。背后的渐变被弯过来。</p>
+          <button glass>按一下</button>
+        </div>
+      </section>
+
+      <section class="grid">
+        <div class="tile tile-photo">
+          <div class="badge" glass="tinted">tinted</div>
+        </div>
+        <div class="tile tile-mint">
+          <div class="badge" glass="frosted">frosted</div>
+        </div>
+        <div class="tile tile-night">
+          <div class="badge" glass="clear" glass-dispersion="0.3">clear · 色散 0.3</div>
+        </div>
+      </section>
+
+      <section class="controls">
+        <label>质量
+          <select id="quality">
+            <option value="auto">auto（自适应）</option>
+            <option value="high">high</option>
+            <option value="medium">medium</option>
+            <option value="low">low</option>
+          </select>
+        </label>
+        <button type="button" id="debug" glass>调试面板</button>
+        <p id="caps" class="caps"></p>
+      </section>
+    </main>
+
+    <script type="module" src="./runtime.ts"></script>
+  </body>
+</html>

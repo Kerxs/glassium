@@ -22,6 +22,82 @@
 
 ---
 
+## Runtime：零配置的玻璃
+
+```html
+<script type="module">import 'glassium'</script>
+
+<div glass>Hello World</div>
+<button glass>Continue</button>
+<div glass="tinted" glass-blur="20">…</div>
+```
+
+`import 'glassium'` 之后（包的 `export default` 是 `glassium` 命名空间对象，浏览器里也挂在 `window.glassium`），
+runtime 在微任务里自动启动（`startRuntime()`；`configure({ auto: false })` 关掉、`glassium.start()` 手动开，
+`stopRuntime()` 停掉并注销属性驱动的玻璃）：定义组件、挂自己的样式表、接管页面上的 `[glass]`，页面上第一次出现
+`[glass]` 时才建 stage（已经有、或者别人正在建就沿用）。没有 GPU 时玻璃是 CSS 的（backdrop-filter），再不行就是
+普通 DOM —— 内容、焦点、键盘、无障碍始终是元素自己的。
+
+- **属性**：`glass` 的值是预设名（空是 default）；材质属性加 `glass-` 前缀（`glass-blur`、`glass-tint`、
+  `glass-corner-radius` …，与组件的材质属性一一对应）。属性变了自动更新，删掉 `glass` 就注销。
+  圆角默认取元素 CSS 的 `border-radius`（`cornerRadiusFromCss`：像素照抄，四角同一个百分比换成短边的比例）。
+- **预设**（`RUNTIME_PRESETS`、`runtimePreset(name)`、`RuntimePresetName`）：`default`（= regular，项目的视觉基准）、
+  `clear`、`tinted`（多一层颜色）、`frosted`（更厚的磨砂、自动蒙纱）；`ultraThin` / `thin` / `regular` / `thick` 也认。
+  `parseGlassAttributes(get)` 把这些属性解析成材质（Node 里可测）。
+- **交互**：元素本身可交互（`isInteractiveElement`：按钮、链接、表单控件、可聚焦的、带交互角色的）时默认有悬停、按压
+  （按下的地方发光）、键盘焦点的反馈（`PressInteraction` / `PressOptions`，`<glass-button>` 用的也是它）。
+
+### `glass(element, options?)` → `GlassHandle`
+
+```js
+import { glass } from 'glassium'
+const handle = glass(el, { preset: 'tinted', material: { blur: 20 }, interaction: { press: true } })
+handle.update({ preset: 'clear' })
+handle.destroy()
+```
+
+| `GlassOptions` | |
+|---|---|
+| `preset` | 预设名，默认 `default` |
+| `material` | 覆盖的材质参数（`GlassMaterial`，见下面「材质属性」） |
+| `interaction` | `GlassInteractionOptions`：`{ hover, press, focus }`；`true` 全开、`false` 全关，不写按元素是否可交互 |
+
+`GlassHandle`：`element`、`panel`（stage 建好之前是 null）、`material`（基础材质）、`update(options)`（与原来的合并）、
+`destroy()`。每个元素最多一块玻璃，再调一次等于 update；`glassOf(el)` 取元素上的玻璃。
+
+旧的 `glass(preset, overrides)`（第一个参数是材质）照旧返回合并后的材质，已标为废弃。
+
+### `glassium`
+
+| | |
+|---|---|
+| `glassium.glass` / `glassOf` | 同上 |
+| `glassium.configure(options)` / `configure` | 改全局选项，返回合并后的 `GlassiumConfig` |
+| `glassium.config` | 当前的 `GlassiumConfig` |
+| `glassium.capabilities` | `GlassiumCapabilities`（见下） |
+| `glassium.ready` | 能力查完、stage 建好（或失败）之后 resolve 出完整的能力 |
+| `glassium.start()` | `configure({ auto: false })` 之后手动启动 |
+| `glassium.stage` | 当前的 `GlassStage`（高级用法） |
+| `glassium.debug.enable()` / `disable()` | 右下角的调试面板：后端、质量、帧时间、面板数、draw calls、层级问题，可切面板调试视图 |
+
+`GlassiumConfig`：
+
+| 字段 | 默认 | |
+|---|---|---|
+| `auto` | `true` | 自动发现 `[glass]` |
+| `backend` | `'auto'` | runtime 建 stage 时用：`'auto'` / `'webgpu'` / `'webgl2'` |
+| `quality` | `'auto'` | `QualitySetting`：`'auto'`（按实测帧时间自适应）、`'high'` / `'medium'` / `'low'`、或 0–1 |
+| `absorbBackgrounds` | `true` | 玻璃后面挡着的 CSS 背景自动收进场景 |
+| `absorbForComponents` | `false` | 组件（`<glass-*>`）也收 |
+| `rememberQuality` | `true` | 自适应的结果记在 localStorage，下次从附近起步 |
+
+`GlassiumCapabilities`：`webgpu`（ready 之前是 null）、`webgl2`、`backdropFilter`、`maxTextureSize`、
+`videoFrameCallback`、`offscreenCanvas`、`renderer`（`RendererKind`：实际用上的后端 `'webgpu' | 'webgl2' | 'css' | 'none'`）、
+`tier`（`tierOf`：0 普通 DOM、1 CSS 玻璃、2 WebGL2、3 WebGPU —— 按能力定，不看设备型号）。
+
+组件与 runtime 走同一条注册路径：`GlassBinding`（等 stage、注册成面板、推材质与光、挂 `data-glassium-active`，
+材质与光由 `GlassSource` 给）。
+
 ## 组件
 
 八个自定义元素，`defineGlassElements()` 注册（重复调用无害），同时把 `--glass-fill` 注册成 `<color>`。

@@ -2747,6 +2747,58 @@ async function run(): Promise<void> {
     return a === b ? pass(detail) : fail(detail)
   })
 
+  await check('glass-attribute', async () => {
+    // Runtime 入口（runtime/auto.ts）：<div glass> 由自动发现接管，走与组件同一条注册路径 —— 与同材质的 <glass-card>
+    // 画出来逐位相同（圆角取元素 CSS 的 border-radius）；glass="tinted" 之后变了；glass-blur 改了也跟着变；
+    // 删掉 glass 属性就注销（面板数回去、data-glassium-active 撤掉）。
+    const place = (el: HTMLElement): void => {
+      Object.assign(el.style, { position: 'absolute', left: '40px', top: '480px', width: '200px', height: '80px' })
+      document.body.append(el)
+    }
+    const comp = document.createElement('glass-card')
+    comp.setAttribute('preset', 'regular')
+    comp.setAttribute('corner-radius', '20')
+    place(comp)
+    await sleep(0)
+    const region = regionOf([comp], 8)
+    const compPixels = await readback(region)
+    const a = await sha(compPixels)
+    comp.remove()
+    stage.debug.renderNow()
+    const panels0 = stage.debug.stats().panels
+    const div = document.createElement('div')
+    div.style.borderRadius = '20px'
+    div.setAttribute('glass', '')
+    place(div)
+    await sleep(0)
+    stage.debug.renderNow()
+    const panels1 = stage.debug.stats().panels
+    const active = div.hasAttribute('data-glassium-active')
+    const divPixels = await readback(region)
+    const b = await sha(divPixels)
+    div.setAttribute('glass', 'tinted')
+    await sleep(0)
+    const c = await sha(await readback(region))
+    div.setAttribute('glass-blur', '2')
+    await sleep(0)
+    const d = await sha(await readback(region))
+    div.removeAttribute('glass')
+    await sleep(0)
+    stage.debug.renderNow()
+    const panels2 = stage.debug.stats().panels
+    const released = !div.hasAttribute('data-glassium-active')
+    div.remove()
+    stage.debug.renderNow()
+    const detail =
+      `glass-card ${a.slice(0, 12)} · div[glass] ${b.slice(0, 12)}` +
+      (a === b ? '' : `（${pixelDiff(compPixels, divPixels, region.width)}）`) +
+      ` · tinted ${c === b ? '没变' : '变了'} · glass-blur ${d === c ? '没变' : '变了'} · ` +
+      `面板 ${panels0} → ${panels1} → ${panels2} · 生效 ${active}、注销后撤掉 ${released}`
+    return a === b && c !== b && d !== c && panels1 === panels0 + 1 && panels2 === panels0 && active && released
+      ? pass(detail)
+      : fail(detail)
+  })
+
   await check('button-form', async () => {
     // <glass-button> 在表单里与原生按钮相同：默认提交，name / value 只在被按下时进表单数据；
     // click 里 preventDefault() 就不提交；祖先 fieldset 禁用时不提交；type="reset" 重置

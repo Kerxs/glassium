@@ -17,6 +17,30 @@
 /** 与 package.json 的 version 相同（version.test.ts 核对）。 */
 export const VERSION = '0.2.0'
 
+// —— Runtime 入口：`import 'glassium'` 之后页面上的 `<div glass>` 就是玻璃（runtime/auto.ts） ——
+import { scheduleAutoStart } from './runtime/auto.ts'
+import { glassium } from './runtime/glassium.ts'
+export { glassium }
+export default glassium
+export { glass, glassOf, type GlassHandle, type GlassInteractionOptions, type GlassOptions } from './runtime/glass.ts'
+export { configure, type GlassiumConfig, type QualitySetting } from './runtime/config.ts'
+export { tierOf, type GlassiumCapabilities, type RendererKind } from './runtime/capabilities.ts'
+export {
+  RUNTIME_PRESETS,
+  cornerRadiusFromCss,
+  isInteractiveElement,
+  parseGlassAttributes,
+  runtimePreset,
+  type RuntimePresetName
+} from './runtime/presets.ts'
+export { GlassBinding, type GlassSource } from './runtime/binding.ts'
+export { PressInteraction, type PressOptions } from './interaction/press.ts'
+export { startRuntime, stopRuntime } from './runtime/auto.ts'
+if (typeof window !== 'undefined') {
+  ;(window as unknown as { glassium?: typeof glassium }).glassium ??= glassium
+  scheduleAutoStart()
+}
+
 // —— 光学核心（CPU 参考实现，与 WGSL 侧逐点一致）——
 export {
   channelSampleOffsets,
@@ -78,7 +102,6 @@ export {
 export {
   GlassPresets,
   MATERIAL_DEFAULTS,
-  glass,
   lowerMaterial,
   parseTint,
   resolveCornerRadii,

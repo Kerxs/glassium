@@ -40,7 +40,8 @@
     "CHANGELOG.md"
   ],
   "sideEffects": [
-    "**/*.css"
+    "**/*.css",
+    "./dist/index.js"
   ],
   "scripts": {
     "dev": "vite",

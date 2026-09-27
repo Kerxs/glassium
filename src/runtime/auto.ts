@@ -1,0 +1,124 @@
+/**
+ * 自动启动：`import 'glassium'` 之后页面上的 `<div glass>` 就是玻璃。
+ *
+ * 在微任务里启动（import 之后同步写的 `configure()` 先生效），`configure({ auto: false })` 关掉。启动时：
+ * - 定义 `<glass-*>` 组件（幂等）、挂 runtime 的样式表；
+ * - 接管页面上已有的 `[glass]`，再用一个 MutationObserver 看 `[glass]` 的增删、属性变化，以及它们的 class / style
+ *   （圆角跟着 CSS 走）；
+ * - 页面上第一次出现 `[glass]` 时才建 stage（`createGlassStage({ backend })`）。已经有、或者别人正在建，就沿用 ——
+ *   自己调 createGlassStage 的页面（组件、验证页）不受影响。
+ *
+ * SSR / Node 里什么都不做。
+ */
+
+import { defineGlassElements } from '../components/register.ts'
+import { getConfig } from './config.ts'
+import { ensureStage } from './ensure-stage.ts'
+import { glass, runtimeGlassOf } from './glass.ts'
+import { GLASS_MATERIAL_ATTRIBUTES, parseGlassAttributes } from './presets.ts'
+import { installRuntimeStyles } from './styles.ts'
+
+const WATCHED = ['glass', ...GLASS_MATERIAL_ATTRIBUTES, 'class', 'style']
+
+let scheduled = false
+let started = false
+let observer: MutationObserver | null = null
+/** 属性驱动的玻璃（`[glass]`）：属性删掉时注销。glass() 直接建的不在这里。 */
+const fromAttribute = new WeakSet<HTMLElement>()
+/** 每个元素报过的属性错误（同一条只报一次）。 */
+const reported = new WeakMap<HTMLElement, Set<string>>()
+
+/** 安排启动（import 时调一次；幂等）。 */
+export function scheduleAutoStart(): void {
+  if (scheduled || typeof document === 'undefined' || typeof MutationObserver === 'undefined') return
+  scheduled = true
+  queueMicrotask(() => {
+    if (getConfig().auto) startRuntime()
+  })
+}
+
+/** 立即启动（`glassium.start()`；configure({ auto: false }) 之后手动启动也用它）。幂等。 */
+export function startRuntime(): void {
+  if (started || typeof document === 'undefined') return
+  started = true
+  defineGlassElements()
+  installRuntimeStyles()
+  const begin = (): void => {
+    for (const el of document.querySelectorAll<HTMLElement>('[glass]')) adopt(el)
+    observer = new MutationObserver(onMutations)
+    observer.observe(document.documentElement, { subtree: true, childList: true, attributes: true, attributeFilter: WATCHED })
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', begin, { once: true })
+  else begin()
+}
+
+/** 停掉自动发现，注销属性驱动的玻璃（测试、热重载用）。 */
+export function stopRuntime(): void {
+  observer?.disconnect()
+  observer = null
+  started = false
+  if (typeof document === 'undefined') return
+  for (const el of document.querySelectorAll<HTMLElement>('[glass]')) {
+    if (fromAttribute.has(el)) runtimeGlassOf(el)?.destroy()
+    fromAttribute.delete(el)
+  }
+}
+
+function adopt(el: HTMLElement): void {
+  const parsed = parseGlassAttributes((name) => el.getAttribute(name))
+  let seen = reported.get(el)
+  for (const p of parsed.problems) {
+    if (!seen) reported.set(el, (seen = new Set()))
+    if (seen.has(p)) continue
+    seen.add(p)
+    console.warn(`[Glassium] 属性有误，已忽略：${p}`, el)
+  }
+  const options = { preset: parsed.preset, material: parsed.overrides }
+  const existing = runtimeGlassOf(el)
+  if (existing && fromAttribute.has(el)) existing.replace(options)
+  else if (!existing) {
+    glass(el, options)
+    fromAttribute.add(el)
+  }
+}
+
+function release(el: HTMLElement): void {
+  if (!fromAttribute.has(el)) return
+  runtimeGlassOf(el)?.destroy()
+  fromAttribute.delete(el)
+}
+
+function onMutations(records: MutationRecord[]): void {
+  for (const r of records) {
+    if (r.type === 'attributes') {
+      const el = r.target as HTMLElement
+      if (r.attributeName === 'class' || r.attributeName === 'style') {
+        runtimeGlassOf(el)?.restyle()
+        continue
+      }
+      if (el.hasAttribute('glass')) adopt(el)
+      else release(el)
+      continue
+    }
+    for (const node of r.addedNodes) {
+      if (!(node instanceof HTMLElement)) continue
+      for (const el of withDescendants(node)) {
+        const g = runtimeGlassOf(el)
+        if (g) g.setConnected(true)
+        else if (el.hasAttribute('glass')) adopt(el)
+      }
+    }
+    for (const node of r.removedNodes) {
+      if (!(node instanceof HTMLElement)) continue
+      for (const el of withDescendants(node)) if (!el.isConnected) runtimeGlassOf(el)?.setConnected(false)
+    }
+  }
+}
+
+/** 节点自己和它里面的 `[glass]` / runtime 玻璃。 */
+function withDescendants(node: HTMLElement): HTMLElement[] {
+  const out: HTMLElement[] = []
+  if (node.hasAttribute('glass') || node.hasAttribute('data-glassium-glass')) out.push(node)
+  for (const el of node.querySelectorAll<HTMLElement>('[glass], [data-glassium-glass]')) out.push(el)
+  return out
+}
