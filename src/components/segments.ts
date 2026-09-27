@@ -12,7 +12,7 @@
  */
 
 import { Glide } from './glide.ts'
-import { Jelly } from './jelly.ts'
+import { FLY_JELLY, Jelly } from './jelly.ts'
 
 /** 拖过这么多 CSS 像素才算拖动（否则是点击）。 */
 const DRAG_THRESHOLD = 3
@@ -60,7 +60,7 @@ export class Segments {
     (box, now) => {
       this.#set('--_x', `${box.x}px`)
       this.#set('--_w', `${box.w}px`)
-      this.#jelly.move(box.x, now, 0)
+      this.#jelly.move(box.x, now, FLY_JELLY)
     },
     () => this.#land()
   )

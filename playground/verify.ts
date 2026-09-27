@@ -1572,9 +1572,10 @@ async function run(): Promise<void> {
   })
 
   await check('glide', async () => {
-    // 用户换选中时旋钮「飞」过去（segments.ts + glide.ts）：点隔一段的那段 —— 飞到半路时宿主带 data-flying 与 data-pressed
-    // （鼓起成透镜）、旋钮顺着速度拉长（--_jx > 1.1）、位置在两段之间；落地后都撤了、--_jx 回到 1、旋钮在新的段上。
-    // 减少动效时直接落地、不拉长。rAF 换成手动的队列、按给定的时间出帧（不依赖面板可见）。
+    // 用户换选中时旋钮「飞」过去（segments.ts + glide.ts）：点隔一段的那段 —— 飞过两段中点的那一帧宿主带 data-flying 与
+    // data-pressed（透镜的材质），旋钮只轻轻鼓起（scale ≈ --glass-fly-scale 1.2 × 果冻，不是长按的 1.4），顺着速度拉长
+    // （全程最多 > 1.15）；0.35 秒内落地，落地后都撤了、--_jx 回到 1、旋钮在新的段上。减少动效时直接落地、不拉长。
+    // rAF 换成手动的队列、按给定的时间出帧（不依赖面板可见）。
     stage.debug.setBackdrop({ scene: 'flat' })
     simulateReducedMotion(false)
     const seg = document.createElement('glass-segmented') as HTMLElement & { value: string; segments: HTMLElement[] }
@@ -1611,19 +1612,31 @@ async function run(): Promise<void> {
         seg.dispatchEvent(new PointerEvent('pointerup', o))
       }
       const x0 = xOf()
+      const midpoint = (x0 + c.offsetLeft) / 2
       tap(c, 21)
-      // 飞到半路：抬起 70ms + 飞行时长的一半（glide.ts）
-      const half = (70 + Math.min(560, Math.max(300, 280 + 0.5 * (c.offsetLeft - a.offsetLeft))) / 2) / 16
+      // 逐帧推：记下飞过两段中点的那一帧，与全程的拉长峰值、落地用了几帧
       let peak = 1
-      for (let i = 0; i < half; i++) {
+      let midX = NaN
+      let midFlying = false
+      let midScale = [NaN, NaN]
+      let midJ = [NaN, NaN]
+      let landFrames = -1
+      for (let i = 0; i < 200 && queue.length > 0; i++) {
         frame()
         peak = Math.max(peak, jx())
+        if (Number.isNaN(midX) && xOf() >= midpoint) {
+          midX = xOf()
+          midFlying = seg.hasAttribute('data-flying') && seg.hasAttribute('data-pressed')
+          for (const a of seg.shadowRoot!.getAnimations()) a.finish()
+          midScale = getComputedStyle(thumb).scale.split(' ').map(parseFloat)
+          midJ = [jx(), parseFloat(thumb.style.getPropertyValue('--_jy') || '1')]
+          stage.debug.renderNow()
+        }
+        if (landFrames < 0 && !seg.hasAttribute('data-flying')) landFrames = i + 1
       }
-      const midX = xOf()
-      const midFlying = seg.hasAttribute('data-flying') && seg.hasAttribute('data-pressed')
-      stage.debug.renderNow()
-      for (let i = 0; i < 200 && queue.length > 0; i++) frame()
       const landed = !seg.hasAttribute('data-flying') && !seg.hasAttribute('data-pressed')
+      // 飞行时只轻轻鼓起：scale = 1.2 × 果冻（横、竖），比长按的 1.4 小
+      const flyScale = Math.abs(midScale[0]! - 1.2 * midJ[0]!) < 0.02 && Math.abs((midScale[1] ?? midScale[0]!) - 1.2 * midJ[1]!) < 0.02
       const endX = xOf()
       const endJx = jx()
       // 减少动效：直接落地
@@ -1633,9 +1646,10 @@ async function run(): Promise<void> {
       const value = seg.value
       const detail =
         `点「Charlie」：半路 data-flying+pressed ${midFlying}、x ${midX.toFixed(1)}（${x0.toFixed(1)} → ${c.offsetLeft}）、` +
-        `拉长最多 ${peak.toFixed(3)} 倍 · 落地 ${landed}、x ${endX.toFixed(1)}、--_jx ${endJx.toFixed(3)} · ` +
+        `scale ${midScale.map((v) => v.toFixed(3)).join(' ')}（1.2 × 果冻 ${midJ.map((v) => (1.2 * v).toFixed(3)).join(' ')}）、` +
+        `拉长最多 ${peak.toFixed(3)} 倍 · ${landFrames} 帧（${landFrames * 16}ms）落地 ${landed}、x ${endX.toFixed(1)}、--_jx ${endJx.toFixed(3)} · ` +
         `减少动效时点回「Alpha」直接落地 ${instant} · value ${value}`
-      return midFlying && midX > x0 + 5 && midX < c.offsetLeft - 5 && peak > 1.1 && landed &&
+      return midFlying && midX < c.offsetLeft - 5 && flyScale && peak > 1.15 && landFrames > 0 && landFrames * 16 <= 350 && landed &&
         Math.abs(endX - c.offsetLeft) < 0.5 && endJx <= 1.0001 && instant && value === 'a'
         ? pass(detail)
         : fail(detail)

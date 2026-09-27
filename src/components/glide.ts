@@ -9,11 +9,11 @@
 import { prefersReducedMotion } from '../renderer/stage.ts'
 
 /** 抬起：开始飞之前原地停这么久（ms），让透镜先鼓起来。 */
-export const GLIDE_LIFT_MS = 70
+export const GLIDE_LIFT_MS = 40
 
-/** 飞多久（ms）：远的久一点，300–560。 */
+/** 飞多久（ms）：远的久一点，180–300（跳一格约 185ms）。快才看得出果冻 —— 拉长量跟着速度走。 */
 export function glideDuration(distance: number): number {
-  return Math.min(560, Math.max(300, 280 + 0.5 * Math.abs(distance)))
+  return Math.min(300, Math.max(180, 150 + 0.4 * Math.abs(distance)))
 }
 
 /** ease-in-out（三次）：0 → 0、1 → 1，两头速度为 0。 */

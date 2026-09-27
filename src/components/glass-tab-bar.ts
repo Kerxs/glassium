@@ -94,14 +94,16 @@ const CSS = `
     opacity 0.2s ease;
 }
 :host([data-pressed]) [part='bubble'] {
-  scale: calc(var(--glass-press-scale, 1.7) * var(--_jx, 1)) calc(var(--glass-press-scale, 1.7) * 0.94 * var(--_jy, 1));
+  scale: calc(var(--glass-press-scale, 1.45) * var(--_jx, 1)) calc(var(--glass-press-scale, 1.45) * 0.94 * var(--_jy, 1));
 }
 :host([data-dragging]) [part='bubble'] {
   transition: width 0.2s ease, scale 0.06s linear;
 }
-/* 用户换选中时飞过去（segments.ts）：位置与宽度逐帧由脚本写，不走过渡；鼓起、缩回与果冻走短的 scale 过渡 */
+/* 用户换选中时飞过去（segments.ts）：只轻轻鼓起（--glass-fly-scale，比长按小），位置与宽度逐帧由脚本写、不走过渡；
+   scale 的过渡很短，果冻不被抹平。写在按下那条后面：飞行时 data-pressed 也在（材质是透镜），大小按这条 */
 :host([data-flying]) [part='bubble'] {
-  transition: scale 0.12s ease-out, opacity 0.2s ease;
+  scale: calc(var(--glass-fly-scale, 1.2) * var(--_jx, 1)) calc(var(--glass-fly-scale, 1.2) * var(--_jy, 1));
+  transition: scale 0.05s linear, opacity 0.2s ease;
 }
 /* 按住时透镜下面垫的那块：与气泡同一个位置、宽度、缩放（同样的过渡），画在图标与文字的下面 */
 [part='lens'],
@@ -122,7 +124,7 @@ const CSS = `
 }
 :host([data-pressed]) [part='lens'],
 :host([data-pressed]) [part='lens-labels'] {
-  scale: calc(var(--glass-press-scale, 1.7) * var(--_jx, 1)) calc(var(--glass-press-scale, 1.7) * 0.94 * var(--_jy, 1));
+  scale: calc(var(--glass-press-scale, 1.45) * var(--_jx, 1)) calc(var(--glass-press-scale, 1.45) * 0.94 * var(--_jy, 1));
 }
 :host([data-dragging]) [part='lens'],
 :host([data-dragging]) [part='lens-labels'] {
@@ -130,7 +132,8 @@ const CSS = `
 }
 :host([data-flying]) [part='lens'],
 :host([data-flying]) [part='lens-labels'] {
-  transition: scale 0.12s ease-out, opacity 0.12s ease;
+  scale: calc(var(--glass-fly-scale, 1.2) * var(--_jx, 1)) calc(var(--glass-fly-scale, 1.2) * var(--_jy, 1));
+  transition: scale 0.05s linear, opacity 0.12s ease;
 }
 /* 各格的内容画进场景的那一份（scene-label.ts）：平时透明（不画），按住时换上、DOM 的内容淡出 */
 [part='labels'] {

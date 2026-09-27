@@ -19,13 +19,31 @@ export const JELLY_V0 = 0.8
 /** 速度的平滑、形变的趋近，时间常数（ms）。 */
 export const JELLY_VELOCITY_TAU = 50
 export const JELLY_SHAPE_TAU = 80
+/** 纵向跟着收：sy = sx^−JELLY_SQUASH（0.5 是保面积，大一点压扁得更明显）。 */
+export const JELLY_SQUASH = 0.7
+
+/** 一次移动的响应：速度的平滑与形变的趋近，时间常数（ms）。 */
+export interface JellyResponse {
+  readonly velocityTau: number
+  readonly shapeTau: number
+  /** 速度乘几倍再算拉长（默认 1）。行程很短的旋钮（开关）飞得慢，放大一点才看得出果冻。 */
+  readonly velocityScale?: number
+}
+
+/** 手指拖动：采样有抖动，速度平滑一下，形变跟得柔一点。 */
+export const DRAG_JELLY: JellyResponse = { velocityTau: JELLY_VELOCITY_TAU, shapeTau: JELLY_SHAPE_TAU }
+/**
+ * 切换时的飞行（glide.ts）：位置是算出来的、没有抖动，速度不平滑；形变跟得紧 —— 拉得最长的时候在中段，
+ * 不拖到落地。
+ */
+export const FLY_JELLY: JellyResponse = { velocityTau: 0, shapeTau: 35 }
 /** 形变小于它、速度也几乎为零时停下，落回 (1, 1)。 */
 const SETTLE = 1e-3
 
-/** 拉长量（sx − 1）→ 横向、纵向的缩放：纵向按 1/√sx 收一点（看起来大致保面积）。 */
+/** 拉长量（sx − 1）→ 横向、纵向的缩放：纵向按 sx^−JELLY_SQUASH 收（比保面积再扁一点，拉长压扁看得清）。 */
 export function jellyScale(stretch: number): readonly [number, number] {
   const sx = 1 + Math.max(0, stretch)
-  return [sx, 1 / Math.sqrt(sx)]
+  return [sx, Math.pow(sx, -JELLY_SQUASH)]
 }
 
 /** 速度（CSS px/ms）对应的拉长量：JELLY_MAX·(1 − e^(−|v| / JELLY_V0))。 */
@@ -41,6 +59,7 @@ export class Jelly {
   #lastT = -1
   #raf = 0
   #tickT = 0
+  #shapeTau = JELLY_SHAPE_TAU
 
   /** @param apply 写出这一刻的横向、纵向缩放（静止时是 1, 1） */
   constructor(apply: (sx: number, sy: number) => void) {
@@ -48,15 +67,16 @@ export class Jelly {
   }
 
   /**
-   * 一次移动：x 是 CSS 像素，t 是毫秒（事件的 timeStamp，或者飞行那一帧的时间）。velocityTau 是速度的平滑：
-   * 手指的采样有抖动，默认平滑一下；飞行（glide.ts）的位置是算出来的、没有抖动，传 0 —— 拉得最长的时候正好在中段，
-   * 不拖到落地。
+   * 一次移动：x 是 CSS 像素，t 是毫秒（事件的 timeStamp，或者飞行那一帧的时间）。response 是速度的平滑与形变的趋近：
+   * 拖动用 DRAG_JELLY（默认），飞行用 FLY_JELLY。松开之后按最后一次的 shapeTau 回落。
    */
-  move(x: number, t: number, velocityTau = JELLY_VELOCITY_TAU): void {
+  move(x: number, t: number, response: JellyResponse = DRAG_JELLY): void {
     if (prefersReducedMotion()) return
+    this.#shapeTau = response.shapeTau
     if (this.#lastT >= 0 && t > this.#lastT) {
       const dt = t - this.#lastT
-      this.#velocity = approach(this.#velocity, (x - this.#lastX) / dt, dt, velocityTau)
+      const v = ((x - this.#lastX) / dt) * (response.velocityScale ?? 1)
+      this.#velocity = approach(this.#velocity, v, dt, response.velocityTau)
     }
     this.#lastX = x
     this.#lastT = t
@@ -91,7 +111,7 @@ export class Jelly {
     if (this.#lastT < 0 || now - this.#lastT > 2 * JELLY_VELOCITY_TAU) {
       this.#velocity = approach(this.#velocity, 0, dt, JELLY_VELOCITY_TAU)
     }
-    this.#stretch = approach(this.#stretch, jellyTarget(this.#velocity), dt, JELLY_SHAPE_TAU)
+    this.#stretch = approach(this.#stretch, jellyTarget(this.#velocity), dt, this.#shapeTau)
     if (this.#stretch < SETTLE && Math.abs(this.#velocity) < SETTLE) {
       this.#stretch = 0
       this.#velocity = 0

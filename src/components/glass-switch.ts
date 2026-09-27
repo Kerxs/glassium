@@ -23,7 +23,7 @@
 import type { GlassPanel } from '../renderer/panels.ts'
 import { HTMLElementBase, sharedSheet } from './base.ts'
 import { Glide } from './glide.ts'
-import { Jelly } from './jelly.ts'
+import { FLY_JELLY, Jelly, type JellyResponse } from './jelly.ts'
 import { StageLink } from './stage-link.ts'
 import { PressTween, thumbMaterial } from './thumb.ts'
 
@@ -84,17 +84,19 @@ const CSS = `
   translate: calc(100cqw - 100% - ${2 * INSET}px) 0;
 }
 :host([data-pressed]) [part='thumb'] {
-  scale: calc(var(--glass-press-scale, 1.6) * var(--_jx, 1)) calc(var(--glass-press-scale, 1.6) * var(--_jy, 1));
+  scale: calc(var(--glass-press-scale, 1.4) * var(--_jx, 1)) calc(var(--glass-press-scale, 1.4) * var(--_jy, 1));
 }
 /* 拖动时旋钮直接跟着手指，不走过渡 */
 :host([data-dragging]) [part='thumb'] {
   translate: var(--glass-switch-drag, 0px) 0;
   transition: scale 0.06s linear;
 }
-/* 用户切换时旋钮飞过去（glide.ts）：鼓起成透镜，位置逐帧由脚本写，落地后交回上面按 checked 放的位置 */
+/* 用户切换时旋钮飞过去（glide.ts）：轻轻鼓起成透镜（--glass-fly-scale，比长按小），位置逐帧由脚本写，落地后交回
+   上面按 checked 放的位置；scale 的过渡很短，果冻不被抹平 */
 :host([data-flying]) [part='thumb'] {
   translate: var(--_fx, 0px) 0;
-  transition: scale 0.12s ease-out;
+  scale: calc(var(--glass-fly-scale, 1.2) * var(--_jx, 1)) calc(var(--glass-fly-scale, 1.2) * var(--_jy, 1));
+  transition: scale 0.05s linear;
 }
 /* 没有玻璃时（stage 没建好、没有 GPU、高对比度），或者在对话框 / popover 里用 CSS 画（data-glassium-overlay）：
    CSS 画轨道与白色旋钮 */
@@ -136,6 +138,12 @@ const CSS = `
   }
 }
 `
+/**
+ * 开关的旋钮只走二十来个像素，飞得慢，按速度算的果冻几乎看不出：速度放大 3 倍（跳一格的标签栏气泡大约拉长 1.3 倍，
+ * 开关的旋钮约 1.2 倍）。
+ */
+const SWITCH_FLY_JELLY: JellyResponse = { ...FLY_JELLY, velocityScale: 3 }
+
 const sheet = { sheet: null as CSSStyleSheet | null }
 
 export class GlassSwitch extends HTMLElementBase {
@@ -158,7 +166,7 @@ export class GlassSwitch extends HTMLElementBase {
   readonly #glide = new Glide(
     (box, now) => {
       this.#thumb.style.setProperty('--_fx', `${box.x}px`)
-      this.#jelly.move(box.x, now, 0)
+      this.#jelly.move(box.x, now, SWITCH_FLY_JELLY)
     },
     () => this.#land()
   )

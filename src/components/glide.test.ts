@@ -19,11 +19,12 @@ test('缓动：两头落在端点、单调、中段最快', () => {
   assert.ok(speed(0.495) > speed(0.89) * 3, '中段比落地快得多')
 })
 
-test('时长：远的久一点，夹在 300–560ms', () => {
-  assert.equal(glideDuration(0), 300)
-  assert.equal(glideDuration(100), 330)
-  assert.equal(glideDuration(-100), 330)
-  assert.equal(glideDuration(10000), 560)
+test('时长：远的久一点，夹在 180–300ms（跳一格约 185ms）', () => {
+  assert.equal(glideDuration(0), 180)
+  assert.equal(glideDuration(85), 184)
+  assert.equal(glideDuration(100), 190)
+  assert.equal(glideDuration(-100), 190)
+  assert.equal(glideDuration(10000), 300)
 })
 
 test('位置：抬起时原地不动，之后从旧值走到新值（宽度一起变）', () => {
