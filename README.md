@@ -109,12 +109,19 @@ defineGlassElements() // 注册全部组件（import 'glassium' 在浏览器里�
 await createGlassStage({ scene: '/wallpaper.jpg' }) // 背景图；不写就是内置的程序化场景
 ```
 
-不用打包器时，`dist/` 就是浏览器能直接加载的 ES 模块（相对路径 import，没有运行时依赖），从 CDN 引：
+不用打包器时，`dist/` 就是浏览器能直接加载的 ES 模块（相对路径 import，没有运行时依赖），从 CDN 引。零配置：
 
 ```html
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/glassium@0.2.0/dist/glassium.css" />
+<script type="module" src="https://cdn.jsdelivr.net/npm/glassium@0.3.0/dist/index.js"></script>
+<div glass>Hello World</div>
+```
+
+用组件：
+
+```html
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/glassium@0.3.0/dist/glassium.css" />
 <script type="module">
-  import { createGlassStage, defineGlassElements } from 'https://cdn.jsdelivr.net/npm/glassium@0.2.0/dist/index.js'
+  import { createGlassStage, defineGlassElements } from 'https://cdn.jsdelivr.net/npm/glassium@0.3.0/dist/index.js'
 
   defineGlassElements()
   await createGlassStage()

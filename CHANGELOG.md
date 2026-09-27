@@ -5,6 +5,8 @@
 
 ## [未发布]
 
+## [0.3.0] — 2026-09-27
+
 Glassium 从组件库转向 **Web Liquid Glass 渲染运行时**（docs/architecture.md）：`import 'glassium'` 之后 `<div glass>` 就是玻璃。
 组件照旧可用，改成建在同一个 runtime 上。
 
@@ -133,7 +135,8 @@ Glassium 从组件库转向 **Web Liquid Glass 渲染运行时**（docs/architec
 玻璃折射的是 Glassium 自己画的场景，不是它背后的 DOM；盖在 DOM 上的玻璃没有折射。完整的列表在
 [docs/limitations.md](docs/limitations.md)，先读开头那三条编写规则。
 
-[未发布]: https://github.com/Kerxs/glassium/compare/v0.2.0...HEAD
+[未发布]: https://github.com/Kerxs/glassium/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/Kerxs/glassium/releases/tag/v0.3.0
 [0.2.0]: https://github.com/Kerxs/glassium/releases/tag/v0.2.0
 [0.1.0]: https://github.com/Kerxs/glassium/releases/tag/v0.1.0
 [0.0.1]: https://github.com/Kerxs/glassium/releases/tag/v0.0.1

@@ -24,7 +24,7 @@ Glassium 的定位是**面向 Web 的 Liquid Glass 渲染运行时**：让任意
 | Default Glass / Material | 预设、材质参数、降级成效果链 | `src/runtime/presets.ts`、`src/core/material.ts`、`src/core/pipeline.ts` | 有 |
 | Interaction | 悬停、按压、焦点、果冻、飞行 | `src/interaction/`（press、jelly、glide、motion） | 有（果冻、飞行目前只给组件用） |
 | DOM Adapter | DOM → 场景的中间表示：几何、变换、裁剪、遮罩、不透明度、层 | `src/renderer/panels.ts`（测量）、`clipping.ts`、`clip-path.ts`、`mask.ts`、`pose.ts`、`layers.ts` | 有（面板、填充） |
-| 场景内容 | 页面背景、填充、位图、文字、图片、画布、视频 | `src/renderer/fills.ts`、`atlas.ts`、`scene-source.ts`、`src/components/scene-label.ts`、`src/runtime/absorb.ts`、`src/runtime/content.ts` | 背景自动收进场景（0.3）；玻璃后面的内容块画进场景（0.4 DOM Renderer） |
+| 场景内容 | 页面背景、填充、位图、文字、图片、画布、视频 | `src/renderer/fills.ts`、`atlas.ts`、`scene-source.ts`、`src/components/scene-label.ts`、`src/runtime/absorb.ts`、`src/runtime/content.ts` | 背景自动收进场景、玻璃后面的内容块画进场景（DOM Renderer），都是 0.3 |
 | Scene Graph | 层级、Z 序、脏状态 | 隐含在 `panels.ts` 的测量结果与 `idle.ts` 的逐帧比较里 | 没有独立的场景图 |
 | Compositor | 分层合成、嵌套玻璃、顶层（对话框 / popover）、morph | `src/renderer/layers.ts`、`gpu.ts` / `webgl2/renderer.ts` 的分层绘制、`core/overlay.ts`、`components/morph-glass.ts` | 有（共享场景与一条模糊链） |
 | Renderer | WebGPU / WebGL2 / CSS / 普通 DOM | `src/renderer/gpu.ts`、`src/webgl2/`、`core/overlay.ts` + `runtime/styles.ts`、`[glass]` 没有 active 时的 CSS | 有 |
@@ -48,7 +48,7 @@ Glassium 的定位是**面向 Web 的 Liquid Glass 渲染运行时**：让任意
   不振荡，结果记在 localStorage；后端不因为掉帧切换。
 - **调试面板**：`glassium.debug.enable()`。
 
-## DOM Renderer（0.4）
+## DOM Renderer（0.3）
 
 玻璃后面的内容画进场景（`runtime/content.ts`），接在收背景的同一次扫描后面：
 
@@ -70,7 +70,7 @@ Glassium 的定位是**面向 Web 的 Liquid Glass 渲染运行时**：让任意
 
 每一版的验收都包括：单元测试、verify.html 两个后端 × 两种视口全过、新功能各有一项验证并做反向对照、零配置示例页与首页照旧。
 
-### 0.4 —— DOM Renderer（已做，见上）
+### 0.4 —— DOM Renderer（提前做了，随 0.3.0 发布，见上）
 - 玻璃后面的**文字、`<img>`、SVG、`<canvas>`、`<video>`** 画进场景（把 `scene-label.ts` 的 `paintContent` 推广成通用的子树光栅化，
   视频用 `requestVideoFrameCallback` 只在帧变化时上传）。
 - 增量更新：只重画变了的节点（MutationObserver + 尺寸观察）。
