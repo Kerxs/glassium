@@ -9,7 +9,7 @@
 
 import type { GlassMaterial } from '../core/material.ts'
 import { prefersReducedMotion } from '../renderer/stage.ts'
-import { approach, SETTLE_EPSILON, TAU_MS } from './motion.ts'
+import { approach, SETTLE_EPSILON, TAU_MS } from '../interaction/motion.ts'
 
 /** 旋钮材质里随按压变化的那几项。 */
 export interface ThumbParams {

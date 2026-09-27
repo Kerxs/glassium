@@ -11,8 +11,8 @@
  * 不管：表单、初始值、选中之后派发什么事件、旋钮的材质 —— 这些经回调交给组件。
  */
 
-import { Glide } from './glide.ts'
-import { FLY_JELLY, Jelly } from './jelly.ts'
+import { Glide } from '../interaction/glide.ts'
+import { FLY_JELLY, Jelly } from '../interaction/jelly.ts'
 
 /** 拖过这么多 CSS 像素才算拖动（否则是点击）。 */
 const DRAG_THRESHOLD = 3

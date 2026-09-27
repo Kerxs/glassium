@@ -22,8 +22,8 @@
 
 import type { GlassPanel } from '../renderer/panels.ts'
 import { HTMLElementBase, sharedSheet } from './base.ts'
-import { Glide } from './glide.ts'
-import { FLY_JELLY, Jelly, type JellyResponse } from './jelly.ts'
+import { Glide } from '../interaction/glide.ts'
+import { FLY_JELLY, Jelly, type JellyResponse } from '../interaction/jelly.ts'
 import { StageLink } from './stage-link.ts'
 import { PressTween, thumbMaterial } from './thumb.ts'
 

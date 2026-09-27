@@ -23,7 +23,7 @@
 
 import type { GlassPanel } from '../renderer/panels.ts'
 import { HTMLElementBase, sharedSheet } from './base.ts'
-import { Jelly } from './jelly.ts'
+import { Jelly } from '../interaction/jelly.ts'
 import { StageLink } from './stage-link.ts'
 import { PressTween, thumbMaterial } from './thumb.ts'
 

@@ -34,18 +34,9 @@
 
 import type { GlassMaterial } from '../core/material.ts'
 import { OVERLAY_HOST_CSS } from '../core/overlay.ts'
-import { prefersReducedMotion } from '../renderer/stage.ts'
 import { GlassElement, sharedSheet } from './base.ts'
 import type { PanelLight } from '../renderer/panels.ts'
-import {
-  approach,
-  dimmed,
-  ENERGY,
-  modulate,
-  SETTLE_EPSILON,
-  targetEnergy,
-  TAU_MS
-} from './motion.ts'
+import { PressInteraction } from '../interaction/press.ts'
 
 /**
  * 影子样式。圆角只影响焦点框与 CSS 兜底表面的形状，玻璃的形状由 corner-radius 属性决定 ——
@@ -117,19 +108,12 @@ export class GlassButton extends GlassElement {
   readonly #internals: ElementInternals | null
   /** 浏览器报来的禁用状态（disabled 属性或祖先 fieldset 的禁用），见 formDisabledCallback。 */
   #formDisabled = false
-
-  #hover = false
-  #pressed = false
-  #focusVisible = false
-  /** 当前能量与目标能量，见 motion.ts。 */
-  #energy = 0
-  #target = 0
-  #raf = 0
-  #lastTick = 0
+  /** 悬停、按压、键盘焦点的反馈（interaction/press.ts，与 runtime 的 glass() 共用）。键盘激活在这里。 */
+  readonly #press: PressInteraction
+  /** 空格按下了还没松开（松开时激活）。 */
+  #spaceDown = false
   /** tabindex 是不是我们加的。作者自己写了 tabindex 的话，禁用时不去动它。 */
   #ownsTabindex = false
-  /** 按下的位置（相对宿主左上角的 CSS 像素）；键盘按下时为 null，光打在中间。 */
-  #pressAt: { x: number; y: number } | null = null
 
   constructor() {
     super()
@@ -140,15 +124,14 @@ export class GlassButton extends GlassElement {
     label.append(document.createElement('slot'))
     root.append(label)
 
-    this.addEventListener('pointerenter', this.#onPointerEnter)
-    this.addEventListener('pointerleave', this.#onPointerLeave)
-    this.addEventListener('pointerdown', this.#onPointerDown)
-    this.addEventListener('pointermove', this.#onPointerMove)
-    this.addEventListener('pointerup', this.#onPointerUp)
-    this.addEventListener('pointercancel', this.#onPointerUp)
+    this.#press = new PressInteraction(
+      this,
+      { hover: true, press: true, focus: true, keys: false, isDisabled: () => this.#isDisabled() },
+      () => this.refresh(),
+      () => this.refreshLight()
+    )
     this.addEventListener('keydown', this.#onKeyDown)
     this.addEventListener('keyup', this.#onKeyUp)
-    this.addEventListener('focus', this.#onFocus)
     this.addEventListener('blur', this.#onBlur)
     // 捕获阶段：禁用时在作者挂在按钮上的监听器之前拦下点击
     this.addEventListener('click', this.#onClickCapture, { capture: true })
@@ -212,19 +195,12 @@ export class GlassButton extends GlassElement {
   }
 
   protected override present(material: GlassMaterial): GlassMaterial {
-    const modulated = modulate(material, this.#energy)
-    return this.#isDisabled() ? dimmed(modulated) : modulated
+    return this.#press.present(material)
   }
 
-  /**
-   * 按压处的光：强度跟着能量里「按下」的那一段走（悬停那一段不亮），位置是按下的点、
-   * 按住拖动时跟着走；松开后随能量的补间淡掉。键盘按下时打在中间。
-   */
+  /** 按压处的光（interaction/press.ts）。 */
   protected override light(): PanelLight | null {
-    const strength = (this.#energy - ENERGY.hover) / (ENERGY.pressed - ENERGY.hover)
-    if (!(strength > 0)) return null
-    const at = this.#pressAt ?? { x: this.clientWidth / 2, y: this.clientHeight / 2 }
-    return { x: at.x, y: at.y, strength: Math.min(1, strength) }
+    return this.#press.light()
   }
 
   override connectedCallback(): void {
@@ -236,13 +212,8 @@ export class GlassButton extends GlassElement {
 
   override disconnectedCallback(): void {
     super.disconnectedCallback()
-    if (this.#raf !== 0) cancelAnimationFrame(this.#raf)
-    this.#raf = 0
-    this.#hover = false
-    this.#pressed = false
-    this.#focusVisible = false
-    this.#energy = 0
-    this.#target = 0
+    this.#press.reset()
+    this.#spaceDown = false
   }
 
   override attributeChangedCallback(name: string, oldValue: string | null, newValue: string | null): void {
@@ -262,50 +233,11 @@ export class GlassButton extends GlassElement {
       if (disabled) this.removeAttribute('tabindex')
       else this.tabIndex = 0
     }
-    if (disabled) {
-      this.#pressed = false
-      this.#hover = false
-    }
-    this.#retarget()
+    if (disabled) this.#spaceDown = false
+    this.#press.syncDisabled()
   }
 
-  // —— 交互 ——
-
-  #onPointerEnter = (e: PointerEvent): void => {
-    if (e.pointerType === 'touch') return // 触屏没有悬停；按下由 pointerdown 负责
-    this.#hover = true
-    this.#retarget()
-  }
-
-  #onPointerLeave = (): void => {
-    this.#hover = false
-    this.#pressed = false
-    this.#retarget()
-  }
-
-  #onPointerDown = (e: PointerEvent): void => {
-    if (e.button !== 0 || this.#isDisabled()) return
-    this.#pressed = true
-    this.#pressAt = this.#local(e)
-    this.#retarget()
-  }
-
-  /** 按住拖动时光跟着手指走。只在按下时跟 —— 悬停时不亮，也就不用跟。 */
-  #onPointerMove = (e: PointerEvent): void => {
-    if (!this.#pressed || !this.#pressAt) return
-    this.#pressAt = this.#local(e)
-    this.refreshLight()
-  }
-
-  #local(e: PointerEvent): { x: number; y: number } {
-    const r = this.getBoundingClientRect()
-    return { x: e.clientX - r.left, y: e.clientY - r.top }
-  }
-
-  #onPointerUp = (): void => {
-    this.#pressed = false
-    this.#retarget()
-  }
+  // —— 键盘激活（原生按钮的语义） ——
 
   #onKeyDown = (e: KeyboardEvent): void => {
     if (this.#isDisabled() || e.defaultPrevented) return
@@ -316,29 +248,20 @@ export class GlassButton extends GlassElement {
     } else if (e.key === ' ') {
       // 原生按钮：空格按下时只显示按下态、并阻止页面滚动，松开时才激活
       e.preventDefault()
-      this.#pressed = true
-      this.#pressAt = null // 键盘按下：光打在中间
-      this.#retarget()
+      this.#spaceDown = true
+      this.#press.setKeyPressed(true) // 键盘按下：光打在中间
     }
   }
 
   #onKeyUp = (e: KeyboardEvent): void => {
-    if (e.key !== ' ' || !this.#pressed) return
-    this.#pressed = false
-    this.#retarget()
+    if (e.key !== ' ' || !this.#spaceDown) return
+    this.#spaceDown = false
+    this.#press.setKeyPressed(false)
     if (!this.#isDisabled()) this.click()
   }
 
-  #onFocus = (): void => {
-    // 鼠标点出来的焦点不给悬停态，否则点完之后按钮会一直亮着
-    this.#focusVisible = this.matches(':focus-visible')
-    this.#retarget()
-  }
-
   #onBlur = (): void => {
-    this.#focusVisible = false
-    this.#pressed = false
-    this.#retarget()
+    this.#spaceDown = false
   }
 
   #onClickCapture = (e: MouseEvent): void => {
@@ -360,41 +283,5 @@ export class GlassButton extends GlassElement {
       if (this.type === 'reset') form.reset()
       else submitWith(form, this)
     }, 0)
-  }
-
-  // —— 动画 ——
-
-  #retarget(): void {
-    this.#target = targetEnergy({
-      hover: this.#hover,
-      pressed: this.#pressed,
-      focusVisible: this.#focusVisible,
-      disabled: this.#isDisabled()
-    })
-    if (prefersReducedMotion()) {
-      // 不做过渡，直接落到目标态 —— 状态变化本身仍然可见，只是没有动画
-      if (this.#raf !== 0) cancelAnimationFrame(this.#raf)
-      this.#raf = 0
-      this.#energy = this.#target
-      this.refresh()
-      return
-    }
-    if (this.#energy === this.#target) {
-      this.refresh() // 能量没变，但 disabled 之类的状态可能变了
-      return
-    }
-    if (this.#raf === 0) {
-      this.#lastTick = performance.now()
-      this.#raf = requestAnimationFrame(this.#tick)
-    }
-  }
-
-  #tick = (now: number): void => {
-    const dt = now - this.#lastTick
-    this.#lastTick = now
-    this.#energy = approach(this.#energy, this.#target, dt, TAU_MS)
-    if (Math.abs(this.#energy - this.#target) < SETTLE_EPSILON) this.#energy = this.#target
-    this.refresh()
-    this.#raf = this.#energy === this.#target ? 0 : requestAnimationFrame(this.#tick)
   }
 }

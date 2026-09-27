@@ -19,16 +19,13 @@
 import type { GlassMaterial } from '../core/material.ts'
 import { overlayHostRule } from '../core/overlay.ts'
 import { describeElement } from '../renderer/layering.ts'
-import type { GlassPanel, PanelLight } from '../renderer/panels.ts'
-import { currentStage, onStageChange, type GlassStage } from '../renderer/stage.ts'
+import type { PanelLight } from '../renderer/panels.ts'
+import { ACTIVE_ATTRIBUTE, GlassBinding } from '../runtime/binding.ts'
 import { MATERIAL_ATTRIBUTES, parseMaterialAttributes } from './attributes.ts'
 import { ScrollEdgeLayer } from './scroll-edge.ts'
 
-/**
- * 玻璃生效时组件带上这个属性。glassium.css 里的兜底表面只在**没有**它的时候出现 ——
- * upgrade 之前、stage 还没建好、没有 GPU、高对比度模式，统统落在「没有它」这一边。
- */
-export const ACTIVE_ATTRIBUTE = 'data-glassium-active'
+/** 玻璃生效时组件带上的属性（见 runtime/binding.ts）。 */
+export { ACTIVE_ATTRIBUTE }
 
 /**
  * SSR / Node 里没有 HTMLElement。类声明在模块求值时就要用到基类，直接写
@@ -39,18 +36,20 @@ export const HTMLElementBase: typeof HTMLElement =
   typeof HTMLElement === 'undefined' ? (class {} as unknown as typeof HTMLElement) : HTMLElement
 
 export class GlassElement extends HTMLElementBase {
-  /** 已连接到文档的组件。stage 出现、消失或状态变化时逐个同步。 */
-  static readonly #live = new Set<GlassElement>()
-  static #subscribed = false
-
   /** 材质属性，加上 `scroll-edge`（浮在正文上时的磨砂，scroll-edge.ts）。子类在它后面接自己的。 */
   static get observedAttributes(): string[] {
     return [...MATERIAL_ATTRIBUTES, 'scroll-edge']
   }
 
-  #stage: GlassStage | null = null
-  #panel: GlassPanel | null = null
   #base: GlassMaterial = {}
+  /**
+   * 与 stage 的绑定（runtime/binding.ts）：等 stage、注册成面板、推材质与光、挂生效标记。
+   * runtime 的 `glass()` / `<div glass>` 走的是同一条路。
+   */
+  readonly #binding = new GlassBinding(this, {
+    material: () => this.present(this.#base),
+    light: () => this.light()
+  })
   readonly #reported = new Set<string>()
   /**
    * 这个元素自己的样式表：`:host { --glassium-* }`，把材质写成 CSS 变量（core/overlay.ts）。用 CSS 画的玻璃
@@ -83,17 +82,13 @@ export class GlassElement extends HTMLElementBase {
   }
 
   connectedCallback(): void {
-    GlassElement.#live.add(this)
-    GlassElement.#subscribe()
     this.#readAttributes()
-    this.#sync(currentStage())
+    this.#binding.connect()
     this.#scrollEdge.sync()
   }
 
   disconnectedCallback(): void {
-    GlassElement.#live.delete(this)
-    this.#detach()
-    this.removeAttribute(ACTIVE_ATTRIBUTE)
+    this.#binding.disconnect()
     this.#scrollEdge.sync()
   }
 
@@ -110,39 +105,12 @@ export class GlassElement extends HTMLElementBase {
 
   /** 材质或交互状态变了：把当前材质与光推给面板。还没注册（没有 stage）时什么都不做。 */
   protected refresh(): void {
-    this.#panel?.setMaterial(this.present(this.#base))
-    this.#panel?.setLight(this.light())
+    this.#binding.refresh()
   }
 
   /** 只有光变了（比如按住拖动）：不重推材质 —— 推材质会让面板重新降级。 */
   protected refreshLight(): void {
-    this.#panel?.setLight(this.light())
-  }
-
-  static #subscribe(): void {
-    if (GlassElement.#subscribed) return
-    GlassElement.#subscribed = true
-    onStageChange((stage) => {
-      for (const el of GlassElement.#live) el.#sync(stage)
-    })
-  }
-
-  #sync(stage: GlassStage | null): void {
-    if (stage !== this.#stage) {
-      this.#detach()
-      if (stage) {
-        this.#stage = stage
-        this.#panel = stage.register(this, this.present(this.#base))
-        this.#panel.setLight(this.light())
-      }
-    }
-    this.toggleAttribute(ACTIVE_ATTRIBUTE, stage?.active === true)
-  }
-
-  #detach(): void {
-    this.#panel?.unregister()
-    this.#panel = null
-    this.#stage = null
+    this.#binding.refreshLight()
   }
 
   #writeOverlayVars(): void {
