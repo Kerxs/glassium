@@ -37,6 +37,7 @@ import {
 } from './fills.ts'
 import { packMask, type DeviceMask } from './mask.ts'
 import { poseOf, type PoseStyle } from './pose.ts'
+import { FULL_QUALITY, type QualityFactors } from './quality.ts'
 import {
   CLIP_UNBOUNDED_PX,
   UNBOUNDED,
@@ -236,6 +237,8 @@ export interface MeasureResult {
 /** 一帧里量到的面板，已换算到画布设备像素。 */
 export interface MeasuredPanel {
   readonly record: PanelRecord
+  /** 自适应质量的系数（renderer/quality.ts），没有是原样。同一组系数是同一个对象（idle.ts 按引用比）。 */
+  readonly quality?: QualityFactors
   /** 画布设备像素下的矩形。 */
   readonly x: number
   readonly y: number
@@ -449,6 +452,8 @@ export class PanelRegistry {
   /** 树代数：DOM 变了、或者注册的玻璃变了（多一块少一块）就加一。玻璃祖先（层号）据此重找。 */
   #treeGeneration = 0
   #filter: MaterialFilter | null = null
+  /** 自适应质量的系数（stage.setQuality）：量出来的每块面板都带着它。 */
+  quality: QualityFactors = FULL_QUALITY
   /** 位图填充的图集：第一块位图填充画的时候才建（拿不到 2D 画布时是 null，位图填充就不画）。 */
   #atlas: LabelAtlas | null | undefined
 
@@ -902,6 +907,7 @@ export class PanelRegistry {
         : [0, 0, 1, 0]
       measured.set(record, {
         record,
+        quality: this.quality,
         x: g.x,
         y: g.y,
         w: g.w,
@@ -1224,6 +1230,7 @@ function writePanel(
   // dp（= CSS px）→ 画布设备像素，再乘视觉缩放（transform: scale）
   const scale = (viewport.compositeWidth / viewport.cssWidth) * panel.visualScale
   const chain = panel.chain
+  const q = panel.quality ?? FULL_QUALITY
 
   let saturation = 1
   let tint: readonly [number, number, number, number] = [0, 0, 0, 0]
@@ -1267,13 +1274,13 @@ function writePanel(
   data[o + 11] = tint[3]
   // 标量 @ 48 起
   data[o + 12] = heightDp * scale
-  data[o + 13] = amountDp * scale
+  data[o + 13] = amountDp * scale * q.refraction
   // 模糊 σ 以**场景像素**计：模糊链的第 0 级就是场景分辨率，不是画布分辨率。
-  data[o + 14] = levelForSigma(sigmaDp * viewport.sceneScale * panel.visualScale, blurLevels)
+  data[o + 14] = levelForSigma(sigmaDp * q.blur * viewport.sceneScale * panel.visualScale, blurLevels)
   data[o + 15] = saturation
   data[o + 16] = squircle
-  data[o + 17] = depthEffect
-  data[o + 18] = dispersion
+  data[o + 17] = depthEffect * q.depth
+  data[o + 18] = dispersion * q.dispersion
   data[o + 19] = highlight
   data[o + 20] = chain.opacity * panel.fade // 材质的 opacity × CSS 上的实际不透明度
   data[o + 21] = DEBUG_MODES.indexOf(debugMode)
@@ -1298,7 +1305,7 @@ function writePanel(
   data[o + 35] = panel.light[3]
   // shadow: vec4f @ 144 —— 峰值 alpha、σ、向下的偏移、形状往里缩的量（画布设备像素）
   const shadowShape = shadowShapeDp(scale > 0 ? Math.min(panel.w, panel.h) / scale : 0)
-  data[o + 36] = chain.shadow * SHADOW_OPACITY
+  data[o + 36] = chain.shadow * SHADOW_OPACITY * q.shadow
   data[o + 37] = shadowShape.sigma * scale
   data[o + 38] = shadowShape.offset * scale
   data[o + 39] = shadowShape.inset * scale

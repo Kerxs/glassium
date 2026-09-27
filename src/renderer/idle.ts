@@ -93,6 +93,7 @@ function samePanel(a: MeasuredPanel, b: MeasuredPanel): boolean {
   return (
     a.record === b.record &&
     a.chain === b.chain &&
+    a.quality === b.quality &&
     a.x === b.x &&
     a.y === b.y &&
     a.w === b.w &&

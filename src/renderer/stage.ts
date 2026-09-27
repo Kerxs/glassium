@@ -37,7 +37,8 @@
 import { assertBlendSpace, type BlendSpace } from '../core/color.ts'
 import { parseTint, type GlassMaterial } from '../core/material.ts'
 import { frostForColor, reduceTransparency, type Frost } from '../core/transparency.ts'
-import { describeViewport, resolveViewport, type ResolvedViewport } from '../core/units.ts'
+import { describeViewport, MAX_PIXELS, resolveViewport, type ResolvedViewport } from '../core/units.ts'
+import { FULL_QUALITY, sameQuality, type QualityFactors } from './quality.ts'
 import type { PanelDebugMode } from '../shaders/glass.wgsl.ts'
 import {
   acquireDevice,
@@ -93,6 +94,16 @@ export type Backend = 'webgpu' | 'webgl2' | 'none'
 
 /** 画布的 alphaMode（与 WebGPU 的 GPUCanvasAlphaMode 同值；公开接口里不引用 WebGPU 的全局类型）。 */
 export type CanvasAlphaMode = 'opaque' | 'premultiplied'
+
+/** onFrame 的回调参数。 */
+export interface StageFrame {
+  /** rAF 的时间戳（ms）。 */
+  readonly time: number
+  /** 这一圈真的画了（不是与上一帧相同而跳过）。 */
+  readonly rendered: boolean
+  /** 这一圈的 CPU 时间（量 + 打包 + 提交），ms。 */
+  readonly cpuMs: number
+}
 
 export interface GlassStats {
   readonly backend: Backend
@@ -247,6 +258,18 @@ export interface GlassStage {
    * `<glass-container>` 背后就是它。最多 4 块，多出来的单独绘制并警告一次。
    */
   group(options?: { readonly smoothing?: number }): GlassGroup
+  /** 当前的质量系数（renderer/quality.ts；默认原样）。 */
+  readonly quality: QualityFactors
+  /**
+   * 换质量系数：模糊、折射、色散、投影乘上对应的倍数，场景的像素预算乘分辨率的平方。只动数值与场景分辨率，
+   * 不改面板的材质、不新建管线。null 回到原样。runtime 的自适应质量（performance/）用它。
+   */
+  setQuality(factors: QualityFactors | null): void
+  /**
+   * 帧循环每跑一圈回调一次（静止时 rAF 照转、只是不画 —— rendered 是 false）：自适应质量按它量帧时间。
+   * requestRender() 那种单帧、减少动效停了循环的时候不回调。返回取消订阅的函数。
+   */
+  onFrame(listener: (frame: StageFrame) => void): () => void
   /**
    * 把一个 DOM 元素注册成填充：它的盒子（含圆角、变换、裁剪、不透明度）按 CSS 自定义属性
    * `--glass-fill` 的颜色画进场景 —— 玻璃折射它、模糊它，与场景里的任何东西一样。
@@ -634,6 +657,9 @@ async function buildStage(options: GlassStageOptions): Promise<GlassStage> {
   let panelDebugMode: PanelDebugMode = 'off'
   /** 调试用的像素预算（debug.setPixelBudget），null 用创建时的 options.maxPixels。 */
   let pixelBudget: number | null = null
+  /** 自适应质量的系数（setQuality）。 */
+  let quality: QualityFactors = FULL_QUALITY
+  const frameListeners = new Set<(frame: StageFrame) => void>()
   let blendSpace: BlendSpace = options.blendSpace ?? 'srgb'
 
   const panels = new PanelRegistry(() => requestRender())
@@ -705,7 +731,9 @@ async function buildStage(options: GlassStageOptions): Promise<GlassStage> {
     const cssWidth = Math.max(1, box.width)
     const cssHeight = Math.max(1, box.height)
     const dpr = window.devicePixelRatio || 1
-    const next = resolveViewport(cssWidth, cssHeight, dpr, pixelBudget ?? options.maxPixels, options.minSceneRatio)
+    const res = quality.resolution
+    const budget = (pixelBudget ?? options.maxPixels ?? MAX_PIXELS) * res * res
+    const next = resolveViewport(cssWidth, cssHeight, dpr, budget, options.minSceneRatio)
 
     const changed =
       forceResize ||
@@ -743,12 +771,15 @@ async function buildStage(options: GlassStageOptions): Promise<GlassStage> {
     }
   }
 
-  /** @param force 与上一帧相同也画（renderNow 用：它的意思就是「现在画一帧」）。 */
-  const renderFrame = (now: number, force = false): void => {
-    if (disposed || !renderer) return
+  /**
+   * @param force 与上一帧相同也画（renderNow 用：它的意思就是「现在画一帧」）。
+   * @returns 这一帧真的画了
+   */
+  const renderFrame = (now: number, force = false): boolean => {
+    if (disposed || !renderer) return false
     const t0 = performance.now()
     const resized = syncViewport()
-    if (!viewport) return
+    if (!viewport) return false
 
     // 所有面板在这里一次量完，帧内之后不再碰布局（避免 layout thrash）。
     const canvasBox = canvas.getBoundingClientRect()
@@ -776,7 +807,7 @@ async function buildStage(options: GlassStageOptions): Promise<GlassStage> {
       measureMs = t1 - t0
       frameMs = performance.now() - t0
       tickFps(now, false)
-      return
+      return false
     }
 
     const probe = pendingProbe
@@ -793,7 +824,7 @@ async function buildStage(options: GlassStageOptions): Promise<GlassStage> {
       pendingGroupProbe ??= groupProbe
       pendingReadback ??= readback
       lastFrame = null
-      return
+      return false
     }
     lastFrame = frame
     lastRenderer = renderer
@@ -810,11 +841,16 @@ async function buildStage(options: GlassStageOptions): Promise<GlassStage> {
     groupsLastFrame = measured.groups.length
     fillsLastFrame = measured.fills.length
     tickFps(now, true)
+    return true
   }
 
   const loop = (now: number): void => {
     if (disposed) return
-    renderFrame(now)
+    const rendered = renderFrame(now)
+    if (frameListeners.size > 0) {
+      const info: StageFrame = { time: now, rendered, cpuMs: frameMs }
+      for (const l of frameListeners) l(info)
+    }
     rafId = requestAnimationFrame(loop)
   }
 
@@ -1275,6 +1311,20 @@ async function buildStage(options: GlassStageOptions): Promise<GlassStage> {
     group(options: { readonly smoothing?: number } = {}): GlassGroup {
       return panels.group(options)
     },
+    get quality(): QualityFactors {
+      return quality
+    },
+    setQuality(factors: QualityFactors | null): void {
+      const next = factors ?? FULL_QUALITY
+      if (sameQuality(next, quality)) return
+      quality = Object.freeze({ ...next })
+      panels.quality = quality
+      requestRender()
+    },
+    onFrame(listener: (frame: StageFrame) => void): () => void {
+      frameListeners.add(listener)
+      return () => frameListeners.delete(listener)
+    },
     registerFill(element: HTMLElement, options?: FillOptions): SceneFill {
       return panels.registerFill(element, options)
     },
@@ -1426,6 +1476,11 @@ function makeInertStage(canvas: HTMLCanvasElement, options: GlassStageOptions): 
     },
     group(): GlassGroup {
       return { setMembers(): void {}, setSmoothing(): void {}, dissolve(): void {} }
+    },
+    quality: FULL_QUALITY,
+    setQuality(): void {},
+    onFrame(): () => void {
+      return () => undefined
     },
     // 没有 GPU 时填充由 glassium.css 画成 CSS 背景（没有 data-glassium-active 时）
     registerFill(element: HTMLElement): SceneFill {

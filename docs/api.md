@@ -95,6 +95,27 @@ handle.destroy()
 `videoFrameCallback`、`offscreenCanvas`、`renderer`（`RendererKind`：实际用上的后端 `'webgpu' | 'webgl2' | 'css' | 'none'`）、
 `tier`（`tierOf`：0 普通 DOM、1 CSS 玻璃、2 WebGL2、3 WebGPU —— 按能力定，不看设备型号）。
 
+### 玻璃后面的背景自动收进场景
+
+GPU 玻璃画在页面底下的画布上、只折射场景（limitations.md 的 R1 / R2）。runtime 对每块 `[glass]` / `glass()` 的玻璃做
+命中测试，挡在玻璃与画布之间、画了背景的元素，背景画进场景（纯色、一层渐变、一层同源图片，`background-size` /
+`position` / `repeat` 都认），元素挂 `data-glassium-absorbed`、CSS 背景换成透明 —— 看上去没变，玻璃折射得到。
+页面的根背景（`<html>` 的，或传播过去的 `<body>` 的）做场景的底色。`absorbedElements()` 列出收进来的元素。
+多层背景、`background-attachment: fixed`、跨源图片收不了，照旧警告。`configure({ absorbBackgrounds: false })` 关掉并还原；
+组件要 `absorbForComponents: true`。边界见 limitations.md。
+
+### 自适应质量
+
+runtime 建的 stage 上挂一个 `AdaptiveQuality`（`AdaptiveOptions`：`fixed`、`remember`、`initial`、`listen`）：stage 每圈报帧
+（`stage.onFrame` 的 `StageFrame`：`time`、`rendered`、`cpuMs`），`FrameMonitor` 攒成半秒一个的 `FrameWindow`（帧数、
+掉帧比例、CPU 占预算的比例；刷新间隔按帧间隔的低分位数认出 60 / 120 / 144 / 240Hz），`QualityController` 按它升降质量
+q（`QUALITY_MIN` 0.35 到 1）：连续 3 个窗口超预算降 0.1，连续 8 个窗口宽裕升 0.05，中间不动；起步的前 30 帧就是探测。
+`factorsFor(q)` 把 q 映射成 `QualityFactors`（`resolution`、`blur`、`refraction`、`depth`、`dispersion`、`shadow`；
+`FULL_QUALITY` 是全 1），按优先级先降色散、再降高级折射、场景分辨率、投影、折射、模糊；`jellyFactor(q)` 是果冻的系数。
+交给 `stage.setQuality(factors)`：只动数值与场景的像素预算，不改材质、不新建管线。上次的结果记在 localStorage（7 天，
+键含版本、后端、屏幕尺寸、DPR）。后端不因为掉帧切换。自己调 `createGlassStage` 的页面不挂（满质量），要的话自己
+`new AdaptiveQuality(stage)`。
+
 组件与 runtime 走同一条注册路径：`GlassBinding`（等 stage、注册成面板、推材质与光、挂 `data-glassium-active`，
 材质与光由 `GlassSource` 给）。
 

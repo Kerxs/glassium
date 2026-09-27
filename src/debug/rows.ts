@@ -3,6 +3,8 @@
  */
 
 import { currentStage } from '../renderer/stage.ts'
+import { absorbedElements } from '../runtime/absorb.ts'
+import { currentAdaptive } from '../runtime/quality-link.ts'
 
 export function debugRows(): Array<[string, string]> {
   const stage = currentStage()
@@ -19,6 +21,23 @@ export function debugRows(): Array<[string, string]> {
     ['创建', `管线 ${s.pipelineCreations} · 目标 ${s.targetAllocations}`]
   ]
   if (v) rows.push(['画布', `${v.compositeWidth}×${v.compositeHeight} · 场景 ${v.sceneWidth}×${v.sceneHeight}`])
+  const a = currentAdaptive()
+  const f = stage.quality
+  if (a) {
+    const w = a.lastWindow
+    rows.push([
+      '质量',
+      `${a.quality.toFixed(2)}${a.fixed !== null ? '（固定）' : a.probing ? '（探测中）' : '（自适应）'} · 预算 ${a.budgetMs.toFixed(1)} ms`
+    ])
+    if (w) rows.push(['上个窗口', `${w.frames} 帧 · 掉帧 ${(w.dropRatio * 100).toFixed(0)}% · CPU ${(w.cpuRatio * 100).toFixed(0)}% 预算`])
+  } else {
+    rows.push(['质量', '满（不是 runtime 建的 stage）'])
+  }
+  rows.push([
+    '系数',
+    `分辨率 ${f.resolution.toFixed(2)} · 模糊 ${f.blur.toFixed(2)} · 折射 ${f.refraction.toFixed(2)} · 深 ${f.depth.toFixed(2)} · 色散 ${f.dispersion.toFixed(2)} · 投影 ${f.shadow.toFixed(2)}`
+  ])
+  rows.push(['收进场景的背景', String(absorbedElements().length)])
   rows.push(['层级问题', String(stage.debug.checkLayers().length)])
   return rows
 }

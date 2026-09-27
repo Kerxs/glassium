@@ -5,6 +5,7 @@
 
 import { createGlassStage, stageOrPending, type GlassStage } from '../renderer/stage.ts'
 import { getConfig } from './config.ts'
+import { attachQuality } from './quality-link.ts'
 
 let stagePromise: Promise<GlassStage | null> | null = null
 
@@ -13,7 +14,12 @@ export function ensureStage(): Promise<GlassStage | null> {
   const existing = stageOrPending()
   if (existing) return existing
   if (!stagePromise) {
-    stagePromise = createGlassStage({ backend: getConfig().backend }).catch((err: unknown) => {
+    stagePromise = createGlassStage({ backend: getConfig().backend }).then(
+      (stage) => {
+        attachQuality(stage)
+        return stage
+      }
+    ).catch((err: unknown) => {
       console.warn('[Glassium] 建不出 GPU stage，玻璃改用 CSS 画：', err)
       stagePromise = null
       return null

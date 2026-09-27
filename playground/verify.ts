@@ -12,6 +12,7 @@
  */
 
 import {
+  AdaptiveQuality,
   compareGroupOptics,
   compareOptics,
   configure,
@@ -2868,6 +2869,61 @@ async function run(): Promise<void> {
     } finally {
       configure({ absorbBackgrounds: true })
       calibrationScene()
+      stage.debug.renderNow()
+    }
+  })
+
+  await check('adaptive-quality', async () => {
+    // 自适应质量（performance/）接在这个 stage 上，喂合成的帧（120Hz，不依赖面板可见）：
+    // 超预算（掉帧四成）→ q 连降、场景分辨率跟着缩小（像素预算乘分辨率的平方）；恢复后分级回升（每次 0.05）；
+    // 定死 high 时怎么喂都不动；dispose 之后系数回到原样、场景尺寸复原；全程不新建管线。
+    stage.debug.renderNow()
+    const scene0 = stage.debug.stats().viewport!
+    const pipelines0 = stage.debug.stats().pipelineCreations
+    const aq = new AdaptiveQuality(stage, { listen: false, remember: false })
+    let t = performance.now()
+    const feed = (ms: number, frames: number, badEvery: number): void => {
+      for (let i = 0; i < frames; i++) {
+        t += badEvery > 0 && i % badEvery === 0 ? 25 : 8.33
+        aq.feed({ time: t, rendered: true, cpuMs: 1 })
+        void ms
+      }
+    }
+    try {
+      feed(0, 60, 0) // 探测：干净
+      const probed = aq.quality
+      feed(0, 400, 2) // 半数掉帧，约 3 秒
+      const low = aq.quality
+      stage.debug.renderNow()
+      const sceneLow = stage.debug.stats().viewport!
+      const factorsLow = stage.quality
+      const steps: number[] = []
+      for (let i = 0; i < 12; i++) {
+        feed(0, 60, 0) // 0.5 秒干净
+        steps.push(aq.quality)
+      }
+      const recovered = aq.quality
+      const monotone = steps.every((q, i) => i === 0 || q >= steps[i - 1]!)
+      const smallSteps = steps.every((q, i) => i === 0 || q - steps[i - 1]! <= 0.0501)
+      aq.setFixed(1)
+      feed(0, 400, 2)
+      const fixedStays = aq.quality === 1 && stage.quality.resolution === 1
+      aq.dispose()
+      stage.debug.renderNow()
+      const scene1 = stage.debug.stats().viewport!
+      const pipelines1 = stage.debug.stats().pipelineCreations
+      const detail =
+        `探测后 ${probed} · 超预算后 ${low}（分辨率 ${factorsLow.resolution.toFixed(2)}、色散 ${factorsLow.dispersion.toFixed(2)}、` +
+        `场景 ${scene0.sceneWidth}×${scene0.sceneHeight} → ${sceneLow.sceneWidth}×${sceneLow.sceneHeight}）· ` +
+        `回升 ${steps.map((q) => q.toFixed(2)).join(' ')}（单调 ${monotone}、每步 ≤ 0.05 ${smallSteps}）· 定死 high 不动 ${fixedStays} · ` +
+        `dispose 后场景 ${scene1.sceneWidth}×${scene1.sceneHeight} · 管线 ${pipelines1 - pipelines0} 条新建`
+      const ok =
+        probed === 1 && low < 0.8 && factorsLow.resolution < 1 && sceneLow.sceneWidth < scene0.sceneWidth &&
+        recovered > low && monotone && smallSteps && fixedStays &&
+        scene1.sceneWidth === scene0.sceneWidth && scene1.sceneHeight === scene0.sceneHeight && pipelines1 === pipelines0
+      return ok ? pass(detail) : fail(detail)
+    } finally {
+      aq.dispose()
       stage.debug.renderNow()
     }
   })

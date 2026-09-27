@@ -14,8 +14,7 @@
  * defineGlassElements() 在没有 customElements 时什么都不做。
  */
 
-/** 与 package.json 的 version 相同（version.test.ts 核对）。 */
-export const VERSION = '0.2.0'
+export { VERSION } from './version.ts'
 
 // —— Runtime 入口：`import 'glassium'` 之后页面上的 `<div glass>` 就是玻璃（runtime/auto.ts） ——
 import { scheduleAutoStart } from './runtime/auto.ts'
@@ -36,6 +35,11 @@ export {
 export { GlassBinding, type GlassSource } from './runtime/binding.ts'
 export { PressInteraction, type PressOptions } from './interaction/press.ts'
 export { startRuntime, stopRuntime } from './runtime/auto.ts'
+export { absorbedElements } from './runtime/absorb.ts'
+export { AdaptiveQuality, type AdaptiveOptions } from './performance/adaptive.ts'
+export { QualityController, factorsFor, jellyFactor, QUALITY_MIN, type FrameWindow } from './performance/quality.ts'
+export { FrameMonitor } from './performance/monitor.ts'
+export { FULL_QUALITY, type QualityFactors } from './renderer/quality.ts'
 if (typeof window !== 'undefined') {
   ;(window as unknown as { glassium?: typeof glassium }).glassium ??= glassium
   scheduleAutoStart()
@@ -136,6 +140,7 @@ export {
   type BackendReport,
   type Gl2Report,
   type GlassStats,
+  type StageFrame,
   type ReadbackRegion,
   type ReadbackResult,
   type GlassSceneSource,
