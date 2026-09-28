@@ -200,3 +200,42 @@ export function unchangedFrame(prev: FrameSnapshot | null, next: FrameSnapshot):
     sameFills(prev.fills, next.fills)
   )
 }
+
+/**
+ * 场景能不能沿用上一帧的（合成器的脏状态）：场景目标（模糊链第 0 级）与整条模糊链只取决于这些 —— 与玻璃无关。
+ * 相同就不重画场景、不重画第 0 层的填充、不重建模糊链：只动了玻璃（果冻、飞行、拖动）的帧省掉最贵的那一半。
+ * 上一帧画过更高的层（layers.ts 把画布采回第 0 级、局部重建了模糊链）就不能沿用。
+ */
+export interface SceneKey {
+  /** 模糊链的纹理（换了尺寸、格式、设备就是新的对象）。 */
+  readonly target: object
+  readonly time: number
+  readonly viewport: ResolvedViewport
+  readonly blendSpace: BlendSpace
+  readonly sceneMode: number
+  readonly radialCenterCss: readonly [number, number]
+  readonly radialRadius: number
+  readonly sceneImage: SceneImage | null
+  /** 第 0 层的填充（画进场景的那些）。 */
+  readonly fills: readonly MeasuredFill[]
+  /** 背景上屏用「没有填充的那一份」（草稿纹理第 0 级）。 */
+  readonly crisp: boolean
+  /** 这一帧画了更高的层：场景目标被改过，下一帧不能沿用。 */
+  readonly layered: boolean
+}
+
+export function sceneReusable(prev: SceneKey | null, next: SceneKey): boolean {
+  if (prev === null || prev.layered) return false
+  if (next.sceneImage === null && next.sceneMode === GRADIENT_SCENE && prev.time !== next.time) return false
+  return (
+    prev.target === next.target &&
+    prev.blendSpace === next.blendSpace &&
+    prev.sceneMode === next.sceneMode &&
+    prev.radialRadius === next.radialRadius &&
+    sameTuple(prev.radialCenterCss, next.radialCenterCss) &&
+    prev.crisp === next.crisp &&
+    sameViewport(prev.viewport, next.viewport) &&
+    sameScene(prev.sceneImage, next.sceneImage) &&
+    sameFills(prev.fills, next.fills)
+  )
+}

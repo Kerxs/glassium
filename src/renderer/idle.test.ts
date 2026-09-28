@@ -4,7 +4,7 @@ import assert from 'node:assert/strict'
 import type { ResolvedViewport } from '../core/units.ts'
 import type { BackdropState, SceneImage } from './backend.ts'
 import type { FillRecord, MeasuredFill } from './fills.ts'
-import { unchangedFrame, type FrameSnapshot } from './idle.ts'
+import { sceneReusable, unchangedFrame, type FrameSnapshot, type SceneKey } from './idle.ts'
 import type { MeasuredGroup, MeasuredPanel, PanelRecord } from './panels.ts'
 
 // 比较只看值与引用，不碰 DOM：假对象就够了
@@ -245,4 +245,36 @@ test('填充：值相同算相同；颜色（过渡中）、位置、圆角、�
     false,
     '换了一块'
   )
+})
+
+test('沿用场景：只动了玻璃就沿用；场景、填充、视口、纹理、时间（gradient）变了，或者上一帧画过更高的层，就不沿用', () => {
+  const target = {}
+  const key = (over: Partial<SceneKey> = {}): SceneKey => ({
+    target,
+    time: 1,
+    viewport: viewport(),
+    blendSpace: 'srgb',
+    sceneMode: 1,
+    radialCenterCss: [0, 0],
+    radialRadius: 0.5,
+    sceneImage: null,
+    fills: [fill()],
+    crisp: true,
+    layered: false,
+    ...over
+  })
+  assert.equal(sceneReusable(null, key()), false, '第一帧')
+  assert.equal(sceneReusable(key(), key({ time: 2 })), true, '只动了玻璃（非 gradient 场景：时间无关）')
+  assert.equal(sceneReusable(key({ sceneMode: 0 }), key({ sceneMode: 0, time: 2 })), false, 'gradient 场景随时间漂')
+  assert.equal(sceneReusable(key({ layered: true }), key()), false, '上一帧画过更高的层')
+  assert.equal(sceneReusable(key(), key({ target: {} })), false, '模糊链换了纹理（尺寸、格式、设备）')
+  assert.equal(sceneReusable(key(), key({ viewport: viewport({ sceneWidth: 800 }) })), false, '场景分辨率变了')
+  assert.equal(sceneReusable(key(), key({ fills: [fill({ color: [1, 0, 0, 1] })] })), false, '填充换了颜色')
+  assert.equal(sceneReusable(key(), key({ fills: [] })), false, '填充少了')
+  assert.equal(sceneReusable(key(), key({ crisp: false })), false, '背景上屏换了一份')
+  assert.equal(sceneReusable(key(), key({ radialCenterCss: [1, 0] })), false, '场景参数变了')
+  assert.equal(sceneReusable(key(), key({ blendSpace: 'linear' })), false)
+  const source = {} as SceneImage['source']
+  assert.equal(sceneReusable(key({ sceneImage: image({ source }) }), key({ sceneImage: image({ source }) })), true, '同一张静态图片')
+  assert.equal(sceneReusable(key({ sceneImage: image({ source }) }), key({ sceneImage: image({ source, dynamic: true }) })), false, '视频、画布每帧都变')
 })

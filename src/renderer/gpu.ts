@@ -51,6 +51,7 @@ import { BACKDROP_FORMAT, backdropFormat, BlurChain, levelForSigma } from './blu
 import type { LabelAtlas } from './atlas.ts'
 import { CANVAS_DEST, packFill, sceneDest, sceneScissor, type MeasuredFill } from './fills.ts'
 import { layerRegion, splitLayers, type LayerItems } from './layers.ts'
+import { sceneReusable, type SceneKey } from './idle.ts'
 import {
   PANEL_STRUCT_FLOATS,
   packGroup,
@@ -82,6 +83,8 @@ export class GpuRenderer implements Renderer {
   // 'rgba8unorm-srgb' 第一次用到时再建。bind group 布局是显式的、两套共用 —— 'auto' 布局的
   // bind group 不能拿给别的管线用，那样换一次格式就得把 bind group 全部重建。
   readonly #chainPipelines = new Map<GPUTextureFormat, ChainPipelines>()
+  /** 上一帧的场景输入（沿用场景与模糊链时比它，见 idle.ts 的 sceneReusable）。 */
+  #lastScene: SceneKey | null = null
   /** 模糊链现在的格式（backdropFormat(blendSpace)）。变了就在 render 里重新分配。 */
   #chainFormat: GPUTextureFormat = BACKDROP_FORMAT
   readonly #modules: {
@@ -737,58 +740,80 @@ export class GpuRenderer implements Renderer {
 
     const encoder = device.createCommandEncoder({ label: 'glassium:frame' })
 
-    // 1) 场景 -> 模糊链的 mip 0（锐利背景就是这一级，不需要额外拷贝）
-    //    用户场景的上传与 uniform 写在开 pass 之前：它们走队列，排在这一帧的命令之前执行。
-    const image = input.sceneImage ? this.#prepareImage(input.sceneImage, linear) : 'none'
-    const scenePass = encoder.beginRenderPass({
-      label: 'glassium:scene',
-      colorAttachments: [
-        {
-          view: textures.sceneView,
-          clearValue: { r: 0, g: 0, b: 0, a: 1 },
-          loadOp: 'clear',
-          storeOp: 'store'
-        }
-      ]
-    })
-    if (image !== 'none' && this.#imageBindGroup) {
-      scenePass.setPipeline(pipelines.image)
-      scenePass.setBindGroup(0, this.#imageBindGroup)
-    } else {
-      scenePass.setPipeline(pipelines.scene)
-      scenePass.setBindGroup(0, this.#sceneBindGroup)
-    }
-    scenePass.draw(3)
-    scenePass.end()
-
     // 分层（layers.ts）：第 0 层（直接在场景上的玻璃与场景里的填充）照旧；写在玻璃里面的东西在更高的层，
     // 画之前把画布上已经画好的那一块采回来、只在那一块里重建模糊链
     const layers = splitLayers(panels, groups, fills)
     const base: LayerItems = layers[0]?.layer === 0 ? layers[0] : { layer: 0, panels: [], groups: [], fills: [] }
-    let draws = 2 // 场景与背景
-
-    // 1.5) 第 0 层的填充画进场景：之后建的模糊链、玻璃的采样都看得见它。画之前把「没有填充的场景」
-    //      拷到草稿纹理闲着的第 0 级 —— 背景上屏用那一份，填充另按画布分辨率画（见 3.5）
+    let draws = 0
     const withFills = base.fills.length > 0 && this.#fillSceneBindGroup !== null
     const crispFills = withFills && backdropIsPlain(bd)
-    if (withFills) {
-      if (crispFills) {
-        encoder.copyTextureToTexture(
-          { texture: textures.chain, mipLevel: 0 },
-          { texture: textures.clean, mipLevel: 0 },
-          { width: textures.width, height: textures.height }
-        )
-      }
-      const fillPass = encoder.beginRenderPass({
-        label: 'glassium:fill-scene',
-        colorAttachments: [{ view: textures.sceneView, loadOp: 'load', storeOp: 'store' }]
-      })
-      draws += this.#drawSceneFills(fillPass, base.fills, fills, viewport)
-      fillPass.end()
-    }
 
-    // 2) 建模糊链。趟数只和级数有关，与面板数量无关。
-    let blurPasses = this.#blurChain.build(encoder, pipelines.blur)
+    // 场景没变（只动了玻璃）：沿用上一帧的场景目标与模糊链，1)–2) 整个跳过（idle.ts 的 sceneReusable）
+    const key: SceneKey = {
+      target: textures,
+      time: input.time,
+      viewport,
+      blendSpace: input.blendSpace,
+      sceneMode: backdrop.sceneMode,
+      radialCenterCss: backdrop.radialCenterCss,
+      radialRadius: backdrop.radialRadius,
+      sceneImage: input.sceneImage,
+      fills: base.fills.map((i) => fills[i]!),
+      crisp: crispFills,
+      layered: layers.some((l) => l.layer > 0)
+    }
+    const reuse = input.reuseScene !== false && sceneReusable(this.#lastScene, key)
+    this.#lastScene = key
+    let blurPasses = 0
+    let image: SceneUploadState = 'none'
+
+    if (!reuse) {
+      // 1) 场景 -> 模糊链的 mip 0（锐利背景就是这一级，不需要额外拷贝）
+      //    用户场景的上传与 uniform 写在开 pass 之前：它们走队列，排在这一帧的命令之前执行。
+      image = input.sceneImage ? this.#prepareImage(input.sceneImage, linear) : 'none'
+      const scenePass = encoder.beginRenderPass({
+        label: 'glassium:scene',
+        colorAttachments: [
+          {
+            view: textures.sceneView,
+            clearValue: { r: 0, g: 0, b: 0, a: 1 },
+            loadOp: 'clear',
+            storeOp: 'store'
+          }
+        ]
+      })
+      if (image !== 'none' && this.#imageBindGroup) {
+        scenePass.setPipeline(pipelines.image)
+        scenePass.setBindGroup(0, this.#imageBindGroup)
+      } else {
+        scenePass.setPipeline(pipelines.scene)
+        scenePass.setBindGroup(0, this.#sceneBindGroup)
+      }
+      scenePass.draw(3)
+      scenePass.end()
+      draws++
+
+      // 1.5) 第 0 层的填充画进场景：之后建的模糊链、玻璃的采样都看得见它。画之前把「没有填充的场景」
+      //      拷到草稿纹理闲着的第 0 级 —— 背景上屏用那一份，填充另按画布分辨率画（见 3.5）
+      if (withFills) {
+        if (crispFills) {
+          encoder.copyTextureToTexture(
+            { texture: textures.chain, mipLevel: 0 },
+            { texture: textures.clean, mipLevel: 0 },
+            { width: textures.width, height: textures.height }
+          )
+        }
+        const fillPass = encoder.beginRenderPass({
+          label: 'glassium:fill-scene',
+          colorAttachments: [{ view: textures.sceneView, loadOp: 'load', storeOp: 'store' }]
+        })
+        draws += this.#drawSceneFills(fillPass, base.fills, fills, viewport)
+        fillPass.end()
+      }
+
+      // 2) 建模糊链。趟数只和级数有关，与面板数量无关。
+      blurPasses = this.#blurChain.build(encoder, pipelines.blur)
+    }
 
     // 3) 背景 -> 画布
     const canvasTexture = this.#context.getCurrentTexture()
@@ -803,6 +828,7 @@ export class GpuRenderer implements Renderer {
         }
       ]
     })
+    draws++ // 背景
     presentPass.setPipeline(this.#backdropPipeline)
     presentPass.setBindGroup(0, crispFills && this.#cleanBackdropBindGroup ? this.#cleanBackdropBindGroup : backdropBindGroup)
     presentPass.draw(3)
@@ -870,7 +896,8 @@ export class GpuRenderer implements Renderer {
     return {
       drawCalls: draws + blurPasses,
       blurPasses,
-      sceneUploads: image === 'uploaded' ? 1 : 0
+      sceneUploads: image === 'uploaded' ? 1 : 0,
+      sceneReused: reuse
     }
   }
 

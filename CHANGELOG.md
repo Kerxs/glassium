@@ -16,6 +16,9 @@
   `glass(el, { quality: 0.6 })` / `glass-quality` 把一块写死。`GlassPanel.setQuality`、`combineQuality`、`AdaptiveQuality` 的 `locals`。
 - `GlassPanel.setPresentation`（`PanelPresentation`、`presentRect`）：玻璃相对元素的盒子挪、缩，元素不动。
 - `glassium.morph(from, to)`：`morphGlass` 两头的材质也能从 runtime 的玻璃上取。
+- **只动了玻璃的帧不重建场景**：场景、第 0 层的填充、模糊链都没变（果冻、飞行、拖动、按压的补间）时沿用上一帧的，
+  只画背景与玻璃 —— draw 从 2 + 2(K−1) + N 降到 1 + N、模糊 0 趟，像素逐位相同。`stats().sceneReused` / `sceneReuses`，
+  `stage.debug.setSceneReuse(false)` 关掉。
 - 示例页 `/runtime.html` 加了「动起来的玻璃」一节（拖动的果冻、飞过去的选中块、展开收起的变形）；验证页新增 element-motion、
   local-quality。
 

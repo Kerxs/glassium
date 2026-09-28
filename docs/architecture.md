@@ -26,7 +26,7 @@ Glassium 的定位是**面向 Web 的 Liquid Glass 渲染运行时**：让任意
 | Animation | 统一的时间轴：一帧一个 rAF，与画同帧，减少动效一步到头 | `src/animation/timeline.ts` | 0.4 起有 |
 | DOM Adapter | DOM → 场景的中间表示：几何、变换、裁剪、遮罩、不透明度、层 | `src/renderer/panels.ts`（测量）、`clipping.ts`、`clip-path.ts`、`mask.ts`、`pose.ts`、`layers.ts` | 有（面板、填充） |
 | 场景内容 | 页面背景、填充、位图、文字、图片、画布、视频 | `src/renderer/fills.ts`、`atlas.ts`、`scene-source.ts`、`src/components/scene-label.ts`、`src/runtime/absorb.ts`、`src/runtime/content.ts` | 背景自动收进场景、玻璃后面的内容块画进场景（DOM Renderer），都是 0.3 |
-| Scene Graph | 层级、Z 序、脏状态 | 隐含在 `panels.ts` 的测量结果与 `idle.ts` 的逐帧比较里 | 没有独立的场景图 |
+| Scene Graph | 层级、Z 序、脏状态 | 层与 Z 序在 `panels.ts` 的测量结果与 `layers.ts` 里；脏状态分两级：整帧（`idle.ts` 的 `unchangedFrame`）与场景（`sceneReusable`） | 没有独立的场景图对象 |
 | Compositor | 分层合成、嵌套玻璃、顶层（对话框 / popover）、morph | `src/renderer/layers.ts`、`gpu.ts` / `webgl2/renderer.ts` 的分层绘制、`core/overlay.ts`、`components/morph-glass.ts` | 有（共享场景与一条模糊链） |
 | Renderer | WebGPU / WebGL2 / CSS / 普通 DOM | `src/renderer/gpu.ts`、`src/webgl2/`、`core/overlay.ts` + `runtime/styles.ts`、`[glass]` 没有 active 时的 CSS | 有 |
 | Performance | 帧监测、自适应质量、预算、profile、局部质量 | `src/performance/`、`renderer/quality.ts`、`stage.setQuality` / `onFrame`、`GlassPanel.setQuality` | 整页 + 先降贵的那几块（0.4） |
@@ -203,6 +203,12 @@ stage 是**外壳**：画布、面板注册表、调试参数、帧循环、监�
 测量之后先比一次：这一帧的全部输入（视口、背景参数、场景、每块面板的矩形与降级结果……）与上一帧
 相同，就不画 —— 浏览器继续显示上一帧（`src/renderer/idle.ts`）。静态页面因此没有持续的 GPU 开销；
 测量照做，滚动与布局变化下一帧就能发现。
+
+要画的时候再比一次**场景**（`sceneReusable`）：场景目标与整条模糊链只取决于视口、混合空间、场景参数与用户场景、
+第 0 层的填充（与 gradient 场景的时间）—— 与玻璃无关。这些都没变、上一帧也没画过更高的层（层会把画布采回第 0 级、
+局部重建模糊链），就沿用上一帧的场景与模糊链：场景、第 0 层填充、模糊链三步整个跳过，只画背景上屏与玻璃。
+只动了玻璃的帧（果冻、飞行、拖动、按压的材质补间）因此从 2 + 2(K−1) + N 次 draw 降到 1 + N 次，模糊 0 趟。
+沿用与整帧画逐位相同（verify.html 的 scene-reuse）；`stage.debug.setSceneReuse(false)` 关掉。
 
 模糊链能共享，是因为调色（saturation / tint）是逐点仿射、与模糊可交换 —— 这条等价是整个设计的承重墙，
 详见 [../spec/pipeline.md](../spec/pipeline.md)。

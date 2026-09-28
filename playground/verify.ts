@@ -502,16 +502,26 @@ async function run(): Promise<void> {
   })
 
   await check('draw-calls', async () => {
+    // 整帧：场景 + 背景 + 模糊链 + 每块一次 + 每组一次。关掉沿用场景才是整帧（idle.ts 的 sceneReusable）
+    stage.debug.setSceneReuse(false)
     stage.debug.renderNow()
     const s = stage.debug.stats()
     let grouped = 0
     if (s.groups > 0) grouped = 2 // 这一页里唯一的组有两个成员
     const standalone = s.panels - grouped
     const expect = 2 + s.blurPasses + standalone + s.groups
+    // 再打开：场景没变，下一帧沿用 —— 只剩背景 + 玻璃，模糊 0 趟
+    stage.debug.setSceneReuse(true)
+    stage.debug.renderNow()
+    stage.debug.renderNow()
+    const r = stage.debug.stats()
     const detail =
-      `drawCalls ${s.drawCalls}（= 2 + 模糊 ${s.blurPasses} + 单块 ${standalone} + 组 ${s.groups}），` +
-      `模糊 ${s.blurPasses} 趟 / ${s.blurLevels} 级`
-    return s.drawCalls === expect && s.blurPasses === 2 * (s.blurLevels - 1) ? pass(detail) : fail(detail)
+      `整帧 drawCalls ${s.drawCalls}（= 2 + 模糊 ${s.blurPasses} + 单块 ${standalone} + 组 ${s.groups}），` +
+      `模糊 ${s.blurPasses} 趟 / ${s.blurLevels} 级 · 沿用场景的帧：${r.sceneReused}、drawCalls ${r.drawCalls}（= 1 + 单块 ${standalone} + 组 ${r.groups}）、模糊 ${r.blurPasses} 趟`
+    return s.drawCalls === expect && s.blurPasses === 2 * (s.blurLevels - 1) && !s.sceneReused &&
+      r.sceneReused && r.blurPasses === 0 && r.drawCalls === 1 + standalone + r.groups
+      ? pass(detail)
+      : fail(detail)
   })
 
   await check('dispersion-order', async () => {
@@ -3107,6 +3117,75 @@ async function run(): Promise<void> {
       configure({ absorbContent: true })
       wrap.remove()
       await sleep(0)
+      calibrationScene()
+      stage.debug.renderNow()
+    }
+  })
+
+  await check('scene-reuse', async () => {
+    // 合成器的脏状态（idle.ts 的 sceneReusable）：只动了玻璃的帧沿用上一帧的场景与模糊链。
+    // - 一块玻璃 + 一块填充：玻璃挪 12px，沿用场景画出来的整张画布与关掉沿用整帧画的逐位相同，那一帧模糊 0 趟；
+    // - 填充换了颜色：不沿用（场景里有填充），与整帧画的逐位相同；
+    // - 有嵌套的玻璃（更高的层会改写场景目标）：下一帧不沿用。
+    calibrationScene()
+    const mk = (tag: string, x: number, y: number, w: number, h: number): HTMLElement => {
+      const e = document.createElement(tag)
+      Object.assign(e.style, { position: 'absolute', left: `${x}px`, top: `${y}px`, width: `${w}px`, height: `${h}px`, borderRadius: '18px' })
+      document.body.append(e)
+      return e
+    }
+    const fill = mk('glass-fill', 460, 420, 140, 90)
+    fill.style.setProperty('--glass-fill', 'rgb(40, 180, 90)')
+    const panelEl = mk('div', 520, 450, 160, 80)
+    const panel = stage.register(panelEl, { blur: 6, refraction: 0.5 })
+    const full = async (): Promise<string> => {
+      stage.debug.setSceneReuse(false)
+      stage.debug.renderNow()
+      const h = await sha(await readback())
+      stage.debug.setSceneReuse(true)
+      return h
+    }
+    const reused = async (): Promise<{ hash: string; reused: boolean; blur: number }> => {
+      stage.debug.renderNow()
+      const s = stage.debug.stats()
+      return { hash: await sha(await readback()), reused: s.sceneReused, blur: s.blurPasses }
+    }
+    let inner: HTMLElement | null = null
+    let innerPanel: ReturnType<GlassStage['register']> | null = null
+    try {
+      await sleep(0)
+      await full()
+      panelEl.style.left = '532px'
+      const moved = await reused()
+      const movedFull = await full()
+      fill.style.setProperty('--glass-fill', 'rgb(200, 60, 60)')
+      await sleep(0)
+      const recolored = await reused()
+      const recoloredFull = await full()
+      // 嵌套：panelEl 里面再放一块玻璃（第 1 层）
+      inner = document.createElement('div')
+      Object.assign(inner.style, { position: 'absolute', left: '20px', top: '20px', width: '60px', height: '40px', borderRadius: '12px' })
+      panelEl.append(inner)
+      innerPanel = stage.register(inner, { blur: 2 })
+      await sleep(0)
+      stage.debug.renderNow() // 这一帧画了第 1 层
+      panelEl.style.left = '540px'
+      const afterLayer = await reused()
+      const detail =
+        `挪玻璃：沿用 ${moved.reused}、模糊 ${moved.blur} 趟、与整帧逐位相同 ${moved.hash === movedFull} · ` +
+        `填充换色：沿用 ${recolored.reused}、与整帧逐位相同 ${recolored.hash === recoloredFull} · ` +
+        `上一帧有第 1 层：沿用 ${afterLayer.reused}、模糊 ${afterLayer.blur} 趟`
+      return moved.reused && moved.blur === 0 && moved.hash === movedFull &&
+        !recolored.reused && recolored.hash === recoloredFull &&
+        !afterLayer.reused && afterLayer.blur > 0
+        ? pass(detail)
+        : fail(detail)
+    } finally {
+      stage.debug.setSceneReuse(true)
+      innerPanel?.unregister()
+      panel.unregister()
+      panelEl.remove()
+      fill.remove()
       calibrationScene()
       stage.debug.renderNow()
     }

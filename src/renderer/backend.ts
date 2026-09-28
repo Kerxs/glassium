@@ -132,11 +132,15 @@ export interface FrameInput {
   readonly probe: ProbeRequest | null
   readonly groupProbe: GroupProbeRequest | null
   readonly readback: ReadbackRequest | null
+  /** 场景没变时沿用上一帧的场景与模糊链（idle.ts 的 sceneReusable）。调试时关掉（每帧都整帧画）。默认开。 */
+  readonly reuseScene?: boolean
 }
 
 export interface FrameResult {
   readonly drawCalls: number
   readonly blurPasses: number
+  /** 这一帧沿用了上一帧的场景与模糊链（没画场景、没建模糊链）。 */
+  readonly sceneReused?: boolean
   /** 这一帧有没有把用户场景重新传进纹理（0 或 1）。静态图片只该传一次。 */
   readonly sceneUploads: number
 }

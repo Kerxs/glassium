@@ -42,6 +42,7 @@ import { LOCAL_SIGMA, MAX_LEVELS, levelForSigma } from '../renderer/blur.ts'
 import type { LabelAtlas } from '../renderer/atlas.ts'
 import { CANVAS_DEST, packFill, sceneDest, sceneScissor, type MeasuredFill } from '../renderer/fills.ts'
 import { layerRegion, levelRegion, splitLayers, type LayerItems } from '../renderer/layers.ts'
+import { sceneReusable, type SceneKey } from '../renderer/idle.ts'
 import {
   PANEL_STRUCT_FLOATS,
   packGroup,
@@ -106,6 +107,8 @@ export class Gl2Renderer implements Renderer {
   readonly #rangeBinding: boolean
 
   #chain: WebGLTexture | null = null
+  /** 上一帧的场景输入（沿用场景与模糊链时比它，见 idle.ts 的 sceneReusable）。 */
+  #lastScene: SceneKey | null = null
   #scratch: WebGLTexture | null = null
   #chainFbos: WebGLFramebuffer[] = []
   #scratchFbos: (WebGLFramebuffer | null)[] = []
@@ -481,54 +484,76 @@ export class Gl2Renderer implements Renderer {
     // 分层：第 0 层照旧，更高的层在第 6 步逐层画（与 gpu.ts 相同）
     const layers = splitLayers(panels, groups, fills)
     const base: LayerItems = layers[0]?.layer === 0 ? layers[0] : { layer: 0, panels: [], groups: [], fills: [] }
-    let draws = 2 // 场景与背景
-
-    // 1) 场景 → 模糊链的 mip 0（离屏：不翻 y，纹理第 0 行 = 屏幕顶部，与 WebGPU 相同）
-    const scene = input.sceneImage ? this.#prepareImage(input.sceneImage) : 'none'
-    const image = scene !== 'none' ? input.sceneImage : null
-    gl.bindFramebuffer(gl.FRAMEBUFFER, this.#chainFbos[0]!)
-    gl.viewport(0, 0, W, H)
-    if (image) {
-      const p = this.#sceneImage
-      useProgram(gl, p)
-      gl.bindTexture(gl.TEXTURE_2D, this.#imageTexture)
-      gl.uniform1i(loc(gl, p, 'uImage'), 0)
-      gl.uniform1f(loc(gl, p, 'uFlipUv'), 0)
-      gl.uniform4f(loc(gl, p, 'uUv'), image.uvScale[0], image.uvScale[1], image.uvOffset[0], image.uvOffset[1])
-      gl.uniform4f(loc(gl, p, 'uBackground'), image.background[0], image.background[1], image.background[2], linear ? 1 : 0)
-    } else {
-      useProgram(gl, this.#scene)
-      gl.uniform1f(loc(gl, this.#scene, 'uFlipUv'), 0)
-      gl.uniform4f(loc(gl, this.#scene, 'uScene0'), W, H, input.time, backdrop.sceneMode)
-      gl.uniform4f(
-        loc(gl, this.#scene, 'uScene1'),
-        backdrop.radialCenterCss[0] / viewport.cssWidth,
-        backdrop.radialCenterCss[1] / viewport.cssHeight,
-        backdrop.radialRadius,
-        linear ? 1 : 0
-      )
-    }
-    gl.drawArrays(gl.TRIANGLES, 0, 3)
-
-    // 1.5) 第 0 层的填充画进场景：之后建的模糊链、玻璃的采样都看得见它。画之前把「没有填充的场景」
-    //      拷到草稿的第 0 级，背景上屏用那一份（理由见 gpu.ts 的同一步）
+    let draws = 1 // 背景
     const backdropLevel = levelForSigma(backdrop.blurDp * viewport.sceneScale, this.#levels)
     const crispFills =
       base.fills.length > 0 && backdrop.tint[3] === 0 && backdrop.saturation === 1 && backdropLevel === 0
-    if (base.fills.length > 0) {
-      if (crispFills) {
-        gl.bindFramebuffer(gl.READ_FRAMEBUFFER, this.#chainFbos[0]!)
-        gl.bindFramebuffer(gl.DRAW_FRAMEBUFFER, this.#scratchFbos[0]!)
-        gl.blitFramebuffer(0, 0, W, H, 0, 0, W, H, gl.COLOR_BUFFER_BIT, gl.NEAREST)
-        gl.bindFramebuffer(gl.FRAMEBUFFER, this.#chainFbos[0]!)
-      }
-      draws += this.#drawFills(fills, base.fills, sceneDest(W, H, cw, ch), false, H, (f) =>
-        sceneScissor(f.scissor, W, H, cw, ch)
-      )
-    }
 
-    // 2) 模糊链：每级两趟，与面板数量无关
-    let passes = this.#buildBlur(null)
+    // 场景没变（只动了玻璃）：沿用上一帧的场景目标与模糊链，1)–2) 整个跳过（idle.ts 的 sceneReusable）
+    const key: SceneKey = {
+      target: chain,
+      time: input.time,
+      viewport,
+      blendSpace: input.blendSpace,
+      sceneMode: backdrop.sceneMode,
+      radialCenterCss: backdrop.radialCenterCss,
+      radialRadius: backdrop.radialRadius,
+      sceneImage: input.sceneImage,
+      fills: base.fills.map((i) => fills[i]!),
+      crisp: crispFills,
+      layered: layers.some((l) => l.layer > 0)
+    }
+    const reuse = input.reuseScene !== false && sceneReusable(this.#lastScene, key)
+    this.#lastScene = key
+    let passes = 0
+    let scene: SceneUploadState = 'none'
+
+    if (!reuse) {
+      draws++ // 场景
+      // 1) 场景 → 模糊链的 mip 0（离屏：不翻 y，纹理第 0 行 = 屏幕顶部，与 WebGPU 相同）
+      scene = input.sceneImage ? this.#prepareImage(input.sceneImage) : 'none'
+      const image = scene !== 'none' ? input.sceneImage : null
+      gl.bindFramebuffer(gl.FRAMEBUFFER, this.#chainFbos[0]!)
+      gl.viewport(0, 0, W, H)
+      if (image) {
+        const p = this.#sceneImage
+        useProgram(gl, p)
+        gl.bindTexture(gl.TEXTURE_2D, this.#imageTexture)
+        gl.uniform1i(loc(gl, p, 'uImage'), 0)
+        gl.uniform1f(loc(gl, p, 'uFlipUv'), 0)
+        gl.uniform4f(loc(gl, p, 'uUv'), image.uvScale[0], image.uvScale[1], image.uvOffset[0], image.uvOffset[1])
+        gl.uniform4f(loc(gl, p, 'uBackground'), image.background[0], image.background[1], image.background[2], linear ? 1 : 0)
+      } else {
+        useProgram(gl, this.#scene)
+        gl.uniform1f(loc(gl, this.#scene, 'uFlipUv'), 0)
+        gl.uniform4f(loc(gl, this.#scene, 'uScene0'), W, H, input.time, backdrop.sceneMode)
+        gl.uniform4f(
+          loc(gl, this.#scene, 'uScene1'),
+          backdrop.radialCenterCss[0] / viewport.cssWidth,
+          backdrop.radialCenterCss[1] / viewport.cssHeight,
+          backdrop.radialRadius,
+          linear ? 1 : 0
+        )
+      }
+      gl.drawArrays(gl.TRIANGLES, 0, 3)
+
+      // 1.5) 第 0 层的填充画进场景：之后建的模糊链、玻璃的采样都看得见它。画之前把「没有填充的场景」
+      //      拷到草稿的第 0 级，背景上屏用那一份（理由见 gpu.ts 的同一步）
+      if (base.fills.length > 0) {
+        if (crispFills) {
+          gl.bindFramebuffer(gl.READ_FRAMEBUFFER, this.#chainFbos[0]!)
+          gl.bindFramebuffer(gl.DRAW_FRAMEBUFFER, this.#scratchFbos[0]!)
+          gl.blitFramebuffer(0, 0, W, H, 0, 0, W, H, gl.COLOR_BUFFER_BIT, gl.NEAREST)
+          gl.bindFramebuffer(gl.FRAMEBUFFER, this.#chainFbos[0]!)
+        }
+        draws += this.#drawFills(fills, base.fills, sceneDest(W, H, cw, ch), false, H, (f) =>
+          sceneScissor(f.scissor, W, H, cw, ch)
+        )
+      }
+
+      // 2) 模糊链：每级两趟，与面板数量无关
+      passes = this.#buildBlur(null)
+    }
 
     // 3) 背景上屏（翻 y）。有要按画布分辨率画的填充时，用没有填充的那一份场景
     gl.bindFramebuffer(gl.FRAMEBUFFER, null)
@@ -603,7 +628,8 @@ export class Gl2Renderer implements Renderer {
     return {
       drawCalls: draws + passes,
       blurPasses: passes,
-      sceneUploads: scene === 'uploaded' ? 1 : 0
+      sceneUploads: scene === 'uploaded' ? 1 : 0,
+      sceneReused: reuse
     }
   }
 

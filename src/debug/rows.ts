@@ -18,7 +18,7 @@ export function debugRows(): Array<[string, string]> {
     ['CPU', `${s.cpuMs.total.toFixed(2)} ms（量 ${s.cpuMs.measure.toFixed(2)}）`],
     ['玻璃', `${s.panels} 块 · ${s.groups} 组 · ${s.fills} 填充`],
     ['draw calls', String(s.drawCalls)],
-    ['模糊', `${s.blurPasses} 趟 / ${s.blurLevels} 级`],
+    ['模糊', `${s.blurPasses} 趟 / ${s.blurLevels} 级${s.sceneReused ? '（沿用场景）' : ''} · 沿用过 ${s.sceneReuses} 帧`],
     ['创建', `管线 ${s.pipelineCreations} · 目标 ${s.targetAllocations}`]
   ]
   if (v) rows.push(['画布', `${v.compositeWidth}×${v.compositeHeight} · 场景 ${v.sceneWidth}×${v.sceneHeight}`])

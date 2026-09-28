@@ -120,8 +120,12 @@ export interface GlassStats {
   readonly drawCalls: number
   /** 渲染目标分配次数（跨设备累计）。稳定后不应再增长。 */
   readonly targetAllocations: number
-  /** 上一帧的模糊趟数。应当等于 2×(K−1)，**与面板数量无关**。 */
+  /** 上一帧的模糊趟数。应当等于 2×(K−1)，**与面板数量无关**；沿用了场景的帧是 0。 */
   readonly blurPasses: number
+  /** 上一帧沿用了上一帧的场景与模糊链（场景没变、只动了玻璃）。 */
+  readonly sceneReused: boolean
+  /** 沿用场景的帧数（累计）。 */
+  readonly sceneReuses: number
   /** 模糊链的级数 K。 */
   readonly blurLevels: number
   /** 本帧实际画了的面板数，含合并组里的成员（屏外的不算）。 */
@@ -354,6 +358,10 @@ export interface GlassStage {
     simulateContextLoss(): boolean
     /** 所有面板的调试视图：'sdf' / 'mask' / 'grad' / 'displacement'，'off' 恢复正常。 */
     setPanelDebug(mode: PanelDebugMode): void
+    /**
+     * 场景没变时沿用上一帧的场景与模糊链（默认开）。关掉之后每一帧都整帧画 —— 数 draw call、对照沿用与不沿用的像素用。
+     */
+    setSceneReuse(on: boolean): void
     /**
      * 把第 index 块面板的光学中间量（sd、方向、位移）原样渲进 rgba32float 并回读。
      * 交给 compareOptics() 与 CPU 实现逐像素比对 —— 探针与正常渲染共用同一段
@@ -659,6 +667,9 @@ async function buildStage(options: GlassStageOptions): Promise<GlassStage> {
     radialRadius: 0.5
   }
   let panelDebugMode: PanelDebugMode = 'off'
+  let reuseScene = true
+  let sceneReused = false
+  let sceneReuses = 0
   /** 调试用的像素预算（debug.setPixelBudget），null 用创建时的 options.maxPixels。 */
   let pixelBudget: number | null = null
   /** 自适应质量的系数（setQuality）。 */
@@ -823,7 +834,7 @@ async function buildStage(options: GlassStageOptions): Promise<GlassStage> {
     pendingGroupProbe = null
     pendingReadback = null
 
-    const result = renderer.render({ ...frame, atlas: panels.atlas, probe, groupProbe, readback })
+    const result = renderer.render({ ...frame, atlas: panels.atlas, probe, groupProbe, readback, reuseScene })
     if (!result) {
       // 这一帧没画成（比如资源还没就绪、上下文刚丢）：请求放回去，下一帧再服务
       pendingProbe ??= probe
@@ -841,6 +852,8 @@ async function buildStage(options: GlassStageOptions): Promise<GlassStage> {
     frameMs = performance.now() - t0
     drawCalls = result.drawCalls
     blurPasses = result.blurPasses
+    sceneReused = result.sceneReused === true
+    if (sceneReused) sceneReuses++
     let grouped = 0
     for (const g of measured.groups) grouped += g.members.length
     panelsLastFrame = measured.panels.length + grouped
@@ -1199,6 +1212,8 @@ async function buildStage(options: GlassStageOptions): Promise<GlassStage> {
           drawCalls,
           targetAllocations: retiredAllocations + (renderer?.allocations ?? 0),
           blurPasses,
+          sceneReused,
+          sceneReuses,
           blurLevels: renderer?.blurLevels ?? 0,
           panels: panelsLastFrame,
           groups: groupsLastFrame,
@@ -1252,6 +1267,10 @@ async function buildStage(options: GlassStageOptions): Promise<GlassStage> {
       },
       setPanelDebug(mode: PanelDebugMode): void {
         panelDebugMode = mode
+        requestRender()
+      },
+      setSceneReuse(on: boolean): void {
+        reuseScene = on
         requestRender()
       },
       probeOptics(index = 0): Promise<OpticsProbe> {
@@ -1447,6 +1466,7 @@ function makeInertStage(canvas: HTMLCanvasElement, options: GlassStageOptions): 
       readback: (): Promise<ReadbackResult> =>
         Promise.reject(new Error('[Glassium] 没有 GPU 后端，无法回读')),
       setPanelDebug(): void {},
+      setSceneReuse(): void {},
       probeOptics: (): Promise<OpticsProbe> =>
         Promise.reject(new Error('[Glassium] 没有 GPU 后端，无法探针')),
       probeGroup: (): Promise<GroupOpticsProbe> =>
@@ -1462,6 +1482,8 @@ function makeInertStage(canvas: HTMLCanvasElement, options: GlassStageOptions): 
         drawCalls: 0,
         targetAllocations: 0,
         blurPasses: 0,
+        sceneReused: false,
+        sceneReuses: 0,
         blurLevels: 0,
         panels: 0,
         groups: 0,
