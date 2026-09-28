@@ -182,11 +182,37 @@ function sameFills(a: readonly MeasuredFill[], b: readonly MeasuredFill[]): bool
   return true
 }
 
+/**
+ * 内置场景被整个盖住了吗：第 0 层有一块不透明的填充铺满画布（runtime 收进来的页面根背景就是这样）。
+ * 盖住时内置 gradient 场景随时间漂也看不见 —— 时间不算，静止的页面才能不画、只动玻璃的帧才能沿用场景。
+ * 保守：只认轴对齐、没有圆角、没有裁剪 / 遮罩 / 洞、纯色或全不透明渐变的填充；位图不认（不知道透不透）。
+ */
+export function sceneHidden(fills: readonly MeasuredFill[], viewport: ResolvedViewport): boolean {
+  const W = viewport.compositeWidth
+  const H = viewport.compositeHeight
+  for (const f of fills) {
+    if (f.layer !== 0 || f.bitmap || f.hole || f.mask || f.clipShape) continue
+    if (f.rotation[0] !== 1 || f.rotation[1] !== 0) continue
+    if (!(f.color[3]! >= 1)) continue
+    if (f.gradient && f.gradient.colors.some((c) => !(c[3]! >= 1))) continue
+    if (f.radii.some((r) => r > 0) || f.radiiY.some((r) => r > 0) || f.clipRadii.some((r) => r > 0) || f.clipRadiiY.some((r) => r > 0)) continue
+    if (!(f.x <= 0 && f.y <= 0 && f.x + f.w >= W && f.y + f.h >= H)) continue
+    if (!(f.clip.x0 <= 0 && f.clip.y0 <= 0 && f.clip.x1 >= W && f.clip.y1 >= H)) continue
+    return true
+  }
+  return false
+}
+
 /** next 画出来与 prev 逐像素相同吗。没有 prev（第一帧、刚换过后端或画布）时一律为否。 */
 export function unchangedFrame(prev: FrameSnapshot | null, next: FrameSnapshot): boolean {
   if (prev === null) return false
-  // 内置 gradient 场景随时间漂移；有用户场景时内置场景不画，时间无关
-  if (next.sceneImage === null && next.backdrop.sceneMode === GRADIENT_SCENE && prev.time !== next.time) {
+  // 内置 gradient 场景随时间漂移；有用户场景时内置场景不画、被不透明的填充整个盖住时看不见，时间无关
+  if (
+    next.sceneImage === null &&
+    next.backdrop.sceneMode === GRADIENT_SCENE &&
+    prev.time !== next.time &&
+    !sceneHidden(next.fills, next.viewport)
+  ) {
     return false
   }
   return (
@@ -204,7 +230,8 @@ export function unchangedFrame(prev: FrameSnapshot | null, next: FrameSnapshot):
 /**
  * 场景能不能沿用上一帧的（合成器的脏状态）：场景目标（模糊链第 0 级）与整条模糊链只取决于这些 —— 与玻璃无关。
  * 相同就不重画场景、不重画第 0 层的填充、不重建模糊链：只动了玻璃（果冻、飞行、拖动）的帧省掉最贵的那一半。
- * 上一帧画过更高的层（layers.ts 把画布采回第 0 级、局部重建了模糊链）就不能沿用。
+ * 上一帧画过更高的层（layers.ts 把画布采回第 0 级、局部重建了模糊链）也能沿用：后端在画层之前把那一块的第 0 级
+ * 备份下来，沿用时先拷回去、在同一块里重建模糊链 —— 那一块以外本来就是上一次整帧建的值，逐位复原。
  */
 export interface SceneKey {
   /** 模糊链的纹理（换了尺寸、格式、设备就是新的对象）。 */
@@ -220,13 +247,13 @@ export interface SceneKey {
   readonly fills: readonly MeasuredFill[]
   /** 背景上屏用「没有填充的那一份」（草稿纹理第 0 级）。 */
   readonly crisp: boolean
-  /** 这一帧画了更高的层：场景目标被改过，下一帧不能沿用。 */
-  readonly layered: boolean
 }
 
 export function sceneReusable(prev: SceneKey | null, next: SceneKey): boolean {
-  if (prev === null || prev.layered) return false
-  if (next.sceneImage === null && next.sceneMode === GRADIENT_SCENE && prev.time !== next.time) return false
+  if (prev === null) return false
+  if (next.sceneImage === null && next.sceneMode === GRADIENT_SCENE && prev.time !== next.time && !sceneHidden(next.fills, next.viewport)) {
+    return false
+  }
   return (
     prev.target === next.target &&
     prev.blendSpace === next.blendSpace &&

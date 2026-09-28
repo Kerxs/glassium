@@ -26,6 +26,12 @@ export const OVER_CPU = 0.6
 /** 宽裕：掉帧比例低于它，并且 CPU 在预算的 COMFORT 以内。 */
 export const COMFORT_DROPS = 0.02
 export const COMFORT = 0.35
+/**
+ * GPU 时间（timestamp-query，有的时候）：超过预算的 OVER_GPU 算超预算；宽裕还要求在 COMFORT_GPU 以内。
+ * GPU 与 CPU 并行，一帧的 GPU 时间可以比 CPU 的长；到了预算的七成五，再多一点就要掉帧了。
+ */
+export const OVER_GPU = 0.75
+export const COMFORT_GPU = 0.45
 
 const clamp01 = (x: number): number => Math.min(1, Math.max(0, x))
 /** q 在 [lo, hi] 之间时从 0 线性走到 1。 */
@@ -86,6 +92,8 @@ export interface FrameWindow {
   readonly dropRatio: number
   /** 平均 CPU 时间 ÷ 帧预算。 */
   readonly cpuRatio: number
+  /** 平均 GPU 时间 ÷ 帧预算（后端量不了是 null / 不写）。 */
+  readonly gpuRatio?: number | null
 }
 
 export class QualityController {
@@ -121,8 +129,9 @@ export class QualityController {
       }
       return this.#q
     }
-    const over = w.dropRatio > OVER_DROPS || w.cpuRatio > OVER_CPU
-    const comfortable = w.dropRatio < COMFORT_DROPS && w.cpuRatio < COMFORT
+    const gpu = w.gpuRatio ?? null
+    const over = w.dropRatio > OVER_DROPS || w.cpuRatio > OVER_CPU || (gpu !== null && gpu > OVER_GPU)
+    const comfortable = w.dropRatio < COMFORT_DROPS && w.cpuRatio < COMFORT && (gpu === null || gpu < COMFORT_GPU)
     if (over) {
       this.#comfort = 0
       if (++this.#over >= DEGRADE_WINDOWS) {

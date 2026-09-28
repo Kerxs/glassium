@@ -19,6 +19,8 @@ export class FrameMonitor {
   #frames = 0
   #drops = 0
   #cpu = 0
+  #gpu = 0
+  #gpuFrames = 0
   readonly #intervals: number[] = []
   #refresh = 1000 / 60
 
@@ -27,8 +29,8 @@ export class FrameMonitor {
     return this.#refresh
   }
 
-  /** 一圈。返回攒满的窗口（没满是 null）。 */
-  frame(time: number, rendered: boolean, cpuMs: number): FrameWindow | null {
+  /** 一圈。gpuMs 是后端量到的 GPU 时间（量不了是 null）。返回攒满的窗口（没满是 null）。 */
+  frame(time: number, rendered: boolean, cpuMs: number, gpuMs: number | null = null): FrameWindow | null {
     const dt = this.#last < 0 ? 0 : time - this.#last
     this.#last = time
     if (dt > GAP_MS) {
@@ -37,6 +39,8 @@ export class FrameMonitor {
       this.#frames = 0
       this.#drops = 0
       this.#cpu = 0
+      this.#gpu = 0
+      this.#gpuFrames = 0
       return null
     }
     if (dt > 0) {
@@ -48,18 +52,25 @@ export class FrameMonitor {
     if (rendered && dt > 0) {
       this.#frames++
       this.#cpu += cpuMs
+      if (gpuMs !== null && Number.isFinite(gpuMs)) {
+        this.#gpu += gpuMs
+        this.#gpuFrames++
+      }
       if (dt > this.#refresh * 1.5) this.#drops++
     }
     if (time - this.#windowStart < WINDOW_MS) return null
     const w: FrameWindow = {
       frames: this.#frames,
       dropRatio: this.#frames > 0 ? this.#drops / this.#frames : 0,
-      cpuRatio: this.#frames > 0 ? this.#cpu / this.#frames / this.#refresh : 0
+      cpuRatio: this.#frames > 0 ? this.#cpu / this.#frames / this.#refresh : 0,
+      gpuRatio: this.#gpuFrames > 0 ? this.#gpu / this.#gpuFrames / this.#refresh : null
     }
     this.#windowStart = time
     this.#frames = 0
     this.#drops = 0
     this.#cpu = 0
+    this.#gpu = 0
+    this.#gpuFrames = 0
     return w
   }
 }

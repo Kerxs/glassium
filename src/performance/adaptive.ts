@@ -110,7 +110,7 @@ export class AdaptiveQuality {
   /** 喂一圈（stage.onFrame 的回调；测试直接调）。 */
   feed(frame: StageFrame): void {
     if (this.#fixed !== null) return
-    const w = this.#monitor.frame(frame.time, frame.rendered, frame.cpuMs)
+    const w = this.#monitor.frame(frame.time, frame.rendered, frame.cpuMs, frame.gpuMs ?? null)
     if (!w) return
     this.#lastWindow = w
     const before = this.#controller.quality

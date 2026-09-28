@@ -103,6 +103,22 @@ export function layerRegion(
   }
 }
 
+/** 几块场景矩形（[x, y, w, h]）的并集包围盒；没有是 null。 */
+export function unionRegion(rects: readonly (readonly [number, number, number, number])[]): [number, number, number, number] | null {
+  if (rects.length === 0) return null
+  let x0 = Infinity
+  let y0 = Infinity
+  let x1 = -Infinity
+  let y1 = -Infinity
+  for (const [x, y, w, h] of rects) {
+    x0 = Math.min(x0, x)
+    y0 = Math.min(y0, y)
+    x1 = Math.max(x1, x + w)
+    y1 = Math.max(y1, y + h)
+  }
+  return [x0, y0, x1 - x0, y1 - y0]
+}
+
 /**
  * 场景目标里的一块 → 模糊链第 level 级里要重建的那一块：按级缩小、往外扩 3 个纹素（5 抽头的核 ±2，
  * 再加双线性降采样读到的那一个），钳到这一级的尺寸里。

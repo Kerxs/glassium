@@ -158,7 +158,9 @@ export async function acquireDevice(): Promise<DeviceResult> {
 
     let device: GPUDevice
     try {
-      device = await adapter.requestDevice()
+      // GPU 计时（renderer/gpu-timer.ts）：有 timestamp-query 就要上，没有也照常建
+      const requiredFeatures: GPUFeatureName[] = adapter.features.has('timestamp-query') ? ['timestamp-query'] : []
+      device = await adapter.requestDevice({ requiredFeatures })
     } catch (err) {
       return { ok: false, failure: { kind: 'no-device', detail: String(err) } }
     }

@@ -47,11 +47,12 @@ import {
   type SceneUploadState,
   sourceReady
 } from './backend.ts'
-import { BACKDROP_FORMAT, backdropFormat, BlurChain, levelForSigma } from './blur.ts'
+import { BACKDROP_FORMAT, backdropFormat, BlurChain, levelForSigma, type BlurChainTextures } from './blur.ts'
 import type { LabelAtlas } from './atlas.ts'
 import { CANVAS_DEST, packFill, sceneDest, sceneScissor, type MeasuredFill } from './fills.ts'
-import { layerRegion, splitLayers, type LayerItems } from './layers.ts'
+import { layerRegion, splitLayers, unionRegion, type LayerItems, type LayerRegion } from './layers.ts'
 import { sceneReusable, type SceneKey } from './idle.ts'
+import { GpuTimer } from './gpu-timer.ts'
 import {
   PANEL_STRUCT_FLOATS,
   packGroup,
@@ -85,6 +86,12 @@ export class GpuRenderer implements Renderer {
   readonly #chainPipelines = new Map<GPUTextureFormat, ChainPipelines>()
   /** 上一帧的场景输入（沿用场景与模糊链时比它，见 idle.ts 的 sceneReusable）。 */
   #lastScene: SceneKey | null = null
+  /** GPU 计时（设备不支持 timestamp-query 时是 null）。 */
+  readonly #timer: GpuTimer | null
+  /** 上一帧的层改过的那一块（场景像素 [x, y, w, h]），与画层之前那一块第 0 级的备份。 */
+  #damage: [number, number, number, number] | null = null
+  #layerBackup: GPUTexture | null = null
+  #backupFor: BlurChainTextures | null = null
   /** 模糊链现在的格式（backdropFormat(blendSpace)）。变了就在 render 里重新分配。 */
   #chainFormat: GPUTextureFormat = BACKDROP_FORMAT
   readonly #modules: {
@@ -257,6 +264,7 @@ export class GpuRenderer implements Renderer {
     })
 
     this.#blurChain = new BlurChain(device, this.#blurLayout, this.#sampler)
+    this.#timer = GpuTimer.create(device)
 
     // 显式的 bind group layout：'auto' 布局不支持 hasDynamicOffset，
     // 而所有面板共用一条 uniform buffer、逐块只换动态偏移，正是整个设计的要点。
@@ -487,6 +495,11 @@ export class GpuRenderer implements Renderer {
    * 视口尺寸变了（或者刚在新设备上重建、混合空间换了）时调用：按现在的格式重建纹理、依赖纹理的
    * bind group，以及随格式变的几个 uniform。
    */
+  /** 最近一次量到的一帧 GPU 时间（ms）；设备不支持计时、还没读回来是 null。 */
+  get gpuMs(): number | null {
+    return this.#timer?.lastMs ?? null
+  }
+
   resize(viewport: ResolvedViewport): number {
     const linear = this.#chainFormat !== BACKDROP_FORMAT
     const textures = this.#blurChain.ensure(viewport, this.#chainFormat)
@@ -739,6 +752,7 @@ export class GpuRenderer implements Renderer {
     let fillDraws = 0
 
     const encoder = device.createCommandEncoder({ label: 'glassium:frame' })
+    this.#timer?.begin(encoder)
 
     // 分层（layers.ts）：第 0 层（直接在场景上的玻璃与场景里的填充）照旧；写在玻璃里面的东西在更高的层，
     // 画之前把画布上已经画好的那一块采回来、只在那一块里重建模糊链
@@ -759,13 +773,23 @@ export class GpuRenderer implements Renderer {
       radialRadius: backdrop.radialRadius,
       sceneImage: input.sceneImage,
       fills: base.fills.map((i) => fills[i]!),
-      crisp: crispFills,
-      layered: layers.some((l) => l.layer > 0)
+      crisp: crispFills
     }
     const reuse = input.reuseScene !== false && sceneReusable(this.#lastScene, key)
     this.#lastScene = key
     let blurPasses = 0
     let image: SceneUploadState = 'none'
+
+    // 沿用、但上一帧画过更高的层：那一块的第 0 级拷回备份、在同一块里重建模糊链（逐位复原，理由见 idle.ts）
+    if (reuse && this.#damage && this.#layerBackup && this.#backupFor === textures) {
+      const [dx, dy, dw, dh] = this.#damage
+      encoder.copyTextureToTexture(
+        { texture: this.#layerBackup, origin: { x: dx, y: dy } },
+        { texture: textures.chain, mipLevel: 0, origin: { x: dx, y: dy } },
+        { width: dw, height: dh }
+      )
+      blurPasses += this.#blurChain.build(encoder, pipelines.blur, this.#damage)
+    }
 
     if (!reuse) {
       // 1) 场景 -> 模糊链的 mip 0（锐利背景就是这一级，不需要额外拷贝）
@@ -844,9 +868,25 @@ export class GpuRenderer implements Renderer {
     presentPass.end()
 
     // 6) 更高的层，逐层：拷画布 → 重采样回场景目标 → 这一层的填充 → 局部重建模糊链 → 填充、玻璃、合并组上屏
+    //    画之前把所有层要改的那一块（并集）的第 0 级备份下来：下一帧沿用场景时拷回去
+    const regions = new Map<LayerItems, LayerRegion>()
     for (const layer of layers) {
       if (layer.layer === 0) continue
       const region = layerRegion(layer, panels, groups, fills, viewport, textures.levels)
+      if (region) regions.set(layer, region)
+    }
+    this.#damage = unionRegion([...regions.values()].map((r) => r.scene))
+    if (this.#damage) {
+      const backup = this.#ensureLayerBackup(textures)
+      const [dx, dy, dw, dh] = this.#damage
+      encoder.copyTextureToTexture(
+        { texture: textures.chain, mipLevel: 0, origin: { x: dx, y: dy } },
+        { texture: backup, origin: { x: dx, y: dy } },
+        { width: dw, height: dh }
+      )
+    }
+    for (const layer of layers) {
+      const region = regions.get(layer)
       if (!region) continue
       const source = this.#ensureLayerSource(viewport)
       const [cx, cy, cw, ch] = region.composite
@@ -887,7 +927,9 @@ export class GpuRenderer implements Renderer {
       ? this.#encodeReadback(encoder, input.readback, canvasTexture)
       : null
 
+    this.#timer?.end(encoder)
     device.queue.submit([encoder.finish()])
+    this.#timer?.afterSubmit()
 
     finishProbe?.()
     finishGroupProbe?.()
@@ -974,6 +1016,20 @@ export class GpuRenderer implements Renderer {
   }
 
   /** 层的来源纹理：画布大小、画布的格式（拷贝要求格式相同）。视口变了重新分配，连同重采样的 bind group。 */
+  /** 场景目标第 0 级的备份（与模糊链同尺寸、同格式；换了模糊链就重建）。 */
+  #ensureLayerBackup(textures: BlurChainTextures): GPUTexture {
+    if (this.#layerBackup && this.#backupFor === textures) return this.#layerBackup
+    this.#layerBackup?.destroy()
+    this.#layerBackup = this.device.createTexture({
+      label: 'glassium:layer-backup',
+      size: { width: textures.width, height: textures.height },
+      format: textures.format,
+      usage: GPUTextureUsage.COPY_SRC | GPUTextureUsage.COPY_DST
+    })
+    this.#backupFor = textures
+    return this.#layerBackup
+  }
+
   #ensureLayerSource(viewport: ResolvedViewport): GPUTexture {
     const w = viewport.compositeWidth
     const h = viewport.compositeHeight
@@ -1293,6 +1349,8 @@ export class GpuRenderer implements Renderer {
   destroy(): void {
     if (this.#destroyed) return
     this.#destroyed = true
+    this.#timer?.destroy()
+    this.#layerBackup?.destroy()
     this.#sceneUniforms.destroy()
     this.#backdropUniforms.destroy()
     this.#stageUniforms.destroy()

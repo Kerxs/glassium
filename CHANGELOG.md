@@ -18,7 +18,10 @@
 - `glassium.morph(from, to)`：`morphGlass` 两头的材质也能从 runtime 的玻璃上取。
 - **只动了玻璃的帧不重建场景**：场景、第 0 层的填充、模糊链都没变（果冻、飞行、拖动、按压的补间）时沿用上一帧的，
   只画背景与玻璃 —— draw 从 2 + 2(K−1) + N 降到 1 + N、模糊 0 趟，像素逐位相同。`stats().sceneReused` / `sceneReuses`，
-  `stage.debug.setSceneReuse(false)` 关掉。
+  `stage.debug.setSceneReuse(false)` 关掉。有嵌套玻璃（更高的层）的页面也沿用：层改过的那一块先从备份拷回、局部重建。
+- **零配置的静止页面不再每帧都画**：内置 gradient 场景被页面根背景（不透明、铺满）整个盖住时，它随时间漂也看不见，不算变化。
+- **GPU 计时**：WebGPU 有 `timestamp-query` 时量每帧的 GPU 时间（`stats().gpuMs`、`StageFrame.gpuMs`、调试面板），
+  自适应质量按它判断 GPU 吃不吃紧（`OVER_GPU` / `COMFORT_GPU`，`FrameWindow.gpuRatio`）。
 - 示例页 `/runtime.html` 加了「动起来的玻璃」一节（拖动的果冻、飞过去的选中块、展开收起的变形）；验证页新增 element-motion、
   local-quality。
 

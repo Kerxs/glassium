@@ -171,6 +171,8 @@ export interface Renderer {
   readonly blurLevels: number
   /** 渲染目标分配次数。 */
   readonly allocations: number
+  /** 最近一次量到的一帧 GPU 时间（ms，timestamp-query）；量不了是 null。 */
+  readonly gpuMs?: number | null
   /** 视口尺寸变了（或刚重建）时调用：重建纹理。返回模糊链级数。 */
   resize(viewport: ResolvedViewport): number
   /** 画一帧。资源还没就绪时返回 null，调用方下一帧再来。 */

@@ -41,7 +41,7 @@ import {
 import { LOCAL_SIGMA, MAX_LEVELS, levelForSigma } from '../renderer/blur.ts'
 import type { LabelAtlas } from '../renderer/atlas.ts'
 import { CANVAS_DEST, packFill, sceneDest, sceneScissor, type MeasuredFill } from '../renderer/fills.ts'
-import { layerRegion, levelRegion, splitLayers, type LayerItems } from '../renderer/layers.ts'
+import { layerRegion, levelRegion, splitLayers, unionRegion, type LayerItems, type LayerRegion } from '../renderer/layers.ts'
 import { sceneReusable, type SceneKey } from '../renderer/idle.ts'
 import {
   PANEL_STRUCT_FLOATS,
@@ -109,6 +109,11 @@ export class Gl2Renderer implements Renderer {
   #chain: WebGLTexture | null = null
   /** 上一帧的场景输入（沿用场景与模糊链时比它，见 idle.ts 的 sceneReusable）。 */
   #lastScene: SceneKey | null = null
+  /** 上一帧的层改过的那一块（场景像素 [x, y, w, h]），与画层之前那一块第 0 级的备份（与 gpu.ts 相同）。 */
+  #damage: [number, number, number, number] | null = null
+  #layerBackup: WebGLTexture | null = null
+  #layerBackupFbo: WebGLFramebuffer | null = null
+  #backupFor: WebGLTexture | null = null
   #scratch: WebGLTexture | null = null
   #chainFbos: WebGLFramebuffer[] = []
   #scratchFbos: (WebGLFramebuffer | null)[] = []
@@ -310,6 +315,8 @@ export class Gl2Renderer implements Renderer {
     this.#chain = null
     this.#scratch = null
     this.#levels = 0
+    this.#deleteLayerBackup()
+    this.#damage = null
   }
 
   #ensurePanelCapacity(count: number): void {
@@ -500,13 +507,21 @@ export class Gl2Renderer implements Renderer {
       radialRadius: backdrop.radialRadius,
       sceneImage: input.sceneImage,
       fills: base.fills.map((i) => fills[i]!),
-      crisp: crispFills,
-      layered: layers.some((l) => l.layer > 0)
+      crisp: crispFills
     }
     const reuse = input.reuseScene !== false && sceneReusable(this.#lastScene, key)
     this.#lastScene = key
     let passes = 0
     let scene: SceneUploadState = 'none'
+
+    // 沿用、但上一帧画过更高的层：那一块的第 0 级拷回备份、在同一块里重建模糊链（逐位复原，理由见 idle.ts）
+    if (reuse && this.#damage && this.#layerBackupFbo && this.#backupFor === chain) {
+      const [dx, dy, dw, dh] = this.#damage
+      gl.bindFramebuffer(gl.READ_FRAMEBUFFER, this.#layerBackupFbo)
+      gl.bindFramebuffer(gl.DRAW_FRAMEBUFFER, this.#chainFbos[0]!)
+      gl.blitFramebuffer(dx, dy, dx + dw, dy + dh, dx, dy, dx + dw, dy + dh, gl.COLOR_BUFFER_BIT, gl.NEAREST)
+      passes += this.#buildBlur(this.#damage)
+    }
 
     if (!reuse) {
       draws++ // 场景
@@ -576,9 +591,23 @@ export class Gl2Renderer implements Renderer {
     draws += this.#drawGlass(base, panels, groups, cw, ch)
 
     // 6) 更高的层，逐层：拷画布 → 重采样回场景目标 → 这一层的填充 → 局部重建模糊链 → 填充、玻璃上屏
+    //    画之前把所有层要改的那一块（并集）的第 0 级备份下来：下一帧沿用场景时拷回去
+    const regions = new Map<LayerItems, LayerRegion>()
     for (const layer of layers) {
       if (layer.layer === 0) continue
       const region = layerRegion(layer, panels, groups, fills, viewport, this.#levels)
+      if (region) regions.set(layer, region)
+    }
+    this.#damage = unionRegion([...regions.values()].map((r) => r.scene))
+    if (this.#damage) {
+      const backupFbo = this.#ensureLayerBackup()
+      const [dx, dy, dw, dh] = this.#damage
+      gl.bindFramebuffer(gl.READ_FRAMEBUFFER, this.#chainFbos[0]!)
+      gl.bindFramebuffer(gl.DRAW_FRAMEBUFFER, backupFbo)
+      gl.blitFramebuffer(dx, dy, dx + dw, dy + dh, dx, dy, dx + dw, dy + dh, gl.COLOR_BUFFER_BIT, gl.NEAREST)
+    }
+    for (const layer of layers) {
+      const region = regions.get(layer)
       if (!region) continue
       const sourceFbo = this.#ensureLayerSource(cw, ch)
       // 默认帧缓冲 → 来源纹理，同样左下原点（纹理第 0 行是屏幕底部）。用 blit 不用 copyTexSubImage2D：
@@ -719,6 +748,35 @@ export class Gl2Renderer implements Renderer {
   }
 
   /** 层的来源纹理（画布大小、RGBA8）与挂着它的帧缓冲。视口变了重新分配。 */
+  /** 场景目标第 0 级的备份（与模糊链同尺寸、同格式；换了模糊链就重建）。 */
+  #ensureLayerBackup(): WebGLFramebuffer {
+    const gl = this.gl
+    if (this.#layerBackupFbo && this.#backupFor === this.#chain) return this.#layerBackupFbo
+    this.#deleteLayerBackup()
+    const tex = gl.createTexture()
+    if (!tex) throw new Error('[Glassium] createTexture 返回 null')
+    gl.bindTexture(gl.TEXTURE_2D, tex)
+    gl.texStorage2D(gl.TEXTURE_2D, 1, this.#linear ? gl.SRGB8_ALPHA8 : gl.RGBA8, this.#width, this.#height)
+    const fbo = gl.createFramebuffer()
+    if (!fbo) throw new Error('[Glassium] createFramebuffer 返回 null')
+    gl.bindFramebuffer(gl.FRAMEBUFFER, fbo)
+    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, tex, 0)
+    objectsCreated += 2
+    this.#layerBackup = tex
+    this.#layerBackupFbo = fbo
+    this.#backupFor = this.#chain
+    return fbo
+  }
+
+  #deleteLayerBackup(): void {
+    const gl = this.gl
+    if (this.#layerBackupFbo) gl.deleteFramebuffer(this.#layerBackupFbo)
+    if (this.#layerBackup) gl.deleteTexture(this.#layerBackup)
+    this.#layerBackupFbo = null
+    this.#layerBackup = null
+    this.#backupFor = null
+  }
+
   #ensureLayerSource(cw: number, ch: number): WebGLFramebuffer {
     const gl = this.gl
     if (this.#layerSourceFbo && this.#layerSourceWidth === cw && this.#layerSourceHeight === ch) return this.#layerSourceFbo

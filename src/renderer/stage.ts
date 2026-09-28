@@ -104,6 +104,8 @@ export interface StageFrame {
   readonly rendered: boolean
   /** 这一圈的 CPU 时间（量 + 打包 + 提交），ms。 */
   readonly cpuMs: number
+  /** 最近一次量到的一帧 GPU 时间（ms，WebGPU 的 timestamp-query，异步读回、晚一两帧）；量不了是 null。 */
+  readonly gpuMs?: number | null
 }
 
 export interface GlassStats {
@@ -126,6 +128,8 @@ export interface GlassStats {
   readonly sceneReused: boolean
   /** 沿用场景的帧数（累计）。 */
   readonly sceneReuses: number
+  /** 最近一次量到的一帧 GPU 时间（ms）；后端量不了（WebGL2、设备没有 timestamp-query）是 null。 */
+  readonly gpuMs: number | null
   /** 模糊链的级数 K。 */
   readonly blurLevels: number
   /** 本帧实际画了的面板数，含合并组里的成员（屏外的不算）。 */
@@ -869,7 +873,7 @@ async function buildStage(options: GlassStageOptions): Promise<GlassStage> {
     flushFrame(now)
     const rendered = renderFrame(now)
     if (frameListeners.size > 0) {
-      const info: StageFrame = { time: now, rendered, cpuMs: frameMs }
+      const info: StageFrame = { time: now, rendered, cpuMs: frameMs, gpuMs: renderer?.gpuMs ?? null }
       for (const l of frameListeners) l(info)
     }
     rafId = requestAnimationFrame(loop)
@@ -1214,6 +1218,7 @@ async function buildStage(options: GlassStageOptions): Promise<GlassStage> {
           blurPasses,
           sceneReused,
           sceneReuses,
+          gpuMs: renderer?.gpuMs ?? null,
           blurLevels: renderer?.blurLevels ?? 0,
           panels: panelsLastFrame,
           groups: groupsLastFrame,
@@ -1484,6 +1489,7 @@ function makeInertStage(canvas: HTMLCanvasElement, options: GlassStageOptions): 
         blurPasses: 0,
         sceneReused: false,
         sceneReuses: 0,
+        gpuMs: null,
         blurLevels: 0,
         panels: 0,
         groups: 0,

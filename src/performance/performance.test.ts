@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 
 import { FrameMonitor, WINDOW_MS } from './monitor.ts'
 import { parseProfile, profileKey, PROFILE_TTL_MS } from './profile.ts'
-import { allocateQuality, HEAVY_SHARE, LOCAL_SPAN } from './quality.ts'
+import { allocateQuality, COMFORT_GPU, HEAVY_SHARE, LOCAL_SPAN, OVER_GPU } from './quality.ts'
 import {
   DEGRADE_WINDOWS,
   factorsFor,
@@ -139,4 +139,30 @@ test('局部质量：先降贵的那几块（整页不动），再往下整页�
   assert.deepEqual(allocateQuality(0.8, [100, 100, 100, 100, 100]), { global: 0.8, local: [null, null, null, null, null] }, '成本差不多（各 20% < 25%）：整页降')
   assert.ok(0.2 < HEAVY_SHARE)
   assert.deepEqual(allocateQuality(0.8, [1000]), { global: 0.8, local: [null] }, '只有一块：它就是整页')
+})
+
+test('GPU 时间：CPU 与掉帧都好但 GPU 超预算 → 照样降；GPU 不宽裕时不升；量不了（null）时与原来一样', () => {
+  const gpuHeavy: FrameWindow = { frames: 30, dropRatio: 0, cpuRatio: 0.2, gpuRatio: OVER_GPU + 0.1 }
+  const c = new QualityController(1, false)
+  for (let i = 0; i < DEGRADE_WINDOWS; i++) c.sample(gpuHeavy)
+  assert.ok(c.quality < 1, 'GPU 吃紧就降')
+  const warm: FrameWindow = { frames: 30, dropRatio: 0, cpuRatio: 0.2, gpuRatio: (OVER_GPU + COMFORT_GPU) / 2 }
+  const d = new QualityController(0.8, false)
+  for (let i = 0; i < RECOVER_WINDOWS * 2; i++) d.sample(warm)
+  assert.equal(d.quality, 0.8, 'GPU 在中间那一段：不升不降')
+  const unknown: FrameWindow = { frames: 30, dropRatio: 0, cpuRatio: 0.2, gpuRatio: null }
+  const e = new QualityController(0.8, false)
+  for (let i = 0; i < RECOVER_WINDOWS; i++) e.sample(unknown)
+  assert.ok(e.quality > 0.8, '量不了 GPU：按 CPU 与掉帧照常升')
+})
+
+test('帧监测：窗口里的 GPU 时间取平均、除以刷新间隔；没有 GPU 时间时是 null', () => {
+  const m = new FrameMonitor()
+  let w: FrameWindow | null = null
+  for (let t = 0; t <= 600 && !w; t += 16) w = m.frame(t, true, 2, 8)
+  assert.ok(w && w.gpuRatio !== null && w.gpuRatio !== undefined && Math.abs(w.gpuRatio - 0.5) < 0.01, `8ms / 16ms ≈ 0.5（${w?.gpuRatio}）`)
+  const n = new FrameMonitor()
+  let v: FrameWindow | null = null
+  for (let t = 0; t <= 600 && !v; t += 16) v = n.frame(t, true, 2)
+  assert.equal(v?.gpuRatio, null)
 })

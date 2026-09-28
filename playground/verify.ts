@@ -119,6 +119,8 @@ const perturbAfter = new URLSearchParams(location.search).get('verify.perturb')
 let startMismatch: string | null = null
 /** 查问题用：`?verify.stop=<检查名>` 跑完这一项就停，后面的都不跑，页面留在那一刻的状态。 */
 const stopAfter = new URLSearchParams(location.search).get('verify.stop')
+/** 查问题用：`?verify.noreuse` 整轮都不沿用场景。各项检查打开沿用之后回到这个值。 */
+const reuseDefault = !new URLSearchParams(location.search).has('verify.noreuse')
 let stopped = false
 
 /**
@@ -423,6 +425,8 @@ async function run(): Promise<void> {
   defineGlassElements()
   stage = await createGlassStage({ backend })
   Object.assign(window as unknown as Record<string, unknown>, { glassiumStage: stage })
+  // 查问题用：`?verify.noreuse` 整轮都不沿用场景（每帧整帧画），与沿用时的结果对照
+  stage.debug.setSceneReuse(reuseDefault)
   calibrationScene()
   // 1:1 判据的反向对照：`?verify.inexact` 把画布收窄 1/3 个 CSS 像素，合成目标就对不上设备像素了。
   // 写成样式规则而不是画布的行内样式：cross-backend 会另建 stage，新画布也要一样窄
@@ -462,21 +466,27 @@ async function run(): Promise<void> {
   await check('deterministic', async () => {
     // 静止的画面连着出 21 帧，整张画布必须逐位相同。WebGL2 在 NVIDIA RTX 4070 Laptop + ANGLE（D3D11）上曾经不是：
     // 片元着色器里除以 uniform 的结果在帧与帧之间差 1 ulp，经过双线性采样变成 ±1 的色阶，一成到四成的帧
-    // 与别的帧不同（见 webgl2/shaders.ts 的 uStageInv）。后面按哈希比对的检查都靠这一条
-    const v = stage.debug.stats().viewport!
-    const full = { x: 0, y: 0, width: v.compositeWidth, height: v.compositeHeight }
-    const first = await readback(full)
-    const firstHash = await sha(first)
-    let differing = 0
-    let where = ''
-    for (let i = 0; i < 20; i++) {
-      const next = await readback(full)
-      if ((await sha(next)) === firstHash) continue
-      differing++
-      if (!where) where = pixelDiff(first, next, full.width)
+    // 与别的帧不同（见 webgl2/shaders.ts 的 uStageInv）。后面按哈希比对的检查都靠这一条。
+    // 关掉沿用场景：每一帧都整帧画（场景、模糊链都重建）—— 沿用的帧天然相同，验不出重建是不是确定的
+    stage.debug.setSceneReuse(false)
+    try {
+      const v = stage.debug.stats().viewport!
+      const full = { x: 0, y: 0, width: v.compositeWidth, height: v.compositeHeight }
+      const first = await readback(full)
+      const firstHash = await sha(first)
+      let differing = 0
+      let where = ''
+      for (let i = 0; i < 20; i++) {
+        const next = await readback(full)
+        if ((await sha(next)) === firstHash) continue
+        differing++
+        if (!where) where = pixelDiff(first, next, full.width)
+      }
+      const detail = `整张画布（${full.width}×${full.height}）连着 21 帧整帧画：` + (differing === 0 ? '逐位相同' : `${differing} 帧与第一帧不同，头一帧 ${where}`)
+      return differing === 0 ? pass(detail) : fail(detail)
+    } finally {
+      stage.debug.setSceneReuse(reuseDefault)
     }
-    const detail = `整张画布（${full.width}×${full.height}）连着 21 帧：` + (differing === 0 ? '逐位相同' : `${differing} 帧与第一帧不同，头一帧 ${where}`)
-    return differing === 0 ? pass(detail) : fail(detail)
   })
 
   const probes = await probeAll()
@@ -511,7 +521,7 @@ async function run(): Promise<void> {
     const standalone = s.panels - grouped
     const expect = 2 + s.blurPasses + standalone + s.groups
     // 再打开：场景没变，下一帧沿用 —— 只剩背景 + 玻璃，模糊 0 趟
-    stage.debug.setSceneReuse(true)
+    stage.debug.setSceneReuse(reuseDefault)
     stage.debug.renderNow()
     stage.debug.renderNow()
     const r = stage.debug.stats()
@@ -3076,12 +3086,14 @@ async function run(): Promise<void> {
       video.pause()
       await sleep(80)
       const pausedAt = statsOf(media)?.paints ?? 0
+      const pausedFramesAt = statsOf(media)?.videoFrames ?? 0
       for (let i = 0; i < 6; i++) {
         drawSource()
         await sleep(40)
         stage.debug.renderNow()
       }
       const pausedAfter = statsOf(media)?.paints ?? 0
+      const pausedFramesAfter = statsOf(media)?.videoFrames ?? 0
       // 挪开：还给 DOM
       lens.style.top = '400px'
       await settle()
@@ -3100,12 +3112,13 @@ async function run(): Promise<void> {
       const framesDuring = (vs?.videoFrames ?? 0) - vs0.videoFrames
       const paintsDuring = (vs?.paints ?? 0) - vs0.paints
       const videoOk = framesDuring === 0 || (paintsDuring >= 1 && paintsDuring <= framesDuring + 1)
-      const pausedOk = pausedAfter === pausedAt
+      // 暂停之后不再有视频帧（不再因为视频重画）；画的次数只作参考 —— 图集满了整张重画（DPR 高、块大时）也会加一次
+      const pausedOk = pausedFramesAfter === pausedFramesAt
       const xoWarnings = warnings.filter((w) => w.includes('跨源的')).length
       const detail =
         `字：收了 ${absorbedText}、DOM 里透明 ${domTransparent}、玻璃里墨迹 ${ink0} · 改字：画 ${paints0} → ${paints1} 次、墨迹 ${ink1} · ` +
         `图片与画布：收了 ${absorbedMedia}、橙 ${orange}、红 ${reds} · 视频：放的时候出了 ${framesDuring} 帧、这一块画了 ${paintsDuring} 次；` +
-        `暂停后画的次数 ${pausedAt} → ${pausedAfter} · 跨源图片警告 ${xoWarnings} 次 · 挪开后还给 DOM ${released} · 关掉：收了 ${offAbsorbed}、墨迹 ${offInk}` +
+        `暂停后视频帧 ${pausedFramesAt} → ${pausedFramesAfter}、画的次数 ${pausedAt} → ${pausedAfter} · 跨源图片警告 ${xoWarnings} 次 · 挪开后还给 DOM ${released} · 关掉：收了 ${offAbsorbed}、墨迹 ${offInk}` +
         (framesDuring === 0 ? '（视频帧回调没触发 —— 面板隐藏时浏览器不出视频帧）' : '')
       const ok =
         absorbedText && domTransparent && ink0 > 200 && paints1 > paints0 && ink1 !== ink0 &&
@@ -3126,7 +3139,8 @@ async function run(): Promise<void> {
     // 合成器的脏状态（idle.ts 的 sceneReusable）：只动了玻璃的帧沿用上一帧的场景与模糊链。
     // - 一块玻璃 + 一块填充：玻璃挪 12px，沿用场景画出来的整张画布与关掉沿用整帧画的逐位相同，那一帧模糊 0 趟；
     // - 填充换了颜色：不沿用（场景里有填充），与整帧画的逐位相同；
-    // - 有嵌套的玻璃（更高的层会改写场景目标）：下一帧不沿用。
+    // - 有嵌套的玻璃（更高的层会改写场景目标）：下一帧照样沿用 —— 先把那一块拷回备份、局部重建模糊链，逐位复原：
+    //   挪玻璃之后沿用画出来的与整帧画的逐位相同；连着几帧沿用也不会越积越偏。
     calibrationScene()
     const mk = (tag: string, x: number, y: number, w: number, h: number): HTMLElement => {
       const e = document.createElement(tag)
@@ -3142,7 +3156,7 @@ async function run(): Promise<void> {
       stage.debug.setSceneReuse(false)
       stage.debug.renderNow()
       const h = await sha(await readback())
-      stage.debug.setSceneReuse(true)
+      stage.debug.setSceneReuse(reuseDefault)
       return h
     }
     const reused = async (): Promise<{ hash: string; reused: boolean; blur: number }> => {
@@ -3171,17 +3185,24 @@ async function run(): Promise<void> {
       stage.debug.renderNow() // 这一帧画了第 1 层
       panelEl.style.left = '540px'
       const afterLayer = await reused()
+      const afterLayerFull = await full()
+      panelEl.style.left = '548px'
+      stage.debug.renderNow()
+      panelEl.style.left = '556px'
+      const again = await reused()
+      const againFull = await full()
       const detail =
         `挪玻璃：沿用 ${moved.reused}、模糊 ${moved.blur} 趟、与整帧逐位相同 ${moved.hash === movedFull} · ` +
         `填充换色：沿用 ${recolored.reused}、与整帧逐位相同 ${recolored.hash === recoloredFull} · ` +
-        `上一帧有第 1 层：沿用 ${afterLayer.reused}、模糊 ${afterLayer.blur} 趟`
+        `上一帧有第 1 层：沿用 ${afterLayer.reused}、局部重建模糊 ${afterLayer.blur} 趟（整帧 ${stage.debug.stats().blurPasses}）、与整帧逐位相同 ${afterLayer.hash === afterLayerFull} · ` +
+        `再连着沿用两帧：${again.reused}、逐位相同 ${again.hash === againFull}`
       return moved.reused && moved.blur === 0 && moved.hash === movedFull &&
         !recolored.reused && recolored.hash === recoloredFull &&
-        !afterLayer.reused && afterLayer.blur > 0
+        afterLayer.reused && afterLayer.hash === afterLayerFull && again.reused && again.hash === againFull
         ? pass(detail)
         : fail(detail)
     } finally {
-      stage.debug.setSceneReuse(true)
+      stage.debug.setSceneReuse(reuseDefault)
       innerPanel?.unregister()
       panel.unregister()
       panelEl.remove()
@@ -3336,7 +3357,28 @@ async function run(): Promise<void> {
     const big = glass(bigEl, { material })
     const smalls = smallEls.map((e) => glass(e, { material }))
     const all = [big, ...smalls] as unknown as LocalQualityTarget[]
-    const hashOf = async (els: HTMLElement[]): Promise<string> => sha(await readback(regionOf(els, 2)))
+    const bytesOf = new Map<string, Uint8Array>()
+    const hashOf = async (els: HTMLElement[]): Promise<string> => {
+      const bytes = await readback(regionOf(els, 2))
+      const h = await sha(bytes)
+      bytesOf.set(h, bytes)
+      return h
+    }
+    // 复原不了时说清楚差多少：差 1 级是数值抖动，差得多是状态没复原
+    const diffOf = (a: string, b: string): string => {
+      if (a === b) return ''
+      const x = bytesOf.get(a)
+      const y = bytesOf.get(b)
+      if (!x || !y || x.length !== y.length) return '（尺寸不同）'
+      let n = 0
+      let max = 0
+      for (let i = 0; i < x.length; i++) {
+        const d = Math.abs(x[i]! - y[i]!)
+        if (d > 0) n++
+        if (d > max) max = d
+      }
+      return `（${n} 个字节不同，最多差 ${max}）`
+    }
     let adaptive: AdaptiveQuality | null = null
     try {
       await sleep(0)
@@ -3372,8 +3414,8 @@ async function run(): Promise<void> {
       const big3 = await hashOf([bigEl])
       const detail =
         `起步 0.8、四块：单独降了 ${lowered} 块、整页那一档 ${globalQ}、整页系数满 ${globalFull} · 大的变了 ${big1 !== big0}、小的逐位不变 ${small1 === small0} · ` +
-        `dispose 后大的复原 ${big2 === big0} · 只有一块：整页那一档 ${alone.global}、单独降 ${alone.lowered} 块、整页色散 ${alone.dispersion} · ` +
-        `写死 0.35：变了 ${pinned !== big0}、自适应不碰 ${pinnedKept}、改回 auto 复原 ${big3 === big0}`
+        `dispose 后大的复原 ${big2 === big0}${diffOf(big0, big2)} · 只有一块：整页那一档 ${alone.global}、单独降 ${alone.lowered} 块、整页色散 ${alone.dispersion} · ` +
+        `写死 0.35：变了 ${pinned !== big0}、自适应不碰 ${pinnedKept}、改回 auto 复原 ${big3 === big0}${diffOf(big0, big3)}`
       const ok =
         lowered === 1 && globalQ === 1 && globalFull && big1 !== big0 && small1 === small0 && big2 === big0 &&
         alone.global === 0.8 && alone.lowered === 0 && alone.dispersion < 1 &&

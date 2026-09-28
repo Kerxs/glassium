@@ -4,7 +4,7 @@ import assert from 'node:assert/strict'
 import type { ResolvedViewport } from '../core/units.ts'
 import type { BackdropState, SceneImage } from './backend.ts'
 import type { FillRecord, MeasuredFill } from './fills.ts'
-import { sceneReusable, unchangedFrame, type FrameSnapshot, type SceneKey } from './idle.ts'
+import { sceneHidden, sceneReusable, unchangedFrame, type FrameSnapshot, type SceneKey } from './idle.ts'
 import type { MeasuredGroup, MeasuredPanel, PanelRecord } from './panels.ts'
 
 // 比较只看值与引用，不碰 DOM：假对象就够了
@@ -247,7 +247,7 @@ test('填充：值相同算相同；颜色（过渡中）、位置、圆角、�
   )
 })
 
-test('沿用场景：只动了玻璃就沿用；场景、填充、视口、纹理、时间（gradient）变了，或者上一帧画过更高的层，就不沿用', () => {
+test('沿用场景：只动了玻璃就沿用；场景、填充、视口、纹理、时间（gradient）变了就不沿用（上一帧的层由后端复原，不在这里判）', () => {
   const target = {}
   const key = (over: Partial<SceneKey> = {}): SceneKey => ({
     target,
@@ -260,13 +260,11 @@ test('沿用场景：只动了玻璃就沿用；场景、填充、视口、纹�
     sceneImage: null,
     fills: [fill()],
     crisp: true,
-    layered: false,
     ...over
   })
   assert.equal(sceneReusable(null, key()), false, '第一帧')
   assert.equal(sceneReusable(key(), key({ time: 2 })), true, '只动了玻璃（非 gradient 场景：时间无关）')
   assert.equal(sceneReusable(key({ sceneMode: 0 }), key({ sceneMode: 0, time: 2 })), false, 'gradient 场景随时间漂')
-  assert.equal(sceneReusable(key({ layered: true }), key()), false, '上一帧画过更高的层')
   assert.equal(sceneReusable(key(), key({ target: {} })), false, '模糊链换了纹理（尺寸、格式、设备）')
   assert.equal(sceneReusable(key(), key({ viewport: viewport({ sceneWidth: 800 }) })), false, '场景分辨率变了')
   assert.equal(sceneReusable(key(), key({ fills: [fill({ color: [1, 0, 0, 1] })] })), false, '填充换了颜色')
@@ -278,3 +276,35 @@ test('沿用场景：只动了玻璃就沿用；场景、填充、视口、纹�
   assert.equal(sceneReusable(key({ sceneImage: image({ source }) }), key({ sceneImage: image({ source }) })), true, '同一张静态图片')
   assert.equal(sceneReusable(key({ sceneImage: image({ source }) }), key({ sceneImage: image({ source, dynamic: true }) })), false, '视频、画布每帧都变')
 })
+
+test('内置场景被盖住：不透明、轴对齐、铺满画布的第 0 层填充才算；半透明、有圆角、没铺满、在更高的层、位图都不算', () => {
+  const vp = viewport()
+  const cover = (over: Partial<MeasuredFill> = {}): MeasuredFill =>
+    fill({ x: 0, y: 0, w: vp.compositeWidth, h: vp.compositeHeight, radii: [0, 0, 0, 0], radiiY: [0, 0, 0, 0], color: [0.2, 0.3, 0.4, 1], ...over })
+  assert.equal(sceneHidden([cover()], vp), true)
+  assert.equal(sceneHidden([], vp), false)
+  assert.equal(sceneHidden([cover({ color: [0.2, 0.3, 0.4, 0.99] })], vp), false, '半透明')
+  assert.equal(sceneHidden([cover({ radii: [8, 8, 8, 8], radiiY: [8, 8, 8, 8] })], vp), false, '有圆角')
+  assert.equal(sceneHidden([cover({ w: vp.compositeWidth - 1 })], vp), false, '没铺满')
+  assert.equal(sceneHidden([cover({ layer: 1 })], vp), false, '在更高的层')
+  assert.equal(sceneHidden([cover({ bitmap: { version: 1, geom: [0, 0, 1, 1], cell: [0, 0, 1, 1] } as never })], vp), false, '位图不知道透不透')
+  const opaqueGradient = { kind: 'linear', repeating: false, geometry: [0, 0, 1, 1], colors: [[1, 0, 0, 1], [0, 0, 1, 1]], offsets: [0, 1] } as never
+  const clearGradient = { kind: 'linear', repeating: false, geometry: [0, 0, 1, 1], colors: [[1, 0, 0, 1], [0, 0, 1, 0.5]], offsets: [0, 1] } as never
+  assert.equal(sceneHidden([cover({ gradient: opaqueGradient })], vp), true, '全不透明的渐变')
+  assert.equal(sceneHidden([cover({ gradient: clearGradient })], vp), false, '渐变里有半透明的色标')
+  // 被盖住时 gradient 场景的时间不算：静止的页面不画
+  const frame = (time: number): FrameSnapshot => ({
+    time,
+    viewport: vp,
+    blendSpace: 'srgb',
+    backdrop: backdrop0,
+    sceneImage: null,
+    panels: [],
+    groups: [],
+    fills: [cover()],
+    panelDebugMode: 'off'
+  })
+  assert.equal(unchangedFrame(frame(1), frame(2)), true)
+})
+
+const backdrop0 = backdrop(0)
