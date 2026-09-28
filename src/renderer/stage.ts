@@ -39,6 +39,7 @@ import { parseTint, type GlassMaterial } from '../core/material.ts'
 import { frostForColor, reduceTransparency, type Frost } from '../core/transparency.ts'
 import { describeViewport, MAX_PIXELS, resolveViewport, type ResolvedViewport } from '../core/units.ts'
 import { FULL_QUALITY, sameQuality, type QualityFactors } from './quality.ts'
+import { flushFrame, setTimelineReducedMotion } from '../animation/timeline.ts'
 import type { PanelDebugMode } from '../shaders/glass.wgsl.ts'
 import {
   acquireDevice,
@@ -459,6 +460,9 @@ export function prefersReducedMotion(): boolean {
   return typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches
 }
 
+// 时间轴（animation/timeline.ts）按它一步走到终点
+setTimelineReducedMotion(prefersReducedMotion)
+
 /**
  * 强制高对比度（forced-colors）状态，传 null 恢复为读真实媒体查询。
  *
@@ -848,6 +852,8 @@ async function buildStage(options: GlassStageOptions): Promise<GlassStage> {
 
   const loop = (now: number): void => {
     if (disposed) return
+    // 动画先走（统一的时间轴）：这一帧写下的材质、呈现变换，这一帧就画
+    flushFrame(now)
     const rendered = renderFrame(now)
     if (frameListeners.size > 0) {
       const info: StageFrame = { time: now, rendered, cpuMs: frameMs }
@@ -1304,6 +1310,8 @@ async function buildStage(options: GlassStageOptions): Promise<GlassStage> {
         element: handle.element,
         setMaterial: handle.setMaterial,
         setLight: handle.setLight,
+        setPresentation: handle.setPresentation,
+        setQuality: handle.setQuality,
         unregister(): void {
           handle.unregister()
           layers.unwatch(element)
@@ -1474,7 +1482,7 @@ function makeInertStage(canvas: HTMLCanvasElement, options: GlassStageOptions): 
     // 没有 GPU 时面板照样可以注册 —— 元素本身照常显示，只是后面没有玻璃。
     // 返回一个什么都不做的句柄，而不是抛：页面不该因为拿不到 GPU 就挂掉。
     register(element: HTMLElement): GlassPanel {
-      return { element, setMaterial(): void {}, setLight(): void {}, unregister(): void {} }
+      return { element, setMaterial(): void {}, setLight(): void {}, setPresentation(): void {}, setQuality(): void {}, unregister(): void {} }
     },
     group(): GlassGroup {
       return { setMembers(): void {}, setSmoothing(): void {}, dissolve(): void {} }

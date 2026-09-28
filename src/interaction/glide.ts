@@ -7,6 +7,7 @@
  */
 
 import { prefersReducedMotion } from '../renderer/stage.ts'
+import { cancelFrame, nextFrame } from '../animation/timeline.ts'
 
 /** 抬起：开始飞之前原地停这么久（ms），让透镜先鼓起来。 */
 export const GLIDE_LIFT_MS = 40
@@ -71,7 +72,7 @@ export class Glide {
     }
     this.#start = performance.now()
     this.#onFrame(origin, this.#start)
-    this.#raf = requestAnimationFrame(this.#tick)
+    this.#raf = nextFrame(this.#tick)
   }
 
   /** 停在当前位置，不落地（不调 onDone）。返回停下时的位置；没在飞时是 null。 */
@@ -82,7 +83,7 @@ export class Glide {
   }
 
   stop(): void {
-    if (this.#raf !== 0) cancelAnimationFrame(this.#raf)
+    if (this.#raf !== 0) cancelFrame(this.#raf)
     this.#raf = 0
   }
 
@@ -96,6 +97,6 @@ export class Glide {
       this.#onDone()
       return
     }
-    this.#raf = requestAnimationFrame(this.#tick)
+    this.#raf = nextFrame(this.#tick)
   }
 }

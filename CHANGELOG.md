@@ -5,6 +5,20 @@
 
 ## [未发布]
 
+### 新增
+
+- **任意元素的果冻与飞行**：`glass-jelly` / `interaction: { jelly: true }` —— 元素怎么动的都行（拖、CSS 过渡、JS 动画），
+  玻璃顺着速度拉长、停下圆回去；`glass-glide` / `interaction: { glide: true }` —— 元素一下子换了位置，玻璃抬起、飞过去、
+  落下，尺寸一起过渡。只动玻璃，元素与里面的字不变形；滚动不算动；减少动效时不动。`ElementMotion`。
+- **统一的时间轴**：`nextFrame` / `cancelFrame` / `everyFrame` / `flushFrame`。按压、旋钮、果冻、飞行、变形都排在一个 rAF 上，
+  stage 画之前先跑，动画这一帧写的值这一帧就画；减少动效时时间一步跳到头。自己的动画也可以排在上面。
+- **局部质量**：整页吃紧时先降最贵的那几块 runtime 玻璃（`allocateQuality`，成本 = 面积 × 模糊 × 色散的估计），整页后降；
+  `glass(el, { quality: 0.6 })` / `glass-quality` 把一块写死。`GlassPanel.setQuality`、`combineQuality`、`AdaptiveQuality` 的 `locals`。
+- `GlassPanel.setPresentation`（`PanelPresentation`、`presentRect`）：玻璃相对元素的盒子挪、缩，元素不动。
+- `glassium.morph(from, to)`：`morphGlass` 两头的材质也能从 runtime 的玻璃上取。
+- 示例页 `/runtime.html` 加了「动起来的玻璃」一节（拖动的果冻、飞过去的选中块、展开收起的变形）；验证页新增 element-motion、
+  local-quality。
+
 ## [0.3.0] — 2026-09-27
 
 Glassium 从组件库转向 **Web Liquid Glass 渲染运行时**（docs/architecture.md）：`import 'glassium'` 之后 `<div glass>` 就是玻璃。

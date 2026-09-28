@@ -13,6 +13,7 @@
  * 具名导出（createGlassStage、组件类……）照旧都在，这里只是把 runtime 的几样收成一个对象。
  */
 
+import { morphGlass } from '../components/morph-glass.ts'
 import { currentStage, onStageChange, stageOrPending, type GlassStage } from '../renderer/stage.ts'
 import { absorbedElements } from './absorb.ts'
 import { startRuntime } from './auto.ts'
@@ -76,6 +77,8 @@ export interface Glassium {
   readonly glass: typeof glass
   /** 元素上的玻璃。 */
   readonly glassOf: typeof glassOf
+  /** 这一块玻璃变成那一块（morphGlass；两头的材质从玻璃上取，组件、glass()、<div glass> 都行）。 */
+  readonly morph: typeof morphGlass
   /** 改全局选项（见 runtime/config.ts）。 */
   readonly configure: (options: Partial<GlassiumConfig>) => GlassiumConfig
   readonly config: GlassiumConfig
@@ -101,6 +104,7 @@ if (typeof window !== 'undefined') {
 export const glassium: Glassium = {
   glass,
   glassOf,
+  morph: morphGlass,
   configure,
   get config() {
     return getConfig()

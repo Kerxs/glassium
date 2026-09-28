@@ -27,6 +27,8 @@ import type { Radii4, Vec2 } from '../core/optics.ts'
 import { describeElement } from '../renderer/layering.ts'
 import { visualScaleOf } from '../renderer/panels.ts'
 import { currentStage, prefersReducedMotion } from '../renderer/stage.ts'
+import { GlassBinding } from '../runtime/binding.ts'
+import { cancelFrame, nextFrame } from '../animation/timeline.ts'
 
 /** 默认时长，毫秒。与 `<glass-container morph>` 的水滴一样。 */
 export const MORPH_GLASS_MS = 450
@@ -133,6 +135,9 @@ function rememberOpacity(el: HTMLElement): string {
 }
 
 function materialOf(el: HTMLElement): GlassMaterial {
+  // 组件与 runtime 的玻璃（glass()、<div glass>）都在绑定里；再退到元素上的 material 属性
+  const bound = GlassBinding.materialOf(el)
+  if (bound) return bound
   const m = (el as { material?: unknown }).material
   return m && typeof m === 'object' ? (m as GlassMaterial) : {}
 }
@@ -276,7 +281,7 @@ export function morphGlass(from: HTMLElement, to: HTMLElement, options: MorphGla
     panel.setMaterial(f.material)
   }
   const teardown = (): void => {
-    if (rafId !== 0) cancelAnimationFrame(rafId)
+    if (rafId !== 0) cancelFrame(rafId)
     rafId = 0
     panel.unregister()
     ghost.remove()
@@ -296,15 +301,15 @@ export function morphGlass(from: HTMLElement, to: HTMLElement, options: MorphGla
     const p = Math.min(1, (now - start) / duration)
     apply(p)
     if (p >= 1) complete()
-    else rafId = requestAnimationFrame(tick)
+    else rafId = nextFrame(tick)
   }
-  rafId = requestAnimationFrame(tick)
+  rafId = nextFrame(tick)
 
   return {
     finished,
     seek(progress: number): void {
       if (done) return
-      if (rafId !== 0) cancelAnimationFrame(rafId)
+      if (rafId !== 0) cancelFrame(rafId)
       rafId = 0
       apply(clamp01(progress))
     },

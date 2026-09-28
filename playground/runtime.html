@@ -56,7 +56,33 @@
           <canvas id="spin" width="240" height="150" aria-label="转动的色环"></canvas>
           <video id="clip" width="240" height="150" muted playsinline aria-label="由画布生成的视频"></video>
         </div>
-        <div class="lens" glass="clear" glass-refraction="0.45" glass-magnify="0.25" aria-hidden="true"></div>
+        <div class="lens" glass="clear" glass-refraction="0.45" glass-magnify="0.25" glass-jelly aria-hidden="true"></div>
+      </section>
+
+      <section class="motion" id="motion">
+        <h2>动起来的玻璃</h2>
+        <p class="lede">
+          <code>glass-jelly</code>：元素怎么动的都行（拖、过渡、JS），玻璃顺着速度拉长、停下圆回去；
+          <code>glass-glide</code>：元素一下子换了位置，玻璃抬起、飞过去、落下。只动玻璃，里面的字不变形。
+        </p>
+        <div class="pad" id="pad">
+          <div class="puck" glass glass-jelly tabindex="0" role="button" aria-label="可拖动的玻璃">拖我</div>
+        </div>
+        <div class="tabs" role="tablist" id="tabs">
+          <div class="pill" glass glass-glide glass-jelly aria-hidden="true"></div>
+          <button type="button" role="tab" aria-selected="true">今天</button>
+          <button type="button" role="tab" aria-selected="false">本周</button>
+          <button type="button" role="tab" aria-selected="false">本月</button>
+          <button type="button" role="tab" aria-selected="false">全年</button>
+        </div>
+        <div class="morph-row">
+          <button type="button" class="chip" id="chip" glass>展开</button>
+          <div class="sheet" id="sheet" glass="frosted">
+            <strong>一块变成另一块</strong>
+            <p><code>glassium.morph(from, to)</code>：形状、圆角、材质一起过渡。</p>
+            <button type="button" id="collapse" glass>收起</button>
+          </div>
+        </div>
       </section>
 
       <section class="controls">

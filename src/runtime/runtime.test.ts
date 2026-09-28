@@ -4,7 +4,7 @@ import assert from 'node:assert/strict'
 import { GlassPresets } from '../core/material.ts'
 import { tierOf } from './capabilities.ts'
 import { configure, fixedQuality, getConfig, resetConfig, DEFAULT_CONFIG } from './config.ts'
-import { cornerRadiusFromCss, isInteractiveElement, parseGlassAttributes, runtimePreset, RUNTIME_PRESETS } from './presets.ts'
+import { cornerRadiusFromCss, GLASS_BEHAVIOR_ATTRIBUTES, isInteractiveElement, parseGlassAttributes, runtimePreset, RUNTIME_PRESETS } from './presets.ts'
 
 test('预设：default 就是 regular，空串是 default，旧名字与大小写都认，不认识返回 null', () => {
   assert.deepEqual(RUNTIME_PRESETS.default, GlassPresets.regular)
@@ -99,4 +99,22 @@ test('configure：合并、非法值报一次并忽略；固定档的质量值',
   assert.equal(fixedQuality('medium'), 0.7)
   assert.equal(fixedQuality('low'), 0.4)
   assert.equal(fixedQuality(0.55), 0.55)
+})
+
+test('glass-jelly / glass-glide 写了就开、="false" 关、没写是 undefined；glass-quality 要 0–1 或 auto', () => {
+  const parse = (attrs: Record<string, string>) => parseGlassAttributes((n) => (n === 'glass' ? '' : attrs[n] ?? null))
+  const on = parse({ 'glass-jelly': '', 'glass-glide': 'true', 'glass-quality': '0.6' })
+  assert.equal(on.jelly, true)
+  assert.equal(on.glide, true)
+  assert.equal(on.quality, 0.6)
+  assert.deepEqual(on.problems, [])
+  const off = parse({ 'glass-jelly': 'false' })
+  assert.equal(off.jelly, false)
+  assert.equal(off.glide, undefined)
+  assert.equal(off.quality, undefined)
+  assert.equal(parse({ 'glass-quality': 'auto' }).quality, undefined)
+  const bad = parse({ 'glass-quality': '2' })
+  assert.equal(bad.quality, undefined)
+  assert.equal(bad.problems.length, 1)
+  assert.deepEqual([...GLASS_BEHAVIOR_ATTRIBUTES], ['glass-jelly', 'glass-glide', 'glass-quality'])
 })

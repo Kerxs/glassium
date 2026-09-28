@@ -12,6 +12,7 @@ import type { GlassMaterial } from '../core/material.ts'
 import type { PanelLight } from '../renderer/panels.ts'
 import { prefersReducedMotion } from '../renderer/stage.ts'
 import { approach, dimmed, ENERGY, modulate, SETTLE_EPSILON, targetEnergy, TAU_MS } from './motion.ts'
+import { cancelFrame, nextFrame } from '../animation/timeline.ts'
 
 export interface PressOptions {
   /** 悬停变亮一点（触屏没有悬停）。 */
@@ -109,7 +110,7 @@ export class PressInteraction {
 
   /** 回到静止、停掉动画（元素离开文档时），不回调。 */
   reset(): void {
-    if (this.#raf !== 0) cancelAnimationFrame(this.#raf)
+    if (this.#raf !== 0) cancelFrame(this.#raf)
     this.#raf = 0
     this.#hover = false
     this.#pressed = false
@@ -207,7 +208,7 @@ export class PressInteraction {
     })
     if (prefersReducedMotion()) {
       // 不做过渡，直接落到目标态 —— 状态变化本身仍然可见，只是没有动画
-      if (this.#raf !== 0) cancelAnimationFrame(this.#raf)
+      if (this.#raf !== 0) cancelFrame(this.#raf)
       this.#raf = 0
       this.#energy = this.#target
       this.#onChange()
@@ -219,7 +220,7 @@ export class PressInteraction {
     }
     if (this.#raf === 0) {
       this.#lastTick = performance.now()
-      this.#raf = requestAnimationFrame(this.#tick)
+      this.#raf = nextFrame(this.#tick)
     }
   }
 
@@ -229,6 +230,6 @@ export class PressInteraction {
     this.#energy = approach(this.#energy, this.#target, dt, TAU_MS)
     if (Math.abs(this.#energy - this.#target) < SETTLE_EPSILON) this.#energy = this.#target
     this.#onChange()
-    this.#raf = this.#energy === this.#target ? 0 : requestAnimationFrame(this.#tick)
+    this.#raf = this.#energy === this.#target ? 0 : nextFrame(this.#tick)
   }
 }

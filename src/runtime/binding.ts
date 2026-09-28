@@ -7,7 +7,8 @@
  */
 
 import type { GlassMaterial } from '../core/material.ts'
-import type { GlassPanel, PanelLight } from '../renderer/panels.ts'
+import type { GlassPanel, PanelLight, PanelPresentation } from '../renderer/panels.ts'
+import type { QualityFactors } from '../renderer/quality.ts'
 import { currentStage, onStageChange, type GlassStage } from '../renderer/stage.ts'
 
 /**
@@ -28,15 +29,26 @@ export class GlassBinding {
   /** 已连接的绑定。stage 出现、消失或状态变化时逐个同步。 */
   static readonly #live = new Set<GlassBinding>()
   static #subscribed = false
+  /** 元素 → 它的绑定（morphGlass 取两头的材质用）。 */
+  static readonly #byElement = new WeakMap<HTMLElement, GlassBinding>()
+
+  /** 元素现在画着的材质（组件、`glass()`、`<div glass>` 都算）；不是玻璃是 null。 */
+  static materialOf(element: HTMLElement): GlassMaterial | null {
+    const b = GlassBinding.#byElement.get(element)
+    return b ? b.#source.material() : null
+  }
 
   readonly element: HTMLElement
   readonly #source: GlassSource
   #stage: GlassStage | null = null
   #panel: GlassPanel | null = null
+  #presentation: PanelPresentation | null = null
+  #quality: Partial<QualityFactors> | null = null
 
   constructor(element: HTMLElement, source: GlassSource) {
     this.element = element
     this.#source = source
+    GlassBinding.#byElement.set(element, this)
   }
 
   /** 面板（没有 stage 时是 null）。 */
@@ -73,6 +85,18 @@ export class GlassBinding {
     this.#panel?.setLight(this.#source.light())
   }
 
+  /** 玻璃的呈现变换（果冻、飞行）。记下来：stage 重建之后照样有。 */
+  setPresentation(presentation: PanelPresentation | null): void {
+    this.#presentation = presentation
+    this.#panel?.setPresentation(presentation)
+  }
+
+  /** 这一块自己的质量系数（自适应质量、`glass(el, { quality })`）。记下来：stage 重建之后照样有。 */
+  setQuality(factors: Partial<QualityFactors> | null): void {
+    this.#quality = factors
+    this.#panel?.setQuality(factors)
+  }
+
   static #subscribe(): void {
     if (GlassBinding.#subscribed) return
     GlassBinding.#subscribed = true
@@ -88,6 +112,8 @@ export class GlassBinding {
         this.#stage = stage
         this.#panel = stage.register(this.element, this.#source.material())
         this.#panel.setLight(this.#source.light())
+        if (this.#presentation) this.#panel.setPresentation(this.#presentation)
+        if (this.#quality) this.#panel.setQuality(this.#quality)
       }
     }
     this.element.toggleAttribute(ACTIVE_ATTRIBUTE, stage?.active === true)

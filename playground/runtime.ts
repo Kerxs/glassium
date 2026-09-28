@@ -45,3 +45,54 @@ const caps = document.getElementById('caps')!
 void glassium.ready.then((c) => {
   caps.textContent = `后端 ${c.renderer} · tier ${c.tier} · WebGPU ${c.webgpu} · WebGL2 ${c.webgl2} · backdrop-filter ${c.backdropFilter}`
 })
+
+// 拖动：只改元素的位置，果冻是 runtime 看着位置自己算的（glass-jelly）
+const pad = document.getElementById('pad')!
+const puck = pad.querySelector<HTMLElement>('.puck')!
+let grab: { dx: number; dy: number } | null = null
+puck.addEventListener('pointerdown', (e) => {
+  const r = puck.getBoundingClientRect()
+  grab = { dx: e.clientX - r.left, dy: e.clientY - r.top }
+  puck.setPointerCapture(e.pointerId)
+})
+puck.addEventListener('pointermove', (e) => {
+  if (!grab) return
+  const box = pad.getBoundingClientRect()
+  const x = Math.min(Math.max(e.clientX - box.left - grab.dx, 0), box.width - puck.offsetWidth)
+  const y = Math.min(Math.max(e.clientY - box.top - grab.dy, 0), box.height - puck.offsetHeight)
+  puck.style.left = `${x}px`
+  puck.style.top = `${y}px`
+})
+const drop = (): void => {
+  grab = null
+}
+puck.addEventListener('pointerup', drop)
+puck.addEventListener('pointercancel', drop)
+
+// 选中块：换格子时直接把它放到新格子下面，飞过去是 runtime 做的（glass-glide）
+const tabs = document.getElementById('tabs')!
+const pill = tabs.querySelector<HTMLElement>('.pill')!
+const place = (tab: HTMLElement): void => {
+  pill.style.left = `${tab.offsetLeft}px`
+  pill.style.width = `${tab.offsetWidth}px`
+  for (const b of tabs.querySelectorAll('button')) b.setAttribute('aria-selected', String(b === tab))
+}
+for (const b of tabs.querySelectorAll<HTMLElement>('button')) b.addEventListener('click', () => place(b))
+place(tabs.querySelector<HTMLElement>('button')!)
+
+// 变形：一块玻璃变成另一块
+const chip = document.getElementById('chip')!
+const sheet = document.getElementById('sheet')!
+// 看不见的那一块不接指针（morph 只改不透明度）
+const show = (on: HTMLElement, off: HTMLElement): void => {
+  on.style.pointerEvents = 'auto'
+  off.style.pointerEvents = 'none'
+}
+chip.addEventListener('click', () => {
+  glassium.morph(chip, sheet)
+  show(sheet, chip)
+})
+document.getElementById('collapse')!.addEventListener('click', () => {
+  glassium.morph(sheet, chip)
+  show(chip, sheet)
+})

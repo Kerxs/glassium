@@ -34,15 +34,44 @@ export {
 } from './runtime/presets.ts'
 export { GlassBinding, type GlassSource } from './runtime/binding.ts'
 export { PressInteraction, type PressOptions } from './interaction/press.ts'
+export {
+  ElementMotion,
+  ELEMENT_FLY_SCALE,
+  JUMP_PX,
+  jellyScale2,
+  noteScroll,
+  type ElementMotionOptions,
+  type MotionBox
+} from './interaction/element-motion.ts'
+// —— 统一的时间轴：自己的动画也可以排在这里，与玻璃同一帧 ——
+export {
+  cancelFrame,
+  everyFrame,
+  flushFrame,
+  nextFrame,
+  pendingFrames,
+  REDUCED_MOTION_SKIP,
+  type FrameCallback
+} from './animation/timeline.ts'
 export { startRuntime, stopRuntime } from './runtime/auto.ts'
 export { absorbedElements } from './runtime/absorb.ts'
 export { contentBlocks, contentStats } from './runtime/content.ts'
 export { hitStacksBehind } from './renderer/layering.ts'
 export { canvasIsClean, objectFitRect, videoIsClean, type PaintOptions } from './components/scene-label.ts'
-export { AdaptiveQuality, type AdaptiveOptions } from './performance/adaptive.ts'
-export { QualityController, factorsFor, jellyFactor, QUALITY_MIN, type FrameWindow } from './performance/quality.ts'
+export { AdaptiveQuality, type AdaptiveOptions, type LocalQualityTarget } from './performance/adaptive.ts'
+export {
+  QualityController,
+  factorsFor,
+  jellyFactor,
+  QUALITY_MIN,
+  allocateQuality,
+  HEAVY_SHARE,
+  LOCAL_SPAN,
+  type FrameWindow,
+  type QualityAllocation
+} from './performance/quality.ts'
 export { FrameMonitor } from './performance/monitor.ts'
-export { FULL_QUALITY, type QualityFactors } from './renderer/quality.ts'
+export { FULL_QUALITY, combineQuality, type QualityFactors } from './renderer/quality.ts'
 if (typeof window !== 'undefined') {
   ;(window as unknown as { glassium?: typeof glassium }).glassium ??= glassium
   scheduleAutoStart()
@@ -260,6 +289,8 @@ export {
   type GlassGroup,
   type GlassPanel,
   type PanelLight,
+  presentRect,
+  type PanelPresentation,
   type SceneBitmapFill,
   type SceneFill
 } from './renderer/panels.ts'

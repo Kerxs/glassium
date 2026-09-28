@@ -44,6 +44,35 @@ export function factorsFor(q: number): QualityFactors {
   }
 }
 
+/** 一块玻璃占总成本的比例到这么多算「贵的」（页面上至少两块时）。 */
+export const HEAVY_SHARE = 0.25
+/** q 从 1 降到 1 − LOCAL_SPAN 的这一段只降贵的那几块，整页不动。 */
+export const LOCAL_SPAN = 0.3
+
+/** 分配的结果：整页的质量，与每一块自己的质量（null 是不单独降）。 */
+export interface QualityAllocation {
+  readonly global: number
+  readonly local: readonly (number | null)[]
+}
+
+/**
+ * 局部质量：整体要降到 q 时先降贵的那几块（成本占总数 ≥ HEAVY_SHARE），不拖累整页 ——
+ * q 从 1 到 0.7，贵的从 1 降到 QUALITY_MIN，别的不动；再往下整页从 1 降到 QUALITY_MIN（贵的在它上面再乘自己的那一档）。
+ * 没有贵的（成本差不多、或者只有一块）时就是原来的整页降。costs 是每块的成本估计（面积 × 模糊 × 色散，见 runtime）。
+ */
+export function allocateQuality(q: number, costs: readonly number[]): QualityAllocation {
+  const none = costs.map(() => null)
+  if (!(q < 1)) return { global: 1, local: none }
+  const total = costs.reduce((a, c) => a + Math.max(0, c), 0)
+  const heavy = costs.length >= 2 && total > 0 ? costs.map((c) => c / total >= HEAVY_SHARE) : costs.map(() => false)
+  if (!heavy.some(Boolean)) return { global: q, local: none }
+  const t = clamp01((1 - q) / LOCAL_SPAN)
+  const heavyQ = 1 - t * (1 - QUALITY_MIN)
+  const floor = 1 - LOCAL_SPAN
+  const global = q >= floor ? 1 : QUALITY_MIN + ((Math.max(q, QUALITY_MIN) - QUALITY_MIN) * (1 - QUALITY_MIN)) / (floor - QUALITY_MIN)
+  return { global, local: heavy.map((h) => (h ? heavyQ : null)) }
+}
+
 /** 果冻的系数（组件的拉长上限乘它）：与高级折射一起降。 */
 export function jellyFactor(q: number): number {
   return ramp(Math.min(1, Math.max(QUALITY_MIN, q)), 0.6, 0.8)

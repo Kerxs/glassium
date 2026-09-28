@@ -37,7 +37,7 @@ import {
 } from './fills.ts'
 import { packMask, type DeviceMask } from './mask.ts'
 import { poseOf, type PoseStyle } from './pose.ts'
-import { FULL_QUALITY, type QualityFactors } from './quality.ts'
+import { combineQuality, FULL_QUALITY, type QualityFactors } from './quality.ts'
 import {
   CLIP_UNBOUNDED_PX,
   UNBOUNDED,
@@ -63,7 +63,34 @@ export interface GlassPanel {
    * 这是交互状态，不是材质，所以单独一条路。`<glass-button>` 按下时自己调它。
    */
   setLight(light: PanelLight | null): void
+  /**
+   * 呈现变换：玻璃的形状相对元素的盒子挪、缩，元素本身与它的内容不动（果冻、飞行用）。null 回到元素的盒子。
+   * 与 CSS 的 scale 走同一条路：按变换之后的盒子量，dp 的量跟着视觉缩放。
+   */
+  setPresentation(presentation: PanelPresentation | null): void
+  /**
+   * 这一块自己的质量系数（乘在 stage.setQuality 的全局系数上；分辨率只看全局的）。null 回到只按全局。
+   * 自适应质量用它单独降贵的那几块。
+   */
+  setQuality(factors: Partial<QualityFactors> | null): void
   unregister(): void
+}
+
+/** 呈现变换：dx、dy 是 CSS 像素的平移，sx、sy 是绕盒子中心的缩放。 */
+export interface PanelPresentation {
+  readonly dx: number
+  readonly dy: number
+  readonly sx: number
+  readonly sy: number
+}
+
+/** 盒子按呈现变换挪、缩（绕中心）。 */
+export function presentRect(r: DOMRect, p: PanelPresentation): DOMRect {
+  const width = r.width * p.sx
+  const height = r.height * p.sy
+  const left = r.left + p.dx + (r.width - width) / 2
+  const top = r.top + p.dy + (r.height - height) / 2
+  return { left, top, width, height, right: left + width, bottom: top + height, x: left, y: top, toJSON: () => ({}) } as DOMRect
 }
 
 /** 一块注册过的填充（见 fills.ts）。`<glass-fill>` 背后就是它。 */
@@ -339,6 +366,11 @@ export interface PanelRecord {
   material: GlassMaterial
   /** 按压处的光（见 GlassPanel.setLight）。 */
   light?: PanelLight | null
+  /** 呈现变换（见 GlassPanel.setPresentation）。 */
+  presentation?: PanelPresentation | null
+  /** 这一块自己的质量系数，与乘好的结果（按全局那一组的引用缓存：idle.ts 按引用比）。 */
+  localQuality?: Partial<QualityFactors> | null
+  combinedQuality?: { readonly global: QualityFactors; readonly value: QualityFactors }
   /** 按 CSS 尺寸缓存的降级结果。尺寸或材质变了才重算。 */
   cached: { readonly w: number; readonly h: number; readonly chain: EffectChain } | null
   clips?: readonly ClipEntry[]
@@ -417,6 +449,16 @@ export function visualScaleOf(width: number, height: number, layoutW: number, la
   if (!(layoutW > 0 && layoutH > 0)) return 1
   const s = (width / layoutW + height / layoutH) / 2
   return Math.abs(s - 1) > 0.01 ? s : 1
+}
+
+/** 一块面板的质量系数：没有自己的就是全局那一组（同一个对象）；有就乘起来，按全局那一组的引用缓存。 */
+function qualityOf(record: PanelRecord, global: QualityFactors): QualityFactors {
+  const local = record.localQuality
+  if (!local) return global
+  if (record.combinedQuality?.global !== global) {
+    record.combinedQuality = { global, value: Object.freeze(combineQuality(global, local)) }
+  }
+  return record.combinedQuality.value
 }
 
 /** 抗锯齿需要在面板矩形外多画的像素。sd 的覆盖率过渡宽 1px，留 2px 足够。 */
@@ -686,6 +728,24 @@ export class PanelRegistry {
         record.light = next
         this.#onChange()
       },
+      setPresentation: (presentation: PanelPresentation | null): void => {
+        const prev = record.presentation ?? null
+        const identity = presentation && presentation.dx === 0 && presentation.dy === 0 && presentation.sx === 1 && presentation.sy === 1
+        const next = presentation && !identity ? { ...presentation } : null
+        if (next === prev) return
+        if (next && prev && next.dx === prev.dx && next.dy === prev.dy && next.sx === prev.sx && next.sy === prev.sy) return
+        record.presentation = next
+        this.#onChange()
+      },
+      setQuality: (factors: Partial<QualityFactors> | null): void => {
+        const next = factors && Object.keys(factors).length > 0 ? Object.freeze({ ...factors }) : null
+        const prev = record.localQuality ?? null
+        if (next === prev) return
+        if (next && prev && JSON.stringify(next) === JSON.stringify(prev)) return
+        record.localQuality = next
+        delete record.combinedQuality
+        this.#onChange()
+      },
       unregister: (): void => {
         const i = this.#records.indexOf(record)
         if (i >= 0) this.#records.splice(i, 1)
@@ -731,8 +791,11 @@ export class PanelRegistry {
     const geometry = (record: GeometryCache): Geometry | null => {
       if (!record.element.isConnected) return null
       if (!isRendered(record.element)) return null
-      const r = record.element.getBoundingClientRect()
-      if (r.width <= 0 || r.height <= 0) return null
+      const raw = record.element.getBoundingClientRect()
+      if (raw.width <= 0 || raw.height <= 0) return null
+      // 呈现变换（果冻、飞行）：当作元素的盒子变了 —— 下面与 CSS 的 scale 同一条路
+      const presentation = (record as Partial<PanelRecord>).presentation
+      const r = presentation ? presentRect(raw, presentation) : raw
 
       // 相对画布原点。inset:0 的画布原点通常就是 (0,0)，但宿主不是 body 时未必。
       // 先按包围盒算；有旋转时下面再换成转之前的矩形
@@ -907,7 +970,7 @@ export class PanelRegistry {
         : [0, 0, 1, 0]
       measured.set(record, {
         record,
-        quality: this.quality,
+        quality: qualityOf(record, this.quality),
         x: g.x,
         y: g.y,
         w: g.w,

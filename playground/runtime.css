@@ -49,6 +49,34 @@ main { width: min(960px, calc(100% - 32px)); margin: 0 auto; padding: 40px 0 80p
   position: absolute; left: 40px; top: 60px; width: 200px; height: 130px; border-radius: 999px;
   pointer-events: none; transition: translate 0.08s linear;
 }
+.motion { margin-top: 56px; }
+.motion h2 { font-size: 26px; margin: 0 0 8px; }
+.motion code { font-size: 0.9em; }
+.pad {
+  position: relative; height: 220px; margin-top: 16px; border-radius: 24px; overflow: hidden;
+  background: url('./assets/runtime-hills.svg') center / cover no-repeat; touch-action: none;
+}
+.puck {
+  position: absolute; left: 40px; top: 70px; width: 120px; height: 72px; border-radius: 999px;
+  display: grid; place-items: center; font-weight: 600; cursor: grab; user-select: none;
+}
+.tabs {
+  position: relative; display: inline-flex; gap: 4px; margin-top: 24px; padding: 6px; border-radius: 999px;
+  background: rgba(20, 10, 40, 0.35);
+}
+.tabs button {
+  position: relative; z-index: 1; font: inherit; color: #fff; border: 0; background: none; cursor: pointer;
+  padding: 8px 18px; border-radius: 999px;
+}
+.pill { position: absolute; top: 6px; height: calc(100% - 12px); border-radius: 999px; pointer-events: none; }
+.morph-row { position: relative; margin-top: 24px; min-height: 150px; }
+.chip { font: inherit; color: #fff; border: 0; background: none; cursor: pointer; padding: 10px 22px; border-radius: 999px; }
+.sheet {
+  position: absolute; left: 0; top: 0; width: min(360px, 100%); padding: 18px 22px; border-radius: 26px; opacity: 0;
+  pointer-events: none;
+}
+.sheet p { margin: 6px 0 4px; }
+.sheet button { font: inherit; color: #fff; border: 0; background: none; cursor: pointer; padding: 6px 16px; border-radius: 999px; }
 .controls {
   display: flex; flex-wrap: wrap; align-items: center; gap: 16px; margin-top: 48px;
 }

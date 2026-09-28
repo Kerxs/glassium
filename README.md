@@ -9,6 +9,8 @@
 <div glass>Hello World</div>
 <button glass>Continue</button>
 <div glass="tinted" glass-blur="20">…</div>
+<div class="puck" glass glass-jelly>拖我</div>   <!-- 动起来时玻璃顺着速度拉长 -->
+<div class="indicator" glass glass-glide></div>  <!-- 换位置时玻璃飞过去 -->
 ```
 
 不用选后端、不用写着色器、不用把页面背景挪走：玻璃后面的 CSS 背景由 runtime 自动收进场景，玻璃折射得到。
@@ -26,6 +28,8 @@
 - 分段控件、标签栏按住时，文字与图标画进场景，被选中块 / 气泡的透镜放大、在边缘扭弯，透镜里换成选中色；
   拖动时透镜顺着速度拉长（果冻），停下来平滑地回去；点别的格、点开关时玻璃鼓起、拉长着飞过去再落下。
 - **玻璃连成一片**：`<glass-container>` 里的几块玻璃用 smin 融成一个形状，一次 draw；成员可以像水滴一样分出来、融回去。
+- **任意元素都能动**：`glass-jelly` 让元素动起来时玻璃拉长、`glass-glide` 让它换位置时玻璃飞过去、
+  `glassium.morph(a, b)` 让一块变成另一块 —— 只动玻璃，字不变形；动画都在同一条时间轴上，与画同一帧。
 - **跟着 DOM 走**：滚动、transform（平移 / 缩放 / 旋转）、CSS opacity、overflow 裁剪、clip-path、mask-image 都跟。
 - **完整的控件**：开关、滑块、分段控件、标签栏、导航栏、工具栏 —— 行为与原生控件相同（键盘、表单、无障碍）。
 - **退得下来**：WebGPU → WebGL2 → CSS 兜底；减少动效、减少透明度、更高对比度、强制配色都有反应。

@@ -9,6 +9,7 @@
 
 import { prefersReducedMotion } from '../renderer/stage.ts'
 import { approach } from './motion.ts'
+import { cancelFrame, nextFrame } from '../animation/timeline.ts'
 
 /**
  * 横向最多拉长这么多（+45%）；速度到 JELLY_V0（CSS px/ms）时拉长到上限的 63%。拉长量随速度平滑地饱和：
@@ -90,7 +91,7 @@ export class Jelly {
 
   /** 立刻回到原样、停掉（离开文档时）。 */
   reset(): void {
-    if (this.#raf !== 0) cancelAnimationFrame(this.#raf)
+    if (this.#raf !== 0) cancelFrame(this.#raf)
     this.#raf = 0
     this.#velocity = 0
     this.#stretch = 0
@@ -101,7 +102,7 @@ export class Jelly {
   #start(): void {
     if (this.#raf !== 0) return
     this.#tickT = performance.now()
-    this.#raf = requestAnimationFrame(this.#tick)
+    this.#raf = nextFrame(this.#tick)
   }
 
   #tick = (now: number): void => {
@@ -121,6 +122,6 @@ export class Jelly {
     }
     const [sx, sy] = jellyScale(this.#stretch)
     this.#apply(sx, sy)
-    this.#raf = requestAnimationFrame(this.#tick)
+    this.#raf = nextFrame(this.#tick)
   }
 }

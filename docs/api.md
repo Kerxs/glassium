@@ -46,6 +46,9 @@ runtime 在微任务里自动启动（`startRuntime()`；`configure({ auto: fals
   `parseGlassAttributes(get)` 把这些属性解析成材质（Node 里可测）。
 - **交互**：元素本身可交互（`isInteractiveElement`：按钮、链接、表单控件、可聚焦的、带交互角色的）时默认有悬停、按压
   （按下的地方发光）、键盘焦点的反馈（`PressInteraction` / `PressOptions`，`<glass-button>` 用的也是它）。
+- **动起来的玻璃**：`glass-jelly`（元素动起来时玻璃顺着速度拉长）、`glass-glide`（元素跳到别处时玻璃飞过去），写了就开、
+  `="false"` 关；`glass-quality="0.6"` 把这一块固定降一档（`auto` 是交给自适应）。见下面「动起来的玻璃」「局部质量」。
+  `GLASS_BEHAVIOR_ATTRIBUTES` 是这三个属性名。
 
 ### `glass(element, options?)` → `GlassHandle`
 
@@ -60,7 +63,8 @@ handle.destroy()
 |---|---|
 | `preset` | 预设名，默认 `default` |
 | `material` | 覆盖的材质参数（`GlassMaterial`，见下面「材质属性」） |
-| `interaction` | `GlassInteractionOptions`：`{ hover, press, focus }`；`true` 全开、`false` 全关，不写按元素是否可交互 |
+| `interaction` | `GlassInteractionOptions`：`{ hover, press, focus, jelly, glide }`；`true` 全开、`false` 全关；不写时悬停、按压、焦点按元素是否可交互，果冻、飞行关 |
+| `quality` | `'auto'`（默认，交给自适应质量）或 0–1：这一块固定降到这一档（`factorsFor(q)` 乘在整页的系数上，分辨率不单独降） |
 
 `GlassHandle`：`element`、`panel`（stage 建好之前是 null）、`material`（基础材质）、`update(options)`（与原来的合并）、
 `destroy()`。每个元素最多一块玻璃，再调一次等于 update；`glassOf(el)` 取元素上的玻璃。
@@ -72,6 +76,7 @@ handle.destroy()
 | | |
 |---|---|
 | `glassium.glass` / `glassOf` | 同上 |
+| `glassium.morph(from, to, options?)` | 这一块玻璃变成那一块（就是 `morphGlass`）；两头的材质从玻璃上取 —— 组件、`glass()`、`<div glass>` 都行 |
 | `glassium.configure(options)` / `configure` | 改全局选项，返回合并后的 `GlassiumConfig` |
 | `glassium.config` | 当前的 `GlassiumConfig` |
 | `glassium.capabilities` | `GlassiumCapabilities`（见下） |
@@ -127,6 +132,49 @@ DOM 里的字变透明、图片与画面变成不透明度 0 —— 布局、选
   `object-position` 摆（`objectFitRect(box, naturalW, naturalH, fit, position)`，纯函数）。
 - `contentBlocks()` 列出收进来的块，`contentStats(el)` 是一块的 `{ videoFrames, paints }`。
 - 只对 runtime 管的玻璃做；`configure({ absorbContent: false })` 关掉并全部还回去。边界见 limitations.md 的「Runtime：内容画进场景的边界」。
+
+### 动起来的玻璃（果冻、飞行）
+
+```html
+<div class="puck" glass glass-jelly>拖我</div>          <!-- 怎么动的都行：拖、CSS 过渡、JS 动画 -->
+<div class="indicator" glass glass-glide glass-jelly></div>  <!-- 改 left / class 换位置：玻璃飞过去 -->
+```
+
+`ElementMotion`（`ElementMotionOptions`：`jelly`、`glide`）每帧读一次元素在屏幕上的盒子（`MotionBox`），只动玻璃 ——
+`GlassPanel.setPresentation(PanelPresentation)` 让玻璃的形状相对元素的盒子挪、缩（`presentRect` 是那个换算），元素本身、
+它里面的字都不动、不变形：
+
+- **果冻**：速度按两个方向各算各的（`jellyScale2`：横着动横着拉、竖着收；斜着动两边都拉一点），曲线与组件的拖动相同
+  （`jellyTarget`、`DRAG_JELLY`），停下来单调地圆回去、不晃。
+- **飞行**：一帧里挪了超过 `JUMP_PX`（24px）、或者尺寸变了这么多，算「跳」：玻璃从原来的地方抬起（`GLIDE_LIFT_MS`）、
+  按 `glideDuration` / `glideEase` 飞到元素的新盒子，尺寸一起过渡，中段鼓起到 `ELEMENT_FLY_SCALE`（1.06），飞的时候照样有
+  果冻（`FLY_JELLY`）。没开飞行时跳当作瞬移（不算速度）。
+- 页面滚动、窗口改尺寸的那几帧不算动（`noteScroll`，捕获阶段的 scroll / resize）；减少动效时不动。
+- 组件（`<glass-segmented>`、`<glass-tab-bar>`……）的旋钮照旧用自己的果冻与飞行（CSS 的 scale），不走这里。
+
+### 统一的时间轴
+
+材质、形变、飞行、变形的动画都排在同一个时间轴上（`nextFrame(cb)` / `cancelFrame(id)`，用法与 requestAnimationFrame
+相同，`FrameCallback`）：一帧只有一个 rAF，stage 的帧循环在量面板之前先 `flushFrame(now)` —— 动画这一帧写的值这一帧就画。
+自己的动画也可以排在这里，与玻璃同一帧。
+
+- `everyFrame(cb)`：每一帧都跑、但不自己排帧（搭 stage 帧循环的车；帧循环停着时也不跑）。`ElementMotion` 用它。
+- 减少动效：排着的回调拿到的时间一下子跳 `REDUCED_MOTION_SKIP`（10⁶ ms），按时间走的动画一步到终点 —— 中途打开减少动效时
+  正在走的也一步落地。
+- `pendingFrames()`：排着的回调数（测试、调试用）。
+
+### 局部质量
+
+整页吃紧时先降最贵的那几块玻璃，不拖累整页（`allocateQuality(q, costs)` → `QualityAllocation { global, local }`）：
+一块的成本占总数 ≥ `HEAVY_SHARE`（25%，页面上至少两块时）算贵的；q 从 1 降到 1 − `LOCAL_SPAN`（0.7）只降贵的
+（从 1 降到 `QUALITY_MIN`），整页不动；再往下整页才降。没有贵的时就是原来的整页降。
+
+- 成本是估计（没有 GPU 计时）：视口里看得见的面积 × 模糊（σ）× 色散。
+- 单块的系数用 `GlassPanel.setQuality(Partial<QualityFactors>)`，乘在整页的系数上（`combineQuality`；分辨率是整页共用的
+  场景，只看整页的）。`AdaptiveQuality` 的 `locals` 选项给出能单独降的目标（`LocalQualityTarget`：`cost()`、
+  `setLocalQuality(factors)`），runtime 给的是没写死 `quality` 的 `glass()` / `<div glass>`；`globalQuality`、
+  `loweredCount` 是整页那一档与单独降了几块（调试面板显示）。
+- `glass(el, { quality: 0.6 })` / `glass-quality="0.6"` 写死的那块自适应不碰。组件不参与局部质量。
 
 ### 自适应质量
 
@@ -479,6 +527,8 @@ GPU 玻璃画在最底下，盖不住滚上来的 DOM 文字。
 | `element` | 注册的元素 |
 | `setMaterial(material)` | 换材质。写错就抛 |
 | `setLight({ x, y, strength } \| null)` | 按压处的光。x、y 是相对元素左上角的 CSS 像素，strength 0–1 |
+| `setPresentation({ dx, dy, sx, sy } \| null)` | 呈现变换（`PanelPresentation`）：玻璃相对元素的盒子平移（CSS 像素）、绕中心缩放，元素不动。与 CSS 的 scale 走同一条路 |
+| `setQuality(factors \| null)` | 这一块自己的质量系数（`Partial<QualityFactors>`），乘在 `stage.setQuality` 的整页系数上 |
 | `unregister()` | 注销 |
 
 ### `GlassGroup`
@@ -639,6 +689,15 @@ reject 一个 `name === 'AbortError'` 的 DOMException。跨源的图片与视�
 | `lowerMaterial(material, [w, h])`、`EffectChain`、`GlassEffect` | 材质 → 有序效果管线（`colorFilter → blur → lens`） |
 | `parseTint(css)`、`resolveCornerRadii(radius, [w, h])` | tint 的解析（解析不了就抛）；圆角解算成四角绝对 dp |
 | `MATERIAL_ATTRIBUTES`、`parseMaterialAttributes(get)` | 组件认的材质属性名；从属性读出材质（组件内部用的同一个函数） |
+
+### 动起来的玻璃、时间轴、局部质量（进阶）
+
+| 导出 | 说明 |
+|---|---|
+| `ElementMotion`、`ElementMotionOptions`、`MotionBox`、`JUMP_PX`、`ELEMENT_FLY_SCALE`、`jellyScale2`、`noteScroll` | 任意元素的果冻与飞行（`glass-jelly` / `glass-glide` 背后就是它），见上面「动起来的玻璃」 |
+| `nextFrame`、`cancelFrame`、`everyFrame`、`flushFrame`、`pendingFrames`、`REDUCED_MOTION_SKIP`、`FrameCallback` | 统一的时间轴，见上面 |
+| `PanelPresentation`、`presentRect` | `GlassPanel.setPresentation` 的参数；按它换算盒子 |
+| `allocateQuality`、`QualityAllocation`、`HEAVY_SHARE`、`LOCAL_SPAN`、`LocalQualityTarget`、`combineQuality` | 局部质量：先降贵的那几块；单块系数乘整页系数 |
 
 ### 颜色、渐变、场景、磨砂（进阶：纯函数）
 

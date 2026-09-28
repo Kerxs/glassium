@@ -11,7 +11,16 @@
 import type { GlassStage, StageFrame } from '../renderer/stage.ts'
 import { FrameMonitor } from './monitor.ts'
 import { loadProfile, profileKey, saveProfile } from './profile.ts'
-import { factorsFor, QualityController, type FrameWindow } from './quality.ts'
+import type { QualityFactors } from '../renderer/quality.ts'
+import { allocateQuality, factorsFor, QualityController, type FrameWindow } from './quality.ts'
+
+/** 能单独降质量的一块玻璃（runtime 的 `glass()`；见 allocateQuality）。 */
+export interface LocalQualityTarget {
+  /** 成本估计（相对值）。 */
+  cost(): number
+  /** 这一块自己的系数（null 是不单独降）。 */
+  setLocalQuality(factors: Partial<QualityFactors> | null): void
+}
 
 export interface AdaptiveOptions {
   /** 固定的质量值（0–1）：不监测、直接定死。null 是自适应。 */
@@ -24,6 +33,8 @@ export interface AdaptiveOptions {
   readonly initial?: number
   /** 自己订阅 stage.onFrame（默认 true）；测试时关掉、用 feed() 喂。 */
   readonly listen?: boolean
+  /** 能单独降的玻璃（局部质量）。不给就只有整页的质量。 */
+  readonly locals?: () => readonly LocalQualityTarget[]
 }
 
 export class AdaptiveQuality {
@@ -35,11 +46,16 @@ export class AdaptiveQuality {
   readonly #key: string | null
   #unsubscribe: (() => void) | null = null
   #lastWindow: FrameWindow | null = null
+  readonly #locals: (() => readonly LocalQualityTarget[]) | null
+  /** 上一次单独降了的那几块（下一次不在里面的要放回去）。 */
+  #lowered = new Set<LocalQualityTarget>()
+  #global = 1
 
   constructor(stage: GlassStage, options: AdaptiveOptions = {}) {
     this.#stage = stage
     this.#fixed = options.fixed ?? null
     this.#remember = options.remember ?? false
+    this.#locals = options.locals ?? null
     const vp = stage.debug.stats().viewport
     this.#key =
       this.#remember && typeof window !== 'undefined'
@@ -70,6 +86,16 @@ export class AdaptiveQuality {
     return this.#monitor.refreshMs
   }
 
+  /** 整页那一档（局部质量先降贵的那几块时，它比 quality 高）。 */
+  get globalQuality(): number {
+    return this.#global
+  }
+
+  /** 正在单独降的块数（调试面板读）。 */
+  get loweredCount(): number {
+    return this.#lowered.size
+  }
+
   /** 最近一个窗口（调试面板读）。 */
   get lastWindow(): FrameWindow | null {
     return this.#lastWindow
@@ -89,8 +115,9 @@ export class AdaptiveQuality {
     this.#lastWindow = w
     const before = this.#controller.quality
     const after = this.#controller.sample(w)
+    // 质量没变也重分一次：玻璃挪了、多了少了，谁贵谁便宜会变
+    if (after !== before || (after < 1 && this.#locals)) this.#apply()
     if (after !== before) {
-      this.#apply()
       if (this.#key) {
         saveProfile(this.#key, { q: after, frameMs: this.#monitor.refreshMs, resolution: factorsFor(after).resolution, at: Date.now() })
       }
@@ -101,10 +128,26 @@ export class AdaptiveQuality {
     this.#unsubscribe?.()
     this.#unsubscribe = null
     this.#stage.setQuality(null)
+    for (const t of this.#lowered) t.setLocalQuality(null)
+    this.#lowered.clear()
   }
 
+  /** 按当前的 q 重新分配（整页 + 贵的那几块）。 */
   #apply(): void {
     const q = this.quality
-    this.#stage.setQuality(q >= 1 ? null : factorsFor(q))
+    const targets = this.#locals && this.#fixed === null ? this.#locals() : []
+    const alloc = allocateQuality(q, targets.map((t) => t.cost()))
+    this.#global = alloc.global
+    this.#stage.setQuality(alloc.global >= 1 ? null : factorsFor(alloc.global))
+    const lowered = new Set<LocalQualityTarget>()
+    targets.forEach((t, i) => {
+      const lq = alloc.local[i]
+      if (lq === null || lq === undefined) return
+      const { resolution: _shared, ...rest } = factorsFor(lq)
+      t.setLocalQuality(rest)
+      lowered.add(t)
+    })
+    for (const t of this.#lowered) if (!lowered.has(t)) t.setLocalQuality(null)
+    this.#lowered = lowered
   }
 }

@@ -44,6 +44,9 @@ export const GLASS_MATERIAL_ATTRIBUTES: readonly string[] = MATERIAL_ATTRIBUTES.
   (a) => `glass-${a}`
 )
 
+/** 交互与质量的属性：`glass-jelly`、`glass-glide`（写了就开，`="false"` 关），`glass-quality="0.6"`。 */
+export const GLASS_BEHAVIOR_ATTRIBUTES: readonly string[] = ['glass-jelly', 'glass-glide', 'glass-quality']
+
 export interface ParsedGlassAttributes {
   /** 预设 ⊕ `glass-*` 属性。不含按元素算的默认值（圆角）。 */
   readonly material: GlassMaterial
@@ -53,6 +56,11 @@ export interface ParsedGlassAttributes {
   readonly overrides: GlassMaterial
   /** 显式写了圆角（`glass-corner-radius`）。没写时 runtime 取 CSS 的 border-radius。 */
   readonly explicitRadius: boolean
+  /** `glass-jelly` / `glass-glide`：没写是 undefined（按默认）。 */
+  readonly jelly?: boolean
+  readonly glide?: boolean
+  /** `glass-quality`：0–1，没写或写错是 undefined（自适应）。 */
+  readonly quality?: number
   readonly problems: readonly string[]
 }
 
@@ -71,11 +79,28 @@ export function parseGlassAttributes(get: (name: string) => string | null): Pars
   }
   const parsed = parseMaterialAttributes((name) => (name === 'preset' ? null : get(`glass-${name}`)))
   for (const p of parsed.problems) problems.push(`glass-${p}`)
+  const flag = (name: string): boolean | undefined => {
+    const v = get(name)
+    if (v === null) return undefined
+    return v.trim().toLowerCase() !== 'false'
+  }
+  let quality: number | undefined
+  const q = get('glass-quality')
+  if (q !== null && q.trim() !== 'auto') {
+    const n = Number(q)
+    if (q.trim() !== '' && Number.isFinite(n) && n >= 0 && n <= 1) quality = n
+    else problems.push(`glass-quality="${q}"：要 0–1 的数或 auto`)
+  }
+  const jelly = flag('glass-jelly')
+  const glide = flag('glass-glide')
   return {
     material: { ...base, ...parsed.material },
     preset: runtimePreset(presetName) ? presetName : '',
     overrides: parsed.material,
     explicitRadius: parsed.material.cornerRadius !== undefined,
+    ...(jelly !== undefined ? { jelly } : {}),
+    ...(glide !== undefined ? { glide } : {}),
+    ...(quality !== undefined ? { quality } : {}),
     problems
   }
 }

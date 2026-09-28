@@ -20,6 +20,8 @@ import {
   contentStats,
   createGlassStage,
   defineGlassElements,
+  flushFrame,
+  glass,
   GlassPresets,
   joinProbeAndColors,
   linearToSrgb,
@@ -33,6 +35,7 @@ import {
   srgbToLinear,
   summarizeBySector,
   type GlassStage,
+  type LocalQualityTarget,
   type OpticsComparison,
   type OpticsProbe,
   type ReadbackRegion
@@ -3104,6 +3107,206 @@ async function run(): Promise<void> {
       configure({ absorbContent: true })
       wrap.remove()
       await sleep(0)
+      calibrationScene()
+      stage.debug.renderNow()
+    }
+  })
+
+  await check('element-motion', async () => {
+    // 任意元素的果冻与飞行（interaction/element-motion.ts，只动玻璃）：一块红色的 <div glass glass-jelly glass-glide>。
+    // - 按 1 px/ms 往右挪 10 帧：画布上的红色横向比元素宽（拉长）、纵向比元素矮（收），中心还在元素的中心；
+    // - 停下 60 帧：回到元素的宽度；
+    // - 一下子往左跳 160px：跳的那一帧玻璃还在原地，之后飞过去、中途鼓起，0.3 秒内飞到新位置，果冻 0.8 秒内圆回去；
+    // - 反向对照：去掉 glass-jelly / glass-glide 之后挪动不拉长、跳了立刻在新位置；减少动效时也立刻在新位置。
+    // 帧由 flushFrame + renderNow 手动推（面板隐藏时 rAF 不出帧；帧观察者本来就搭 stage 帧循环的车）。
+    stage.debug.setBackdrop({ scene: 'flat' })
+    simulateReducedMotion(false)
+    const v = stage.debug.stats().viewport!
+    const sc = v.compositeWidth / v.cssWidth
+    const canvasBox = stage.canvas.getBoundingClientRect()
+    const isRed = (d: Uint8Array, i: number): boolean => d[i]! > 150 && d[i + 1]! < 110 && d[i + 2]! < 110
+    // 一行 / 一列里红色的范围（CSS 像素）
+    const span = async (horizontal: boolean, at: number, from: number, to: number): Promise<{ a: number; b: number } | null> => {
+      const region = horizontal
+        ? { x: Math.floor((from - canvasBox.left) * sc), y: Math.floor((at - canvasBox.top) * sc), width: Math.ceil((to - from) * sc), height: 1 }
+        : { x: Math.floor((at - canvasBox.left) * sc), y: Math.floor((from - canvasBox.top) * sc), width: 1, height: Math.ceil((to - from) * sc) }
+      const d = await readback(region)
+      let first = -1
+      let last = -1
+      for (let i = 0; i < d.length / 4; i++) {
+        if (!isRed(d, i * 4)) continue
+        if (first < 0) first = i
+        last = i
+      }
+      return first < 0 ? null : { a: from + first / sc, b: from + (last + 1) / sc }
+    }
+    const el = document.createElement('div')
+    el.setAttribute('glass', '')
+    el.setAttribute('glass-jelly', '')
+    el.setAttribute('glass-glide', '')
+    el.setAttribute('glass-tint', 'rgba(230, 20, 20, 0.85)')
+    el.setAttribute('glass-refraction', '0')
+    el.setAttribute('glass-shadow', '0')
+    Object.assign(el.style, { position: 'absolute', left: '440px', top: '480px', width: '160px', height: '60px', borderRadius: '20px' })
+    document.body.append(el)
+    let now = performance.now()
+    const step = (): void => {
+      now += 16
+      flushFrame(now)
+      stage.debug.renderNow()
+    }
+    const measure = async (): Promise<{ w: number; h: number; cx: number }> => {
+      const r = el.getBoundingClientRect()
+      const cy = r.top + r.height / 2
+      const hs = await span(true, cy, 300, Math.min(v.cssWidth - 1, 1000))
+      const cx = r.left + r.width / 2
+      const vs = await span(false, hs ? (hs.a + hs.b) / 2 : cx, r.top - 40, r.bottom + 40)
+      return { w: hs ? hs.b - hs.a : 0, h: vs ? vs.b - vs.a : 0, cx: hs ? (hs.a + hs.b) / 2 : NaN }
+    }
+    try {
+      await sleep(0)
+      await sleep(0)
+      step()
+      step()
+      const rest = await measure()
+      // 果冻：1 px/ms 往右
+      for (let i = 1; i <= 10; i++) {
+        el.style.left = `${440 + i * 16}px`
+        step()
+      }
+      const moving = await measure()
+      const elCx = el.getBoundingClientRect().left + 80
+      for (let i = 0; i < 60; i++) step()
+      const settled = await measure()
+      // 飞行：往左跳 160
+      const oldCx = el.getBoundingClientRect().left + 80
+      el.style.left = '440px'
+      step()
+      const takeoff = await measure()
+      let maxW = 0
+      let arrived = -1
+      let frames = 0
+      for (; frames < 60; frames++) {
+        step()
+        const m = await measure()
+        maxW = Math.max(maxW, m.w)
+        if (arrived < 0 && Math.abs(m.cx - 520) < 1) arrived = frames + 1
+        if (arrived > 0 && Math.abs(m.w - rest.w) < 1.5) break
+      }
+      const landed = await measure()
+      // 反向对照：去掉两个属性
+      el.removeAttribute('glass-jelly')
+      el.removeAttribute('glass-glide')
+      await sleep(0)
+      step()
+      for (let i = 1; i <= 10; i++) {
+        el.style.left = `${440 + i * 16}px`
+        step()
+      }
+      const plainMoving = await measure()
+      el.style.left = '440px'
+      step()
+      const plainJump = await measure()
+      // 减少动效
+      el.setAttribute('glass-jelly', '')
+      el.setAttribute('glass-glide', '')
+      await sleep(0)
+      step()
+      simulateReducedMotion(true)
+      el.style.left = '600px'
+      step()
+      const reducedJump = await measure()
+      const f = (m: { w: number; h: number; cx: number }): string => `${m.w.toFixed(1)}×${m.h.toFixed(1)} @${m.cx.toFixed(1)}`
+      const detail =
+        `静止 ${f(rest)} · 1 px/ms 挪动 ${f(moving)}（元素中心 ${elCx.toFixed(1)}）· 停下 60 帧 ${f(settled)} · ` +
+        `往左跳 160：起飞那帧 ${f(takeoff)}（原中心 ${oldCx.toFixed(1)}）、中途最宽 ${maxW.toFixed(1)}、${arrived} 帧（${arrived * 16}ms）飞到、${frames + 1} 帧（${(frames + 1) * 16}ms）圆回去 ${f(landed)} · ` +
+        `去掉属性：挪动 ${f(plainMoving)}、跳了 ${f(plainJump)} · 减少动效跳了 ${f(reducedJump)}`
+      const ok =
+        Math.abs(rest.w - 160) < 6 && Math.abs(rest.h - 60) < 6 &&
+        moving.w > rest.w * 1.12 && moving.h < rest.h - 2 && Math.abs(moving.cx - elCx) < 2 &&
+        Math.abs(settled.w - rest.w) < 1.5 &&
+        Math.abs(takeoff.cx - oldCx) < 3 && maxW > rest.w + 2 && arrived > 0 && arrived * 16 <= 300 && (frames + 1) * 16 <= 800 && Math.abs(landed.cx - 520) < 1 && Math.abs(landed.w - rest.w) < 1.5 &&
+        Math.abs(plainMoving.w - rest.w) < 1.5 && Math.abs(plainJump.cx - 520) < 1 &&
+        Math.abs(reducedJump.cx - 680) < 1 && Math.abs(reducedJump.w - rest.w) < 1.5
+      return ok ? pass(detail) : fail(detail)
+    } finally {
+      simulateReducedMotion(null)
+      el.remove()
+      await sleep(0)
+      calibrationScene()
+      stage.debug.renderNow()
+    }
+  })
+
+  await check('local-quality', async () => {
+    // 局部质量（performance/quality.ts 的 allocateQuality + GlassPanel.setQuality）：一块大的玻璃（成本占大头）与三块小的。
+    // - 自适应质量起步在 0.8、这四块当局部目标：只降大的那块（它的像素变了），三块小的逐位不变，整页的系数还是满的；
+    // - 反向对照：只有大的一块时（它就是整页）降的是整页；
+    // - glass(el, { quality: 0.35 }) 写死的那块变了，自适应设的单块系数不碰它；改回 'auto' 逐位复原；
+    // - dispose 之后大的逐位复原。
+    calibrationScene()
+    const mk = (x: number, y: number, w: number, h: number): HTMLElement => {
+      const e = document.createElement('div')
+      Object.assign(e.style, { position: 'absolute', left: `${x}px`, top: `${y}px`, width: `${w}px`, height: `${h}px`, borderRadius: '16px' })
+      document.body.append(e)
+      return e
+    }
+    const bigEl = mk(440, 380, 340, 160)
+    const smallEls = [mk(440, 570, 60, 40), mk(520, 570, 60, 40), mk(600, 570, 60, 40)]
+    const material = { dispersion: 0.6, refraction: 0.5, depthEffect: 0.5 }
+    const big = glass(bigEl, { material })
+    const smalls = smallEls.map((e) => glass(e, { material }))
+    const all = [big, ...smalls] as unknown as LocalQualityTarget[]
+    const hashOf = async (els: HTMLElement[]): Promise<string> => sha(await readback(regionOf(els, 2)))
+    let adaptive: AdaptiveQuality | null = null
+    try {
+      await sleep(0)
+      stage.debug.renderNow()
+      const big0 = await hashOf([bigEl])
+      const small0 = await hashOf(smallEls)
+      adaptive = new AdaptiveQuality(stage, { listen: false, initial: 0.8, locals: () => all })
+      stage.debug.renderNow()
+      const big1 = await hashOf([bigEl])
+      const small1 = await hashOf(smallEls)
+      const globalFull = stage.quality.dispersion === 1 && stage.quality.resolution === 1
+      const lowered = adaptive.loweredCount
+      const globalQ = adaptive.globalQuality
+      adaptive.dispose()
+      adaptive = null
+      stage.debug.renderNow()
+      const big2 = await hashOf([bigEl])
+      // 反向对照：只有一块
+      adaptive = new AdaptiveQuality(stage, { listen: false, initial: 0.8, locals: () => [big as unknown as LocalQualityTarget] })
+      const alone = { global: adaptive.globalQuality, lowered: adaptive.loweredCount, dispersion: stage.quality.dispersion }
+      adaptive.dispose()
+      adaptive = null
+      stage.debug.renderNow()
+      // 写死的单块质量
+      big.update({ quality: 0.35 })
+      stage.debug.renderNow()
+      const pinned = await hashOf([bigEl])
+      ;(big as unknown as LocalQualityTarget).setLocalQuality(null)
+      stage.debug.renderNow()
+      const pinnedKept = (await hashOf([bigEl])) === pinned
+      big.update({ quality: 'auto' })
+      stage.debug.renderNow()
+      const big3 = await hashOf([bigEl])
+      const detail =
+        `起步 0.8、四块：单独降了 ${lowered} 块、整页那一档 ${globalQ}、整页系数满 ${globalFull} · 大的变了 ${big1 !== big0}、小的逐位不变 ${small1 === small0} · ` +
+        `dispose 后大的复原 ${big2 === big0} · 只有一块：整页那一档 ${alone.global}、单独降 ${alone.lowered} 块、整页色散 ${alone.dispersion} · ` +
+        `写死 0.35：变了 ${pinned !== big0}、自适应不碰 ${pinnedKept}、改回 auto 复原 ${big3 === big0}`
+      const ok =
+        lowered === 1 && globalQ === 1 && globalFull && big1 !== big0 && small1 === small0 && big2 === big0 &&
+        alone.global === 0.8 && alone.lowered === 0 && alone.dispersion < 1 &&
+        pinned !== big0 && pinnedKept && big3 === big0
+      return ok ? pass(detail) : fail(detail)
+    } finally {
+      adaptive?.dispose()
+      stage.setQuality(null)
+      big.destroy()
+      for (const s of smalls) s.destroy()
+      bigEl.remove()
+      for (const e of smallEls) e.remove()
       calibrationScene()
       stage.debug.renderNow()
     }

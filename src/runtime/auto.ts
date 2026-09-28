@@ -15,12 +15,12 @@ import { defineGlassElements } from '../components/register.ts'
 import { getConfig } from './config.ts'
 import { ensureStage } from './ensure-stage.ts'
 import { glass, runtimeGlassOf } from './glass.ts'
-import { GLASS_MATERIAL_ATTRIBUTES, parseGlassAttributes } from './presets.ts'
+import { GLASS_BEHAVIOR_ATTRIBUTES, GLASS_MATERIAL_ATTRIBUTES, parseGlassAttributes } from './presets.ts'
 import { restyleAbsorbed, ROOT_FILL_ATTRIBUTE, scheduleAbsorb, scheduleAbsorbFrame } from './absorb.ts'
 import { invalidateContentAt } from './content.ts'
 import { installRuntimeStyles } from './styles.ts'
 
-const WATCHED = ['glass', ...GLASS_MATERIAL_ATTRIBUTES, 'class', 'style']
+const WATCHED = ['glass', ...GLASS_MATERIAL_ATTRIBUTES, ...GLASS_BEHAVIOR_ATTRIBUTES, 'class', 'style']
 
 let scheduled = false
 let started = false
@@ -81,7 +81,13 @@ function adopt(el: HTMLElement): void {
     seen.add(p)
     console.warn(`[Glassium] 属性有误，已忽略：${p}`, el)
   }
-  const options = { preset: parsed.preset, material: parsed.overrides }
+  const motion = parsed.jelly !== undefined || parsed.glide !== undefined
+  const options = {
+    preset: parsed.preset,
+    material: parsed.overrides,
+    ...(motion ? { interaction: { jelly: parsed.jelly ?? false, glide: parsed.glide ?? false } } : {}),
+    ...(parsed.quality !== undefined ? { quality: parsed.quality } : {})
+  }
   const existing = runtimeGlassOf(el)
   if (existing && fromAttribute.has(el)) existing.replace(options)
   else if (!existing) {

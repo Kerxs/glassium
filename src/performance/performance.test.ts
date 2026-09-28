@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 
 import { FrameMonitor, WINDOW_MS } from './monitor.ts'
 import { parseProfile, profileKey, PROFILE_TTL_MS } from './profile.ts'
+import { allocateQuality, HEAVY_SHARE, LOCAL_SPAN } from './quality.ts'
 import {
   DEGRADE_WINDOWS,
   factorsFor,
@@ -112,4 +113,30 @@ test('profile：键里有版本、后端、尺寸、DPR；过期、坏数据、�
   assert.equal(parseProfile(JSON.stringify({ q: 3, at: now }), now), null)
   assert.equal(parseProfile('{oops', now), null)
   assert.equal(parseProfile(null, now), null)
+})
+
+test('局部质量：先降贵的那几块（整页不动），再往下整页才降；没有贵的、只有一块时就是整页降', () => {
+  const costs = [600, 100, 100, 100] // 第 0 块占 2/3
+  const full = allocateQuality(1, costs)
+  assert.deepEqual(full, { global: 1, local: [null, null, null, null] }, '满质量：谁都不降')
+  const early = allocateQuality(0.9, costs)
+  assert.equal(early.global, 1, '头几步只降贵的')
+  assert.ok(early.local[0]! < 1 && early.local[0]! > 0.35)
+  assert.deepEqual(early.local.slice(1), [null, null, null])
+  const edge = allocateQuality(1 - LOCAL_SPAN, costs)
+  assert.equal(edge.global, 1)
+  assert.ok(Math.abs(edge.local[0]! - 0.35) < 1e-12, '到 0.7 时贵的降到底')
+  const deep = allocateQuality(0.5, costs)
+  assert.ok(deep.global < 1 && deep.global > 0.35, `再往下整页降（${deep.global}）`)
+  assert.ok(Math.abs(allocateQuality(0.35, costs).global - 0.35) < 1e-12, '到底时整页也到底')
+  // 连续：q 往下走，整页那一档不往上跳
+  let prev = 1
+  for (let q = 1; q >= 0.35; q -= 0.01) {
+    const g = allocateQuality(q, costs).global
+    assert.ok(g <= prev + 1e-12)
+    prev = g
+  }
+  assert.deepEqual(allocateQuality(0.8, [100, 100, 100, 100, 100]), { global: 0.8, local: [null, null, null, null, null] }, '成本差不多（各 20% < 25%）：整页降')
+  assert.ok(0.2 < HEAVY_SHARE)
+  assert.deepEqual(allocateQuality(0.8, [1000]), { global: 0.8, local: [null] }, '只有一块：它就是整页')
 })

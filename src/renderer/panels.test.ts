@@ -441,3 +441,42 @@ test('层：写在一块玻璃里面的玻璃与填充在它上面一层；更�
   assert.ok(g)
   assert.equal(g.layer, 1)
 })
+
+test('呈现变换：玻璃绕盒子中心缩放、平移，元素不动；回到恒等就与没设一样', () => {
+  const viewport = resolveViewport(800, 600, 1)
+  let changes = 0
+  const registry = new PanelRegistry(() => changes++)
+  const panel = registry.register(fakeElement(100, 100, 200, 100), { shadow: 0 })
+  const before = registry.measure(viewport).panels[0]!
+  panel.setPresentation({ dx: 10, dy: -5, sx: 1.5, sy: 0.8 })
+  const m = registry.measure(viewport).panels[0]!
+  assert.equal(m.w, 300, '宽 × 1.5')
+  assert.equal(m.h, 80, '高 × 0.8')
+  assert.equal(m.x, 100 + 10 - 50, '绕中心：左边往外 50，再平移 10')
+  assert.equal(m.y, 100 - 5 + 10, '绕中心：上边往里 10，再平移 −5')
+  assert.equal(m.scissor[0], m.x - 2, '裁剪矩形跟着变换之后的盒子')
+  const n = changes
+  panel.setPresentation({ dx: 10, dy: -5, sx: 1.5, sy: 0.8 })
+  assert.equal(changes, n, '同一个变换不再通知')
+  panel.setPresentation({ dx: 0, dy: 0, sx: 1, sy: 1 })
+  const after = registry.measure(viewport).panels[0]!
+  assert.deepEqual([after.x, after.y, after.w, after.h], [before.x, before.y, before.w, before.h], '恒等变换 = 没有变换')
+})
+
+test('单块的质量系数乘在全局的上面；分辨率只看全局；结果按全局那一组缓存（同一个对象）', () => {
+  const viewport = resolveViewport(800, 600, 1)
+  const registry = new PanelRegistry(() => {})
+  const a = registry.register(fakeElement(10, 10, 200, 100), {})
+  registry.register(fakeElement(300, 10, 200, 100), {})
+  registry.quality = Object.freeze({ resolution: 0.8, blur: 0.9, refraction: 1, depth: 1, dispersion: 0.5, shadow: 1 })
+  a.setQuality({ blur: 0.5, dispersion: 0, resolution: 0.1 } as never)
+  const [pa, pb] = registry.measure(viewport).panels
+  assert.equal(pb!.quality, registry.quality, '没有自己的系数：就是全局那一组')
+  assert.equal(pa!.quality!.blur, 0.45)
+  assert.equal(pa!.quality!.dispersion, 0)
+  assert.equal(pa!.quality!.resolution, 0.8, '分辨率只看全局')
+  const again = registry.measure(viewport).panels[0]!
+  assert.equal(again.quality, pa!.quality, '全局没变：同一个对象（静止时不画的比较按引用）')
+  a.setQuality(null)
+  assert.equal(registry.measure(viewport).panels[0]!.quality, registry.quality)
+})

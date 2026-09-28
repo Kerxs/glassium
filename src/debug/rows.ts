@@ -30,6 +30,7 @@ export function debugRows(): Array<[string, string]> {
       '质量',
       `${a.quality.toFixed(2)}${a.fixed !== null ? '（固定）' : a.probing ? '（探测中）' : '（自适应）'} · 预算 ${a.budgetMs.toFixed(1)} ms`
     ])
+    if (a.loweredCount > 0) rows.push(['局部质量', `单独降了 ${a.loweredCount} 块 · 整页那一档 ${a.globalQuality.toFixed(2)}`])
     if (w) rows.push(['上个窗口', `${w.frames} 帧 · 掉帧 ${(w.dropRatio * 100).toFixed(0)}% · CPU ${(w.cpuRatio * 100).toFixed(0)}% 预算`])
   } else {
     rows.push(['质量', '满（不是 runtime 建的 stage）'])

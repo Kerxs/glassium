@@ -7,6 +7,7 @@ import { AdaptiveQuality } from '../performance/adaptive.ts'
 import type { GlassStage } from '../renderer/stage.ts'
 import { VERSION } from '../version.ts'
 import { fixedQuality, getConfig, onConfigChange } from './config.ts'
+import { adaptiveTargets } from './glass.ts'
 
 let adaptive: AdaptiveQuality | null = null
 let subscribed = false
@@ -14,7 +15,13 @@ let subscribed = false
 export function attachQuality(stage: GlassStage): void {
   adaptive?.dispose()
   const c = getConfig()
-  adaptive = new AdaptiveQuality(stage, { fixed: fixedQuality(c.quality), remember: c.rememberQuality, version: VERSION })
+  adaptive = new AdaptiveQuality(stage, {
+    fixed: fixedQuality(c.quality),
+    remember: c.rememberQuality,
+    version: VERSION,
+    // 局部质量：整页吃紧时先降最贵的那几块 runtime 玻璃
+    locals: adaptiveTargets
+  })
   if (!subscribed) {
     subscribed = true
     onConfigChange((next, prev) => {

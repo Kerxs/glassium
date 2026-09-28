@@ -10,6 +10,7 @@
 import type { GlassMaterial } from '../core/material.ts'
 import { prefersReducedMotion } from '../renderer/stage.ts'
 import { approach, SETTLE_EPSILON, TAU_MS } from '../interaction/motion.ts'
+import { cancelFrame, nextFrame } from '../animation/timeline.ts'
 
 /** 旋钮材质里随按压变化的那几项。 */
 export interface ThumbParams {
@@ -127,13 +128,13 @@ export class PressTween {
     }
     if (this.#energy !== this.#target && this.#raf === 0) {
       this.#lastTick = performance.now()
-      this.#raf = requestAnimationFrame(this.#tick)
+      this.#raf = nextFrame(this.#tick)
     }
   }
 
   /** 停在当前能量（元素离开文档时）。 */
   stop(): void {
-    if (this.#raf !== 0) cancelAnimationFrame(this.#raf)
+    if (this.#raf !== 0) cancelFrame(this.#raf)
     this.#raf = 0
   }
 
@@ -150,6 +151,6 @@ export class PressTween {
     this.#energy = approach(this.#energy, this.#target, dt, TAU_MS)
     if (Math.abs(this.#energy - this.#target) < SETTLE_EPSILON) this.#energy = this.#target
     this.#onChange(this.#energy)
-    this.#raf = this.#energy === this.#target ? 0 : requestAnimationFrame(this.#tick)
+    this.#raf = this.#energy === this.#target ? 0 : nextFrame(this.#tick)
   }
 }
