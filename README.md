@@ -181,6 +181,7 @@ await morphGlass(button, menu).finished            // 按钮变成菜单
 | [docs/limitations.md](docs/limitations.md) | 编写规则与边界（先读开头三条） |
 | [docs/benchmark.md](docs/benchmark.md) | 性能：面板数与帧开销 |
 | [docs/compatibility.md](docs/compatibility.md) | 兼容性：四级退化、实测与推断的格子、新设备上怎么验 |
+| [docs/frameworks.md](docs/frameworks.md) | 在 React、Vue、Svelte 里用：属性怎么写、TypeScript 声明、命令式写法、SSR |
 | [docs/architecture.md](docs/architecture.md)、[spec/](spec/) | 架构、光学与管线规格（给实现别的渲染器的人） |
 | [docs/calibration.md](docs/calibration.md) | 每一项功能的实测数字与反向对照 |
 | [docs/progress.md](docs/progress.md) | 开发记录 |

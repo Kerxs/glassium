@@ -129,6 +129,21 @@ Glassium 的定位是**面向 Web 的 Liquid Glass 渲染运行时**：让任意
 ### 1.0 —— 生产可用的运行时
 - 组件是否拆成 `@glassium/components` 在这之前决定（现在它们留在主包里、建在 runtime 上）。
 
+**待决定：组件拆不拆（给维护者的材料）**
+
+现状：组件约 4900 行（全部源码的四分之一上下）；runtime 反过来依赖组件目录里的四样 —— `paintContent`（内容进场景）、
+`parseMaterialAttributes`（`glass-*` 属性）、`morphGlass`（`glassium.morph`）、`defineGlassElements`（自动启动时注册组件）。
+`import 'glassium'` 的入口有副作用，打包器摇不掉组件。
+
+| 方案 | 做法 | 好处 | 代价 |
+|---|---|---|---|
+| 不拆 | 照旧一个包 | 零配置的承诺最简单：一行 import，`<div glass>` 与 `<glass-switch>` 都能用；版本永远对得上 | 只要 `<div glass>` 的页面也带着全部组件（`dist/components/` 逐个文件 gzip 约 67 KB，全部 321 KB 的两成；打包之后会小一些，其中 runtime 自己要用的那四样拆了也省不掉） |
+| 拆 | `glassium` 只有 runtime，`@glassium/components` 另发 | 包小；组件可以按自己的节奏发版 | 先把上面四样挪进 core / runtime；两个包的版本要对齐；零配置时 `<glass-*>` 不再自动可用（要多 import 一次） |
+| 折中 | 一个包，多一个子路径入口 `glassium/runtime`（不注册组件） | 默认体验不变；在意体积的可以只引 runtime | 多维护一个入口；同样要先挪那四样 |
+
+建议：1.0 用**折中**。拆包带来的版本对齐成本，在组件还跟着 runtime 一起频繁改的时候不划算；子路径入口给了在意体积的人
+一条路，以后真要拆也是顺着它拆。这是建议，定不定、怎么定由维护者决定。
+
 下面几节是引擎本身（画布、模块、一帧怎么画、组件、验证），runtime 建在它上面。
 
 ## 三层宿主

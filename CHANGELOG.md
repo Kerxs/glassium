@@ -26,6 +26,7 @@
   超了先放闲着的纹理（层的来源与备份），还超就把场景的像素预算一次降两成，到保底清晰度为止（`stats().memoryScale`、
   `memoryOverBudget`）；去掉预算就回到原样。连着 600 帧没有层时后端自己放掉层的纹理（`IDLE_LAYER_FRAMES`）。
 - **资源账**：`stats().gpuMemory`（显存估计：模糊链、草稿、层的来源与备份、图集、场景纹理、画布；调试面板按项列出）。
+- **在框架里用**：docs/frameworks.md（React / Vue / Svelte 的写法、TypeScript 的属性声明、SSR、常见问题）。
 - **调试面板三页**：概览、场景（场景检查器与材质检查器：上一帧的每一块玻璃与填充，点一行或「选取」页面上的元素，框出它、
   列出材质、效果链、质量系数、呈现变换）、资源（显存每一项、创建计数）。`stage.debug.scene()`（`SceneSnapshot`）。
 - **API 冻结**：api.md 里（稳定）的几节 —— 新增 Runtime（`glassium`、`glass`、`configure`、能力、预设、`nextFrame` …）——
