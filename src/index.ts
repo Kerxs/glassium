@@ -17,7 +17,8 @@
 export { VERSION } from './version.ts'
 
 // —— Runtime 入口：`import 'glassium'` 之后页面上的 `<div glass>` 就是玻璃（runtime/auto.ts） ——
-import { scheduleAutoStart } from './runtime/auto.ts'
+import { scheduleAutoStart, setElementRegistrar } from './runtime/auto.ts'
+import { defineGlassElements } from './components/register.ts'
 import { glassium } from './runtime/glassium.ts'
 export { glassium }
 export default glassium
@@ -77,6 +78,8 @@ export { IDLE_LAYER_FRAMES } from './renderer/backend.ts'
 export { inspectFrame, type InspectedFill, type InspectedGlass, type SceneSnapshot } from './renderer/inspect.ts'
 if (typeof window !== 'undefined') {
   ;(window as unknown as { glassium?: typeof glassium }).glassium ??= glassium
+  // 完整入口：runtime 启动时顺带注册组件（`glassium/runtime` 入口不注册，见 runtime-entry.ts）
+  setElementRegistrar(defineGlassElements)
   scheduleAutoStart()
 }
 

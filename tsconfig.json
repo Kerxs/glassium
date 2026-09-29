@@ -19,7 +19,8 @@
     // 的固有重复：Vite 负责打包时解析，tsc 只负责类型检查，谁也不读对方的配置。
     "baseUrl": ".",
     "paths": {
-      "glassium": ["./src/index.ts"]
+      "glassium": ["./src/index.ts"],
+      "glassium/runtime": ["./src/runtime-entry.ts"]
     },
 
     "strict": true,

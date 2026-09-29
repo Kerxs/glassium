@@ -59,6 +59,15 @@ npm install glassium
 
 ESM + 类型声明，不打包、不压缩（交给你的打包器）。没有运行时依赖（`@webgpu/types` 只有类型）。
 
+两个入口：
+
+| 入口 | 有什么 | 打包、压缩之后（gzip） |
+|---|---|---|
+| `glassium` | runtime（`<div glass>`、`glass()`……）+ 全部组件（`<glass-switch>`、`<glass-tab-bar>`……） | 约 117 KB |
+| `glassium/runtime` | 只有 runtime，不注册、不带组件 —— 只用 `<div glass>` 的页面用它 | 约 98 KB |
+
+两个可以同时引（共用同一套模块），`glassium/runtime` 的导出是完整入口的子集。
+
 ## 快速开始
 
 ```js

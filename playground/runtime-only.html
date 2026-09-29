@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Glassium · 只引 runtime</title>
+    <style>
+      body {
+        margin: 0;
+        min-height: 100vh;
+        font: 16px/1.6 system-ui, sans-serif;
+        color: #fff;
+        background: linear-gradient(135deg, #ff8a5b, #6a4c93 60%, #1982c4);
+      }
+      main {
+        padding: 40px 24px;
+      }
+      .card {
+        max-width: 420px;
+        padding: 20px 24px;
+        border-radius: 24px;
+      }
+      pre {
+        font: 13px/1.5 ui-monospace, Menlo, Consolas, monospace;
+        white-space: pre-wrap;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <div class="card" glass="tinted">
+        <strong>import 'glassium/runtime'</strong>
+        <p>只有 runtime：&lt;div glass&gt; 照样是玻璃，&lt;glass-*&gt; 组件没有注册、代码也没带。</p>
+        <glass-card id="not-registered">这是一个没注册的 &lt;glass-card&gt;，只是普通的元素。</glass-card>
+      </div>
+      <pre id="report"></pre>
+    </main>
+    <script type="module" src="./runtime-only.ts"></script>
+  </body>
+</html>

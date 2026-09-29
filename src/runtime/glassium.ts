@@ -13,7 +13,7 @@
  * 具名导出（createGlassStage、组件类……）照旧都在，这里只是把 runtime 的几样收成一个对象。
  */
 
-import { morphGlass } from '../components/morph-glass.ts'
+import { morphGlass } from '../interaction/morph.ts'
 import { currentStage, onStageChange, stageOrPending, type GlassStage } from '../renderer/stage.ts'
 import { absorbedElements } from './absorb.ts'
 import { startRuntime, whenScanned } from './auto.ts'

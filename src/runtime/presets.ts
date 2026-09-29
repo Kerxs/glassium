@@ -13,7 +13,7 @@
  * - 交互：元素本身可以交互（按钮、链接、可聚焦的、表单控件）时开悬停、按压、键盘焦点的反馈，否则不开。
  */
 
-import { MATERIAL_ATTRIBUTES, parseMaterialAttributes } from '../components/attributes.ts'
+import { MATERIAL_ATTRIBUTES, parseMaterialAttributes } from '../core/attributes.ts'
 import { GlassPresets, type CornerRadius, type GlassMaterial } from '../core/material.ts'
 
 export const RUNTIME_PRESETS = {

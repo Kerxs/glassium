@@ -19,7 +19,7 @@
  * 只对 runtime 管的玻璃做；`configure({ absorbContent: false })` 关掉。
  */
 
-import { canvasIsClean, paintContent, sameOriginImage, videoIsClean } from '../components/scene-label.ts'
+import { canvasIsClean, paintContent, sameOriginImage, videoIsClean } from '../renderer/paint-content.ts'
 import { hitStacksBehind } from '../renderer/layering.ts'
 import type { SceneBitmapFill } from '../renderer/panels.ts'
 import type { GlassStage } from '../renderer/stage.ts'

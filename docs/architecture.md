@@ -142,7 +142,12 @@ Glassium 的定位是**面向 Web 的 Liquid Glass 渲染运行时**：让任意
 | 折中 | 一个包，多一个子路径入口 `glassium/runtime`（不注册组件） | 默认体验不变；在意体积的可以只引 runtime | 多维护一个入口；同样要先挪那四样 |
 
 建议：1.0 用**折中**。拆包带来的版本对齐成本，在组件还跟着 runtime 一起频繁改的时候不划算；子路径入口给了在意体积的人
-一条路，以后真要拆也是顺着它拆。这是建议，定不定、怎么定由维护者决定。
+一条路，以后真要拆也是顺着它拆。
+
+**已定（2026-09-29）：折中，已做。** runtime 用的四样挪出了组件目录（`renderer/paint-content.ts`、`core/attributes.ts`、
+`interaction/morph.ts`；组件注册改成完整入口注入 —— `setElementRegistrar`），组件目录里原来的文件留成转发。新入口
+`glassium/runtime`（`src/runtime-entry.ts`，`package.json` 的 `exports["./runtime"]`）：import 图里没有组件（有测试），
+实测打包压缩之后 gzip 98 KB，完整入口 117 KB（runtime 本身要用的那几样挪走了，组件多出来的约两成）。
 
 下面几节是引擎本身（画布、模块、一帧怎么画、组件、验证），runtime 建在它上面。
 

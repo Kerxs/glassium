@@ -11,7 +11,6 @@
  * SSR / Node 里什么都不做。
  */
 
-import { defineGlassElements } from '../components/register.ts'
 import { getConfig } from './config.ts'
 import { ensureStage } from './ensure-stage.ts'
 import { glass, runtimeGlassOf } from './glass.ts'
@@ -41,6 +40,16 @@ export function whenScanned(): Promise<void> {
   return scheduled || started ? scanned : Promise.resolve()
 }
 
+/**
+ * 注册组件（`<glass-*>`）的函数：完整入口（index.ts）给 defineGlassElements，`glassium/runtime` 入口不给 ——
+ * runtime 自己不引用组件，只用 runtime 的页面不带组件的代码。
+ */
+let registerElements: (() => void) | null = null
+
+export function setElementRegistrar(fn: (() => void) | null): void {
+  registerElements = fn
+}
+
 /** 安排启动（import 时调一次；幂等）。 */
 export function scheduleAutoStart(): void {
   if (scheduled || typeof document === 'undefined' || typeof MutationObserver === 'undefined') return
@@ -55,7 +64,7 @@ export function scheduleAutoStart(): void {
 export function startRuntime(): void {
   if (started || typeof document === 'undefined') return
   started = true
-  defineGlassElements()
+  registerElements?.()
   installRuntimeStyles()
   const begin = (): void => {
     for (const el of document.querySelectorAll<HTMLElement>('[glass]')) adopt(el)

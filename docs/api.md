@@ -22,6 +22,15 @@
 
 ---
 
+## 两个入口
+
+- `glassium`：全部 —— runtime 与组件（runtime 启动时注册 `<glass-*>`）。
+- `glassium/runtime`：只有 runtime（`src/runtime-entry.ts`），不注册、不带组件的代码（`src/runtime-entry.test.ts` 查它的 import 图里
+  没有 `src/components/`）。导出：`glassium`（默认导出）、`VERSION`、`glass`、`glassOf`、`configure`、`tierOf`、`RUNTIME_PRESETS`、
+  `runtimePreset`、`startRuntime`、`stopRuntime`、`absorbedElements`、`contentBlocks`、`contentStats`、`nextFrame`、`cancelFrame`、
+  `everyFrame`、`morphGlass`、`createGlassStage`、`currentStage`、`onStageChange`、`GlassPresets` 与它们的类型 —— 都是完整入口里的
+  同一个对象。打包、压缩之后 gzip 约 98 KB（完整入口约 117 KB）。
+
 ## Runtime：零配置的玻璃
 
 ```html

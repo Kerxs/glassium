@@ -16,7 +16,7 @@
  * 只对 runtime 管的玻璃（`[glass]`、glass()）做；组件要 configure({ absorbForComponents: true })。
  */
 
-import { sameOriginImage } from '../components/scene-label.ts'
+import { sameOriginImage } from '../renderer/paint-content.ts'
 import { inspectPanel } from '../renderer/layering.ts'
 import type { SceneBitmapFill, SceneFill } from '../renderer/panels.ts'
 import { currentStage, onStageChange, type GlassStage } from '../renderer/stage.ts'

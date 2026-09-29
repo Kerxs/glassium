@@ -5,6 +5,17 @@
 
 ## [未发布]
 
+### 新增
+
+- **`glassium/runtime` 入口**：只有 runtime（`<div glass>`、`glass()`、`configure`、内容进场景、果冻与飞行、变形、时间轴……），
+  不注册、不带 `<glass-*>` 组件 —— 打包压缩之后 gzip 约 98 KB（完整入口约 117 KB）。导出是完整入口的子集、同一个对象。
+  示例页 `/runtime-only.html` 自己查一遍（玻璃生效、组件没注册）。
+
+### 变化
+
+- runtime 用到的几样挪出了组件目录：画内容进 2D 画布（`renderer/paint-content.ts`）、材质属性的解析（`core/attributes.ts`）、
+  变形（`interaction/morph.ts`）；组件目录里原来的文件照旧能引（转发）。runtime 启动时注册组件改由完整入口注入。
+
 ## [0.4.0] — 2026-09-29
 
 统一的交互与动画（任意元素的果冻、飞行、变形，一条时间轴），合成器的脏状态（只动了玻璃的帧不重建场景），GPU 计时与显存的账、

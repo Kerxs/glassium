@@ -30,6 +30,10 @@
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
     },
+    "./runtime": {
+      "types": "./dist/runtime-entry.d.ts",
+      "default": "./dist/runtime-entry.js"
+    },
     "./glassium.css": "./dist/glassium.css",
     "./package.json": "./package.json"
   },
@@ -41,7 +45,8 @@
   ],
   "sideEffects": [
     "**/*.css",
-    "./dist/index.js"
+    "./dist/index.js",
+    "./dist/runtime-entry.js"
   ],
   "scripts": {
     "dev": "vite",

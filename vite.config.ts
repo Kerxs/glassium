@@ -9,10 +9,12 @@ export default defineConfig({
   base: './',
   publicDir: false,
   resolve: {
-    alias: {
-      // playground 按包名引用，和外部使用者写法一致 —— 免得 demo 里全是 ../../src
-      glassium: fileURLToPath(new URL('./src/index.ts', import.meta.url))
-    }
+    // playground 按包名引用，和外部使用者写法一致 —— 免得 demo 里全是 ../../src。
+    // 写成精确匹配的正则：字符串的键按前缀匹配，'glassium' 会把 'glassium/runtime' 也吃掉
+    alias: [
+      { find: /^glassium\/runtime$/, replacement: fileURLToPath(new URL('./src/runtime-entry.ts', import.meta.url)) },
+      { find: /^glassium$/, replacement: fileURLToPath(new URL('./src/index.ts', import.meta.url)) }
+    ]
   },
   server: {
     port: 5174,
@@ -37,7 +39,8 @@ export default defineConfig({
         lab: fileURLToPath(new URL('./playground/lab.html', import.meta.url)),
         verify: fileURLToPath(new URL('./playground/verify.html', import.meta.url)),
         runtime: fileURLToPath(new URL('./playground/runtime.html', import.meta.url)),
-        regress: fileURLToPath(new URL('./playground/regress.html', import.meta.url))
+        regress: fileURLToPath(new URL('./playground/regress.html', import.meta.url)),
+        'runtime-only': fileURLToPath(new URL('./playground/runtime-only.html', import.meta.url))
       }
     }
   }
