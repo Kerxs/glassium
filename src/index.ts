@@ -73,6 +73,7 @@ export {
 export { FrameMonitor } from './performance/monitor.ts'
 export { FULL_QUALITY, combineQuality, type QualityFactors } from './renderer/quality.ts'
 export { formatBytes, textureBytes, type ResourceUsage } from './renderer/resources.ts'
+export { inspectFrame, type InspectedFill, type InspectedGlass, type SceneSnapshot } from './renderer/inspect.ts'
 if (typeof window !== 'undefined') {
   ;(window as unknown as { glassium?: typeof glassium }).glassium ??= glassium
   scheduleAutoStart()

@@ -116,9 +116,14 @@ Glassium 的定位是**面向 Web 的 Liquid Glass 渲染运行时**：让任意
   `playground/regress.html` + `spec/golden/baselines.json`（48×32 的小图、带容差，按后端 + GPU 存，本机两个后端的基准已签入）。
 - **没做**：Firefox、Safari、移动端的实测 —— 没有这些设备。
 
-### 0.9 —— 无障碍与开发体验、API 冻结
+### 0.9 —— 无障碍与开发体验、API 冻结（大半已做）
 - 场景检查器、材质检查器、资源检查器；文档与 playground 覆盖全部 runtime API。
 - 冻结 Runtime / Material / Interaction / Animation / Renderer / Capability / Adaptive Quality 的 API。
+- **已做**：调试面板的三页（概览、场景 + 材质、资源；`stage.debug.scene()`）；API 冻结的机制 —— api.md「全部导出」里标
+  （稳定）的几节（Runtime、组件、Stage、材质）的名字签在 `spec/api/stable.txt`，`src/api-stability.test.ts` 核对（删、改名、
+  悄悄多出一个都失败）。
+- **没做**：Interaction / Animation / Adaptive Quality 里较新的接口（ElementMotion、everyFrame、allocateQuality……）还在「进阶」，
+  等它们在真实页面上用过一阵再冻结；属性（`glass-*`）的冻结靠文档，没有测试。
 
 ### 1.0 —— 生产可用的运行时
 - 组件是否拆成 `@glassium/components` 在这之前决定（现在它们留在主包里、建在 runtime 上）。

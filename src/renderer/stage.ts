@@ -41,6 +41,7 @@ import { describeViewport, MAX_PIXELS, resolveViewport, type ResolvedViewport } 
 import { FULL_QUALITY, sameQuality, type QualityFactors } from './quality.ts'
 import { flushFrame, setTimelineReducedMotion } from '../animation/timeline.ts'
 import { EMPTY_USAGE, type ResourceUsage } from './resources.ts'
+import { inspectFrame, type SceneSnapshot } from './inspect.ts'
 import type { PanelDebugMode } from '../shaders/glass.wgsl.ts'
 import {
   acquireDevice,
@@ -325,6 +326,11 @@ export interface GlassStage {
      * 平时不需要手动调 —— 面板进入视口、页面上的 style / class 变化都会自动触发。
      */
     checkLayers(): LayerProblem<Element>[]
+    /**
+     * 场景检查器：上一帧量到的玻璃（含合并组的成员）与填充，CSS 像素、带材质、效果链、质量系数与呈现变换。
+     * 还没画过是 null。调试面板的「场景」页用它。
+     */
+    scene(): SceneSnapshot | null
     /**
      * 当前后端的能力探测结果（WebGPU 与 WebGL2 用 kind 区分）。没有 GPU 时为 null；
      * 丢失恢复后是新设备的结果。
@@ -1241,6 +1247,7 @@ async function buildStage(options: GlassStageOptions): Promise<GlassStage> {
         }
       },
       checkLayers: (): LayerProblem<Element>[] => layers.check(),
+      scene: (): SceneSnapshot | null => inspectFrame(lastFrame),
       renderNow(): void {
         if (!isActive()) return
         renderFrame(performance.now(), true)
@@ -1481,6 +1488,7 @@ function makeInertStage(canvas: HTMLCanvasElement, options: GlassStageOptions): 
       probeGroup: (): Promise<GroupOpticsProbe> =>
         Promise.reject(new Error('[Glassium] 没有 GPU 后端，无法探针')),
       checkLayers: (): LayerProblem<Element>[] => [],
+      scene: (): SceneSnapshot | null => null,
       renderNow(): void {},
       simulateContextLoss: (): boolean => false,
       stats: (): GlassStats => ({

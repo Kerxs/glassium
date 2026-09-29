@@ -83,7 +83,7 @@ handle.destroy()
 | `glassium.ready` | 能力查完、stage 建好（或失败）之后 resolve 出完整的能力 |
 | `glassium.start()` | `configure({ auto: false })` 之后手动启动 |
 | `glassium.stage` | 当前的 `GlassStage`（高级用法） |
-| `glassium.debug.enable()` / `disable()` | 右下角的调试面板：后端、质量、帧时间、面板数、draw calls、层级问题，可切面板调试视图 |
+| `glassium.debug.enable()` / `disable()` | 右下角的调试面板，三页：**概览**（后端、质量、帧时间、GPU 时间、显存、面板数、draw calls、层级问题）；**场景**（场景检查器：上一帧画的每一块玻璃、组的成员、填充 —— 点一行或按「选取」再点页面上的元素，框出它、列出材质、效果链、质量系数、呈现变换）；**资源**（显存每一项、目标与管线的创建数）。可切面板调试视图 |
 | `glassium.debug.info()` | `{ backgrounds, content }`：收进场景的背景元素；收进场景的内容块，每块带 `videoFrames`（视频出了几帧）与 `paints`（画了几次） |
 
 `GlassiumConfig`：
@@ -553,6 +553,7 @@ GPU 玻璃画在最底下，盖不住滚上来的 DOM 文字。
 | `simulateContextLoss()` | 模拟一次设备 / 上下文丢失 |
 | `setPanelDebug(mode)` | 面板调试视图：`off` / `sdf` / `mask` / `grad` / `displacement` |
 | `setSceneReuse(on)` | 场景没变时沿用上一帧的场景与模糊链（默认开）。关掉之后每帧都整帧画：数 draw call、对照像素用 |
+| `scene()` | 场景检查器的数据（`SceneSnapshot`）：上一帧画的玻璃（`InspectedGlass`：元素、组、层、CSS 像素的矩形、旋转、缩放、不透明度、材质、效果链、质量系数、局部质量、呈现变换）与填充（`InspectedFill`）；还没画过是 null。`inspectFrame` 是换算 |
 | `probeOptics(index?)`、`probeGroup(index?)` | 光学探针，交给 `compareOptics` / `compareGroupOptics` 与 CPU 实现比对 |
 
 ### `GlassStats`
@@ -645,9 +646,23 @@ reject 一个 `name === 'AbortError'` 的 DOMException。跨源的图片与视�
 
 ## 全部导出
 
-包入口（`import … from 'glassium'`）的每一个导出都在这里，按模块分组。**稳定**的是 0.x 期间尽量不动的公开接口；
+包入口（`import … from 'glassium'`）的每一个导出都在这里，按模块分组。**稳定**的是冻结了的公开接口：名字签在
+`spec/api/stable.txt` 里，`src/api-stability.test.ts` 核对 —— 删掉、改名一个稳定的导出，或者悄悄多出一个，测试都会失败，
+要改就得连同快照一起改（改动在提交里一眼看得见，CHANGELOG 里要写「不兼容」）。
 *进阶*的给实现别的渲染器、写测试、调试用，签名可能随版本变。有一条测试（`src/api-docs.test.ts`）保证这一节不漏：
 新加了导出而这里没写，测试失败。
+
+### Runtime（稳定）
+
+| 导出 | 说明 |
+|---|---|
+| `glassium`（也是默认导出）、`startRuntime`、`stopRuntime` | runtime 的命名空间对象；手动启动 / 停掉自动发现 |
+| `glass`、`glassOf`、`GlassHandle`、`GlassOptions`、`GlassInteractionOptions` | 让元素变成玻璃；元素上的玻璃；句柄与选项 |
+| `configure`、`GlassiumConfig`、`QualitySetting` | 全局选项 |
+| `GlassiumCapabilities`、`RendererKind`、`tierOf` | 能力与 tier |
+| `RUNTIME_PRESETS`、`runtimePreset`、`RuntimePresetName` | 预设 |
+| `absorbedElements`、`contentBlocks`、`contentStats` | 收进场景的背景与内容块（调试、验证用，但名字与形状稳定） |
+| `nextFrame`、`cancelFrame` | 统一的时间轴：自己的动画排在这里，与玻璃同一帧 |
 
 ### 组件（稳定）
 
