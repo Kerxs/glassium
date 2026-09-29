@@ -5,11 +5,10 @@
 
 ## [未发布]
 
-### 修复
+## [0.4.0] — 2026-09-29
 
-- `glassium.ready` 在 import 之后马上读（runtime 还没开始扫描）时，不等 stage 就 resolve，`renderer` 报 `none`、`tier` 却是 3；
-  现在先等第一次扫描。
-- `morphGlass` / `glassium.morph` 的 to 原来被 CSS 的 `opacity: 0` 藏着时，走完还是看不见；现在终点写成 `opacity: 1`。
+统一的交互与动画（任意元素的果冻、飞行、变形，一条时间轴），合成器的脏状态（只动了玻璃的帧不重建场景），GPU 计时与显存的账、
+预算，视觉回归与兼容性矩阵，调试面板的检查器，API 冻结。公开接口没有不兼容的改动。
 
 ### 新增
 
@@ -43,7 +42,19 @@
 - **性能测试页**：1 / 10 / 50 / 100 块、两层、填充、裁剪遮罩、大模糊、每帧挪一块、每帧都变的场景；每组量「整帧」与「实际」
   两遍，加上 GPU 时间、显存、沿用比例（docs/benchmark.md 有这台机器的结果）。
 - 示例页 `/runtime.html` 加了「动起来的玻璃」一节（拖动的果冻、飞过去的选中块、展开收起的变形）；验证页新增 element-motion、
-  local-quality。
+  local-quality、scene-reuse、memory-budget（`?verify.noreuse` 整轮不沿用场景，查问题用）。
+
+### 变化
+
+- 组件与 runtime 的动画（按压、旋钮、果冻、飞行、变形）都改走统一的时间轴，时序与之前相同；减少动效时正在走的动画一步落地。
+- WebGPU 设备在适配器支持时多要一个 `timestamp-query` 特性（GPU 计时用），不支持时照常建。
+- 验证页的 deterministic 一项关掉沿用场景、每帧整帧画（验重建本身是不是确定的）。
+
+### 修复
+
+- `glassium.ready` 在 import 之后马上读（runtime 还没开始扫描）时，不等 stage 就 resolve，`renderer` 报 `none`、`tier` 却是 3；
+  现在先等第一次扫描。
+- `morphGlass` / `glassium.morph` 的 to 原来被 CSS 的 `opacity: 0` 藏着时，走完还是看不见；现在终点写成 `opacity: 1`。
 
 ## [0.3.0] — 2026-09-27
 
@@ -175,7 +186,8 @@ Glassium 从组件库转向 **Web Liquid Glass 渲染运行时**（docs/architec
 玻璃折射的是 Glassium 自己画的场景，不是它背后的 DOM；盖在 DOM 上的玻璃没有折射。完整的列表在
 [docs/limitations.md](docs/limitations.md)，先读开头那三条编写规则。
 
-[未发布]: https://github.com/Kerxs/glassium/compare/v0.3.0...HEAD
+[未发布]: https://github.com/Kerxs/glassium/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/Kerxs/glassium/releases/tag/v0.4.0
 [0.3.0]: https://github.com/Kerxs/glassium/releases/tag/v0.3.0
 [0.2.0]: https://github.com/Kerxs/glassium/releases/tag/v0.2.0
 [0.1.0]: https://github.com/Kerxs/glassium/releases/tag/v0.1.0
