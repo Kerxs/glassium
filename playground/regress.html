@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Glassium · 视觉回归</title>
+    <style>
+      body {
+        margin: 0;
+        font: 13px/1.5 system-ui, sans-serif;
+        color: #e8eef5;
+      }
+      /* 结果在左边（深色、不是玻璃），场景画在右边的 #area，两者不重叠（R1） */
+      .report {
+        position: absolute;
+        left: 16px;
+        top: 16px;
+        width: 400px;
+        padding: 14px 16px;
+        border-radius: 12px;
+        background: rgba(8, 14, 24, 0.92);
+      }
+      .report h1 {
+        font-size: 16px;
+        margin: 0 0 4px;
+      }
+      .report p {
+        margin: 4px 0 10px;
+        color: #aab6c4;
+      }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+      }
+      td {
+        padding: 3px 4px;
+        border-top: 1px solid rgba(255, 255, 255, 0.08);
+        vertical-align: top;
+      }
+      tr.pass td:last-child {
+        color: #8fe3a2;
+      }
+      tr.fail td:last-child {
+        color: #ff8f8f;
+      }
+      tr.skip td:last-child {
+        color: #c9c9c9;
+      }
+      button {
+        margin-top: 10px;
+        font: inherit;
+      }
+      #area {
+        position: absolute;
+        left: 460px;
+        top: 40px;
+        width: 360px;
+        height: 240px;
+      }
+    </style>
+  </head>
+  <body>
+    <aside class="report">
+      <h1>视觉回归</h1>
+      <p>标准场景缩成 48×32，与签入的基准比（spec/golden/README.md）。<span id="env"></span></p>
+      <table>
+        <tbody id="rows"></tbody>
+      </table>
+      <button type="button" id="record" disabled>记为基准（复制 JSON）</button>
+    </aside>
+    <main id="area"></main>
+    <script type="module" src="./regress.ts"></script>
+  </body>
+</html>

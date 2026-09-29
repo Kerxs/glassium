@@ -29,6 +29,7 @@
     "exactOptionalPropertyTypes": true,
 
     "allowImportingTsExtensions": true,
+    "resolveJsonModule": true,
     "verbatimModuleSyntax": true,
     "isolatedModules": true,
     "skipLibCheck": true,

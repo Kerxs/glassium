@@ -36,7 +36,8 @@ export default defineConfig({
         debug: fileURLToPath(new URL('./playground/debug.html', import.meta.url)),
         lab: fileURLToPath(new URL('./playground/lab.html', import.meta.url)),
         verify: fileURLToPath(new URL('./playground/verify.html', import.meta.url)),
-        runtime: fileURLToPath(new URL('./playground/runtime.html', import.meta.url))
+        runtime: fileURLToPath(new URL('./playground/runtime.html', import.meta.url)),
+        regress: fileURLToPath(new URL('./playground/regress.html', import.meta.url))
       }
     }
   }

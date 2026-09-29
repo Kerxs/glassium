@@ -23,6 +23,9 @@
 - **GPU 计时**：WebGPU 有 `timestamp-query` 时量每帧的 GPU 时间（`stats().gpuMs`、`StageFrame.gpuMs`、调试面板），
   自适应质量按它判断 GPU 吃不吃紧（`OVER_GPU` / `COMFORT_GPU`，`FrameWindow.gpuRatio`）。
 - **资源账**：`stats().gpuMemory`（显存估计：模糊链、草稿、层的来源与备份、图集、场景纹理、画布；调试面板按项列出）。
+- **视觉回归**：`/regress.html` 九个标准场景缩成 48×32 与基准比（带容差，按后端 + GPU 存在 `spec/golden/baselines.json`，
+  本机两个后端的基准已签入；`?regress.perturb=` 反向对照）。
+- **兼容性**：docs/compatibility.md —— 四级退化、实测过的格子、按平台能力推断的格子、新设备上的验法。
 - **性能测试页**：1 / 10 / 50 / 100 块、两层、填充、裁剪遮罩、大模糊、每帧挪一块、每帧都变的场景；每组量「整帧」与「实际」
   两遍，加上 GPU 时间、显存、沿用比例（docs/benchmark.md 有这台机器的结果）。
 - 示例页 `/runtime.html` 加了「动起来的玻璃」一节（拖动的果冻、飞过去的选中块、展开收起的变形）；验证页新增 element-motion、

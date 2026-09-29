@@ -180,6 +180,7 @@ await morphGlass(button, menu).finished            // 按钮变成菜单
 | [docs/api.md](docs/api.md) | API 参考 |
 | [docs/limitations.md](docs/limitations.md) | 编写规则与边界（先读开头三条） |
 | [docs/benchmark.md](docs/benchmark.md) | 性能：面板数与帧开销 |
+| [docs/compatibility.md](docs/compatibility.md) | 兼容性：四级退化、实测与推断的格子、新设备上怎么验 |
 | [docs/architecture.md](docs/architecture.md)、[spec/](spec/) | 架构、光学与管线规格（给实现别的渲染器的人） |
 | [docs/calibration.md](docs/calibration.md) | 每一项功能的实测数字与反向对照 |
 | [docs/progress.md](docs/progress.md) | 开发记录 |
@@ -205,6 +206,7 @@ npm run dev   # http://localhost:5174
   控制中心、从按钮变形出来的面板（`morphGlass`）
 - [`/playground.html`](https://kerxs.github.io/glassium/playground.html)：playground —— 调材质、换背景、看调试视图，右边给出对应的 HTML 与 JS
 - [`/bench.html`](https://kerxs.github.io/glassium/bench.html)：性能测试（面板数与帧开销，结果见 [docs/benchmark.md](docs/benchmark.md)）
+- [`/regress.html`](https://kerxs.github.io/glassium/regress.html)：视觉回归（标准场景与基准比，见 [spec/golden/README.md](spec/golden/README.md)）
 - [`/debug.html`](https://kerxs.github.io/glassium/debug.html)：调试台（给开发 Glassium 本身用：统计、校准场景、各种模拟开关）
 - [`/verify.html`](https://kerxs.github.io/glassium/verify.html)：逐项验证，结果写进标题栏（`PASS n/n`）；`?glassium.backend=webgl2` 换后端；
   视口至少要 820×720
