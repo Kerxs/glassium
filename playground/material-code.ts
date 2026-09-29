@@ -1,9 +1,10 @@
 /**
  * Playground 的「给出代码」：编辑器里的材质 → 最短的 HTML 属性写法与 JS 材质对象。
  *
- * 纯函数（Node 里测：material-code.test.ts）。与基准一样的项不写：
- * - HTML 的基准是 组件自己的默认值 ⊕ 预设（`<glass-card>` 默认 24dp 圆角、`<glass-button>` 默认胶囊）；
- * - JS 的基准是 MATERIAL_DEFAULTS ⊕ 预设 —— `stage.register` 不知道组件的默认值，所以卡片的 24dp 圆角要写出来。
+ * 纯函数（Node 里测：material-code.test.ts）。三种写法，与各自的基准一样的项不写：
+ * - 零配置（`<div glass>`）：基准是 runtime 的预设（不写预设就是 default = regular）；圆角写成 CSS 的 border-radius（runtime 读它）；
+ * - 组件（`<glass-card>`）：基准是 组件自己的默认值 ⊕ 预设（`<glass-card>` 默认 24dp 圆角、`<glass-button>` 默认胶囊）；
+ * - JS（`glass(element, options)`）：基准与零配置相同，圆角同样交给 CSS。
  *
  * 从源码引而不是按包名引：这个模块要在 Node 里跑测试，Node 不认 Vite 的别名。
  */
@@ -143,25 +144,51 @@ export function overridesOf(state: EditorState): [string, string | number][] {
   return out
 }
 
+/** runtime 的基准：MATERIAL_DEFAULTS ⊕ 预设（不写预设时是 default = regular）。 */
+function runtimeBaseline(preset: GlassPresetName | null): Required<GlassMaterial> {
+  return { ...MATERIAL_DEFAULTS, ...GlassPresets[preset ?? 'regular'] } as Required<GlassMaterial>
+}
+
+/** 零配置与 glass() 的材质覆盖（camelCase 键、HTML 属性名、值），不含圆角（交给 CSS）。 */
+export function runtimeOverridesOf(state: EditorState): Array<{ key: string; attr: string; value: string | number }> {
+  const base = runtimeBaseline(state.preset)
+  const out: Array<{ key: string; attr: string; value: string | number }> = []
+  for (const f of FIELDS) {
+    const v = state.values[f.key]
+    if (Math.abs(v - (base[f.key] as number)) >= 0.005) out.push({ key: f.key, attr: f.attr, value: Number(fmt(v)) })
+  }
+  if (!sameTint(state.tint, toTint(base.tint))) out.push({ key: 'tint', attr: 'tint', value: tintCss(state.tint) })
+  return out
+}
+
+const cssRadius = (r: number | 'pill'): string => (r === 'pill' ? '999px' : `${fmt(r)}px`)
+
+/** 零配置的写法：`<div glass>`（按钮是 `<button glass>`），材质写成 glass-* 属性，圆角写成 CSS。 */
+export function runtimeSnippet(state: EditorState): string {
+  const tag = state.element === 'glass-button' ? 'button' : 'div'
+  const attrs = runtimeOverridesOf(state).map((o) => ` glass-${o.attr}="${o.value}"`).join('')
+  const style = `width: ${state.width}px; height: ${state.height}px; border-radius: ${cssRadius(state.cornerRadius)}`
+  const inner = tag === 'div' ? '\n  …\n' : '按钮'
+  return `<${tag} glass="${state.preset ?? ''}"${attrs} style="${style}">${inner}</${tag}>`
+}
+
 export function htmlSnippet(state: EditorState): string {
   const attrs = attributesOf(state).map(([k, v]) => ` ${k}="${v}"`).join('')
   const inner = state.element === 'glass-card' ? '\n  …\n' : '按钮'
   return `<${state.element}${attrs} style="width: ${state.width}px; height: ${state.height}px">${inner}</${state.element}>`
 }
 
+/** JS 的写法：`glass(element, { preset, material })`（圆角交给元素的 CSS border-radius）。 */
 export function jsSnippet(state: EditorState): string {
-  const entries = overridesOf(state).map(([k, v]) => `${k}: ${typeof v === 'string' ? `'${v}'` : v}`)
-  const object = entries.length > 0 ? `{ ${entries.join(', ')} }` : '{}'
-  const material = state.preset
-    ? entries.length > 0
-      ? `glass(GlassPresets.${state.preset}, ${object})`
-      : `GlassPresets.${state.preset}`
-    : object
-  const imports = state.preset ? (entries.length > 0 ? 'createGlassStage, glass, GlassPresets' : 'createGlassStage, GlassPresets') : 'createGlassStage'
+  const entries = runtimeOverridesOf(state).map((o) => `${o.key}: ${typeof o.value === 'string' ? `'${o.value}'` : o.value}`)
+  const options = [
+    ...(state.preset ? [`preset: '${state.preset}'`] : []),
+    ...(entries.length > 0 ? [`material: { ${entries.join(', ')} }`] : [])
+  ]
   return [
-    `import { ${imports} } from 'glassium'`,
+    "import { glass } from 'glassium'",
     '',
-    'const stage = await createGlassStage()',
-    `stage.register(element, ${material})`
+    `// 圆角取元素 CSS 的 border-radius（${cssRadius(state.cornerRadius)}）`,
+    `glass(element${options.length > 0 ? `, { ${options.join(', ')} }` : ''})`
   ].join('\n')
 }

@@ -18,7 +18,7 @@ import {
   type SceneFit
 } from 'glassium'
 
-import { FIELDS, PREVIEW_SIZE, attributesOf, fmt, htmlSnippet, jsSnippet, stateFromPreset, type EditorState, type NumericField, type PreviewElement } from './material-code.ts'
+import { FIELDS, PREVIEW_SIZE, attributesOf, fmt, htmlSnippet, jsSnippet, runtimeSnippet, stateFromPreset, type EditorState, type NumericField, type PreviewElement } from './material-code.ts'
 import { userScenes, type UserScene } from './scenes.ts'
 
 const $ = <T extends HTMLElement>(id: string): T => document.getElementById(id) as T
@@ -53,6 +53,7 @@ function apply(): void {
   // 兜底表面（没有 GPU 时）的圆角来自 CSS：跟着写一份
   el.style.borderRadius = state.cornerRadius === 'pill' ? '999px' : `${state.cornerRadius}px`
 
+  $('runtime').textContent = runtimeSnippet(state)
   $('html').textContent = htmlSnippet(state)
   $('js').textContent = jsSnippet(state)
 

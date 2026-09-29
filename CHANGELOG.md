@@ -10,6 +10,8 @@
 - **`glassium/runtime` 入口**：只有 runtime（`<div glass>`、`glass()`、`configure`、内容进场景、果冻与飞行、变形、时间轴……），
   不注册、不带 `<glass-*>` 组件 —— 打包压缩之后 gzip 约 98 KB（完整入口约 117 KB）。导出是完整入口的子集、同一个对象。
   示例页 `/runtime-only.html` 自己查一遍（玻璃生效、组件没注册）。
+- Playground 的「给出代码」多了零配置的写法（`<div glass glass-*>`，圆角写成 CSS）；JavaScript 的写法换成
+  `glass(element, { preset, material })`（原来给的是已废弃的 `glass(preset, overrides)` + `stage.register`）。
 
 ### 变化
 

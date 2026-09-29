@@ -310,12 +310,15 @@
       <main class="preview" id="preview"></main>
 
       <aside class="code" aria-label="代码">
-        <div class="code-head">HTML <button type="button" data-copy="html">复制</button></div>
+        <div class="code-head">零配置 HTML <button type="button" data-copy="runtime">复制</button></div>
+        <pre id="runtime"></pre>
+        <div class="code-head">组件 HTML <button type="button" data-copy="html">复制</button></div>
         <pre id="html"></pre>
         <div class="code-head">JavaScript <button type="button" data-copy="js">复制</button></div>
         <pre id="js"></pre>
         <p class="hint">
-          HTML 的写法要先 <code>defineGlassElements()</code> 并建一个 stage；JS 的写法把任意元素注册成玻璃。
+          零配置的写法只要 <code>import 'glassium'</code>（或 <code>'glassium/runtime'</code>），圆角写在 CSS 里；
+          组件的写法同样引 <code>glassium</code> 就会注册；JS 的写法 <code>glass(element, …)</code> 把任意元素变成玻璃。
           折射深度、位移幅度是短边的比例 —— 换了尺寸，看起来也会变。完整的属性见
           <a href="https://github.com/Kerxs/glassium/blob/main/docs/api.md">docs/api.md</a>。
         </p>
