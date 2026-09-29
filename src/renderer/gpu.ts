@@ -36,6 +36,7 @@ import {
 import { SCENE_IMAGE_WGSL, SCENE_WGSL } from '../shaders/scene.wgsl.ts'
 import { probeCapabilities, type ProbeReport } from '../webgpu/probe.ts'
 import {
+  IDLE_LAYER_FRAMES,
   READBACK_SIZE,
   type FrameInput,
   type FrameResult,
@@ -93,6 +94,8 @@ export class GpuRenderer implements Renderer {
   #damage: [number, number, number, number] | null = null
   #layerBackup: GPUTexture | null = null
   #backupFor: BlurChainTextures | null = null
+  /** 连着多少个画了的帧没有更高的层（到 IDLE_LAYER_FRAMES 就放掉层的纹理）。 */
+  #framesWithoutLayers = 0
   /** 模糊链现在的格式（backdropFormat(blendSpace)）。变了就在 render 里重新分配。 */
   #chainFormat: GPUTextureFormat = BACKDROP_FORMAT
   readonly #modules: {
@@ -501,6 +504,17 @@ export class GpuRenderer implements Renderer {
     return this.#timer?.lastMs ?? null
   }
 
+  /** 放掉层的来源与备份（没有层在用时；有层在用时什么都不做）。 */
+  trim(): void {
+    if (this.#damage) return
+    this.#layerSource?.destroy()
+    this.#layerSource = null
+    this.#resampleBindGroup = null
+    this.#layerBackup?.destroy()
+    this.#layerBackup = null
+    this.#backupFor = null
+  }
+
   /** 现在占着的显存（估计，见 resources.ts）。 */
   get resources(): ResourceUsage {
     const t = this.#blurChain.textures
@@ -894,6 +908,8 @@ export class GpuRenderer implements Renderer {
       if (region) regions.set(layer, region)
     }
     this.#damage = unionRegion([...regions.values()].map((r) => r.scene))
+    if (regions.size > 0) this.#framesWithoutLayers = 0
+    else if (++this.#framesWithoutLayers >= IDLE_LAYER_FRAMES && (this.#layerSource || this.#layerBackup)) this.trim()
     if (this.#damage) {
       const backup = this.#ensureLayerBackup(textures)
       const [dx, dy, dw, dh] = this.#damage

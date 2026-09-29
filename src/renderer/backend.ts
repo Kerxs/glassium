@@ -152,6 +152,9 @@ export interface FrameResult {
  */
 export type SceneUploadState = 'none' | 'kept' | 'uploaded'
 
+/** 连着这么多个画了的帧都没有更高的层，就把层的来源与备份放掉（约 10 秒）。 */
+export const IDLE_LAYER_FRAMES = 600
+
 /** WebGL2 上下文的能力探测结果。与 WebGPU 的 ProbeReport 用 kind 区分。 */
 export interface Gl2Report {
   readonly kind: 'webgl2'
@@ -176,6 +179,11 @@ export interface Renderer {
   readonly gpuMs?: number | null
   /** 现在占着的显存（估计，见 resources.ts）。 */
   readonly resources?: ResourceUsage
+  /**
+   * 放掉闲着的纹理（层的来源与备份：这一刻没有层在用时）。下次要用时再分配。显存吃紧时 stage 调它；
+   * 连着 IDLE_LAYER_FRAMES 帧没有层时后端也自己放。
+   */
+  trim?(): void
   /** 视口尺寸变了（或刚重建）时调用：重建纹理。返回模糊链级数。 */
   resize(viewport: ResolvedViewport): number
   /** 画一帧。资源还没就绪时返回 null，调用方下一帧再来。 */

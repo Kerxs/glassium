@@ -134,6 +134,12 @@ export interface GlassStats {
   readonly gpuMs: number | null
   /** 现在占着的显存（估计）：合计字节、纹理数、每一项（见 renderer/resources.ts）。 */
   readonly gpuMemory: ResourceUsage
+  /** 显存预算（setMemoryBudget）；不限是 null。 */
+  readonly memoryBudget: number | null
+  /** 为了预算把场景的像素预算乘了多少（1 是没降）。 */
+  readonly memoryScale: number
+  /** 降到保底清晰度了还是超预算。 */
+  readonly memoryOverBudget: boolean
   /** 模糊链的级数 K。 */
   readonly blurLevels: number
   /** 本帧实际画了的面板数，含合并组里的成员（屏外的不算）。 */
@@ -178,6 +184,8 @@ export interface GlassStageOptions {
   readonly host?: HTMLElement
   readonly maxPixels?: number
   readonly minSceneRatio?: number
+  /** 显存预算（字节，估计值，见 stats().gpuMemory）。超了先放闲着的纹理，再降场景分辨率。默认不限。 */
+  readonly memoryBudget?: number
   /**
    * 画布的 alphaMode。
    *
@@ -278,6 +286,12 @@ export interface GlassStage {
    * 不改面板的材质、不新建管线。null 回到原样。runtime 的自适应质量（performance/）用它。
    */
   setQuality(factors: QualityFactors | null): void
+  /**
+   * 显存预算（字节，估计值；null 不限）。超了：先放闲着的纹理（层的来源与备份），还超就把场景的像素预算一次降两成，
+   * 直到不超或者到了保底清晰度（画布本身不缩 —— 预算比「画布 + 保底的场景」还小时停在保底，stats().memoryOverBudget 为真）。
+   * 换预算或者去掉预算时回到原来的分辨率。
+   */
+  setMemoryBudget(bytes: number | null): void
   /**
    * 帧循环每跑一圈回调一次（静止时 rAF 照转、只是不画 —— rendered 是 false）：自适应质量按它量帧时间。
    * requestRender() 那种单帧、减少动效停了循环的时候不回调。返回取消订阅的函数。
@@ -473,6 +487,11 @@ export function simulateMoreContrast(on: boolean | null): void {
 const FROST_FILTER: MaterialFilter = {
   key: (element) => frostForColor(getComputedStyle(element).color),
   apply: (material, key) => reduceTransparency(material, key as Frost)
+}
+
+/** 显存预算：正的有限数才算，别的都是不限。 */
+function validBudget(bytes: number | null | undefined): number | null {
+  return typeof bytes === 'number' && Number.isFinite(bytes) && bytes > 0 ? bytes : null
 }
 
 /** 当前是否减少动效（尊重 simulateReducedMotion）。组件的交互动画也看它。 */
@@ -685,6 +704,12 @@ async function buildStage(options: GlassStageOptions): Promise<GlassStage> {
   let sceneReuses = 0
   /** 调试用的像素预算（debug.setPixelBudget），null 用创建时的 options.maxPixels。 */
   let pixelBudget: number | null = null
+  /** 显存预算（setMemoryBudget）与为它降的场景像素预算的倍数；隔几帧查一次。 */
+  let memoryBudget: number | null = validBudget(options.memoryBudget)
+  let memoryScale = 1
+  let memoryOverBudget = false
+  let memoryCheckIn = 0
+  let memoryScenePixels = 0
   /** 自适应质量的系数（setQuality）。 */
   let quality: QualityFactors = FULL_QUALITY
   const frameListeners = new Set<(frame: StageFrame) => void>()
@@ -762,7 +787,9 @@ async function buildStage(options: GlassStageOptions): Promise<GlassStage> {
     // 自适应质量的分辨率缩的是**实际**的场景像素（视口比预算小时预算不起作用，要按视口算）；满质量时照旧用预算，逐位不变
     const res = quality.resolution
     const cap = pixelBudget ?? options.maxPixels ?? MAX_PIXELS
-    const budget = res < 1 ? Math.min(cap, cssWidth * cssHeight * dpr * dpr) * res * res : pixelBudget ?? options.maxPixels
+    // 自适应质量的分辨率与显存预算都乘在这里
+    const shrink = res * res * memoryScale
+    const budget = shrink < 1 ? Math.min(cap, cssWidth * cssHeight * dpr * dpr) * shrink : pixelBudget ?? options.maxPixels
     const next = resolveViewport(cssWidth, cssHeight, dpr, budget, options.minSceneRatio)
 
     const changed =
@@ -858,6 +885,7 @@ async function buildStage(options: GlassStageOptions): Promise<GlassStage> {
     }
     lastFrame = frame
     lastRenderer = renderer
+    checkMemory()
 
     frames++
     sceneUploads += result.sceneUploads
@@ -897,6 +925,29 @@ async function buildStage(options: GlassStageOptions): Promise<GlassStage> {
       return
     }
     rafId = requestAnimationFrame(loop)
+  }
+
+  // 显存预算：隔 30 个画了的帧查一次；超了先放闲着的纹理，还超就把场景降两成（下一帧就查，快点收敛）
+  function checkMemory(): void {
+    if (memoryBudget === null || !renderer?.resources) return
+    if (--memoryCheckIn > 0) return
+    memoryCheckIn = 30
+    if (renderer.resources.bytes <= memoryBudget) {
+      memoryOverBudget = false
+      return
+    }
+    renderer.trim?.()
+    if (renderer.resources.bytes <= memoryBudget) return
+    const scenePixels = viewport ? viewport.sceneWidth * viewport.sceneHeight : 0
+    if (memoryScale < 1 && scenePixels >= memoryScenePixels) {
+      // 上一次降了、场景却没变小：到保底清晰度了
+      memoryOverBudget = true
+      return
+    }
+    memoryScenePixels = scenePixels
+    memoryScale *= 0.8
+    memoryCheckIn = 1
+    requestRender()
   }
 
   const stopLoop = (): void => {
@@ -1229,6 +1280,9 @@ async function buildStage(options: GlassStageOptions): Promise<GlassStage> {
           sceneReuses,
           gpuMs: renderer?.gpuMs ?? null,
           gpuMemory: renderer?.resources ?? EMPTY_USAGE,
+          memoryBudget,
+          memoryScale,
+          memoryOverBudget,
           blurLevels: renderer?.blurLevels ?? 0,
           panels: panelsLastFrame,
           groups: groupsLastFrame,
@@ -1364,6 +1418,14 @@ async function buildStage(options: GlassStageOptions): Promise<GlassStage> {
       if (sameQuality(next, quality)) return
       quality = Object.freeze({ ...next })
       panels.quality = quality
+      requestRender()
+    },
+    setMemoryBudget(bytes: number | null): void {
+      memoryBudget = validBudget(bytes)
+      memoryScale = 1
+      memoryOverBudget = false
+      memoryScenePixels = 0
+      memoryCheckIn = 0
       requestRender()
     },
     onFrame(listener: (frame: StageFrame) => void): () => void {
@@ -1503,6 +1565,9 @@ function makeInertStage(canvas: HTMLCanvasElement, options: GlassStageOptions): 
         sceneReuses: 0,
         gpuMs: null,
         gpuMemory: EMPTY_USAGE,
+        memoryBudget: null,
+        memoryScale: 1,
+        memoryOverBudget: false,
         blurLevels: 0,
         panels: 0,
         groups: 0,
@@ -1530,6 +1595,7 @@ function makeInertStage(canvas: HTMLCanvasElement, options: GlassStageOptions): 
     },
     quality: FULL_QUALITY,
     setQuality(): void {},
+    setMemoryBudget(): void {},
     onFrame(): () => void {
       return () => undefined
     },

@@ -23,6 +23,8 @@ export interface GlassiumConfig {
   readonly absorbContent: boolean
   /** 自适应质量把上次的结果记在 localStorage 里，下次从附近起步。默认 true。 */
   readonly rememberQuality: boolean
+  /** 显存预算（字节，估计值；null 不限）。超了先放闲着的纹理、再降场景分辨率（stage.setMemoryBudget）。默认 null。 */
+  readonly memoryBudget: number | null
 }
 
 export const DEFAULT_CONFIG: GlassiumConfig = Object.freeze({
@@ -32,7 +34,8 @@ export const DEFAULT_CONFIG: GlassiumConfig = Object.freeze({
   absorbBackgrounds: true,
   absorbForComponents: false,
   absorbContent: true,
-  rememberQuality: true
+  rememberQuality: true,
+  memoryBudget: null
 })
 
 let current: GlassiumConfig = DEFAULT_CONFIG
@@ -53,6 +56,10 @@ export function configure(options: Partial<GlassiumConfig>): GlassiumConfig {
     }
     if (key === 'quality' && !validQuality(value)) {
       console.warn(`[Glassium] quality 只能是 'auto' | 'high' | 'medium' | 'low' 或 0–1 的数，收到 ${String(value)}`)
+      continue
+    }
+    if (key === 'memoryBudget' && value !== null && !(typeof value === 'number' && Number.isFinite(value) && value > 0)) {
+      console.warn(`[Glassium] memoryBudget 只能是正的字节数或 null，收到 ${String(value)}`)
       continue
     }
     if (key === 'backend' && value !== 'auto' && value !== 'webgpu' && value !== 'webgl2') {

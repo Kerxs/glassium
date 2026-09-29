@@ -95,6 +95,7 @@ handle.destroy()
 | `quality` | `'auto'` | `QualitySetting`：`'auto'`（按实测帧时间自适应）、`'high'` / `'medium'` / `'low'`、或 0–1 |
 | `absorbBackgrounds` | `true` | 玻璃后面挡着的 CSS 背景自动收进场景 |
 | `absorbForComponents` | `false` | 组件（`<glass-*>`）也收 |
+| `memoryBudget` | `null` | 显存预算（字节，估计值）：超了先放闲着的纹理、再降场景分辨率（`stage.setMemoryBudget`） |
 | `absorbContent` | `true` | 玻璃后面的内容（文字、图片、SVG、画布、视频）画进场景（DOM Renderer） |
 | `rememberQuality` | `true` | 自适应的结果记在 localStorage，下次从附近起步 |
 
@@ -516,6 +517,7 @@ GPU 玻璃画在最底下，盖不住滚上来的 DOM 文字。
 | `refreshScene()` | 非 dynamic 的画布、ImageData 内容变了：下一帧重新上传 |
 | `blendSpace` | 现在的混合空间 |
 | `setBlendSpace(space)` | 换混合空间，下一帧生效（模糊链换一种纹理格式重新分配一次）。写错就抛 |
+| `setMemoryBudget(bytes \| null)` | 显存预算（字节，估计值，见 `stats().gpuMemory`；也可以在 `createGlassStage({ memoryBudget })` 里给）：超了先放闲着的纹理（层的来源与备份），还超就把场景的像素预算一次降两成，到保底清晰度为止；null 去掉预算、回到原样。另外连着 `IDLE_LAYER_FRAMES`（600）个画了的帧都没有更高的层时，后端自己放掉层的纹理 |
 | `requestRender()` | 请求重画一帧（通常不需要：变化会自己触发） |
 | `dispose()` | 销毁：画布移除、设备释放、监听器解绑。之后可以再建 |
 | `debug` | 调试与验证用，见下 |
@@ -564,6 +566,7 @@ GPU 玻璃画在最底下，盖不住滚上来的 DOM 文字。
 | `fps`、`frames`、`skippedFrames` | 最近一秒实际画了几帧、画了的总帧数、因为与上一帧逐像素相同而没画的帧数 |
 | `drawCalls`、`blurPasses`、`blurLevels` | 上一帧的 draw 数 = 2 + 模糊趟数 + 单独绘制的面板 + 组数 + 2 × 填充数（+ 每个更高的层一次重采样）；模糊趟数 = 2 × (级数 − 1)，每个更高的层再加一轮局部的。沿用场景的帧：1 + 面板 + 组 + 按画布分辨率画的填充，模糊 0 趟 |
 | `sceneReused`、`sceneReuses` | 上一帧有没有沿用上一帧的场景与模糊链（只动了玻璃）；沿用过的帧数 |
+| `memoryBudget`、`memoryScale`、`memoryOverBudget` | 显存预算（`setMemoryBudget`）；为了它把场景的像素预算乘了多少；降到保底还超 |
 | `gpuMemory` | 现在占着的显存（估计，`ResourceUsage`：`bytes`、`textures`、`items` 每一项 —— chain、scratch、layerSource、layerBackup、atlas、sceneImage、canvas）；`textureBytes`、`formatBytes` 是算法 |
 | `gpuMs` | 最近一次量到的一帧 GPU 时间（ms，WebGPU 的 timestamp-query，晚一两帧、浏览器会量化）；WebGL2、设备没有 timestamp-query 时是 null |
 | `panels`、`groups`、`fills` | 上一帧画了的面板（含组员）、组、填充 |

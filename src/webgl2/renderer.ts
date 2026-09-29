@@ -36,6 +36,7 @@ import {
   type Renderer,
   type SceneImage,
   type SceneUploadState,
+  IDLE_LAYER_FRAMES,
   sourceReady
 } from '../renderer/backend.ts'
 import { LOCAL_SIGMA, MAX_LEVELS, levelForSigma } from '../renderer/blur.ts'
@@ -117,6 +118,8 @@ export class Gl2Renderer implements Renderer {
   #layerBackup: WebGLTexture | null = null
   #layerBackupFbo: WebGLFramebuffer | null = null
   #backupFor: WebGLTexture | null = null
+  /** 连着多少个画了的帧没有更高的层（到 IDLE_LAYER_FRAMES 就放掉层的纹理）。 */
+  #framesWithoutLayers = 0
   #scratch: WebGLTexture | null = null
   #chainFbos: WebGLFramebuffer[] = []
   #scratchFbos: (WebGLFramebuffer | null)[] = []
@@ -248,6 +251,19 @@ export class Gl2Renderer implements Renderer {
   resize(viewport: ResolvedViewport): number {
     this.#ensureTargets(viewport)
     return this.#levels
+  }
+
+  /** 放掉层的来源与备份（没有层在用时；有层在用时什么都不做）。 */
+  trim(): void {
+    if (this.#damage) return
+    const gl = this.gl
+    if (this.#layerSourceFbo) gl.deleteFramebuffer(this.#layerSourceFbo)
+    if (this.#layerSource) gl.deleteTexture(this.#layerSource)
+    this.#layerSourceFbo = null
+    this.#layerSource = null
+    this.#layerSourceWidth = 0
+    this.#layerSourceHeight = 0
+    this.#deleteLayerBackup()
   }
 
   /** 现在占着的显存（估计，见 resources.ts）。 */
@@ -618,6 +634,8 @@ export class Gl2Renderer implements Renderer {
       if (region) regions.set(layer, region)
     }
     this.#damage = unionRegion([...regions.values()].map((r) => r.scene))
+    if (regions.size > 0) this.#framesWithoutLayers = 0
+    else if (++this.#framesWithoutLayers >= IDLE_LAYER_FRAMES && (this.#layerSource || this.#layerBackup)) this.trim()
     if (this.#damage) {
       const backupFbo = this.#ensureLayerBackup()
       const [dx, dy, dw, dh] = this.#damage

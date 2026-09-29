@@ -10,11 +10,15 @@ import { fixedQuality, getConfig, onConfigChange } from './config.ts'
 import { adaptiveTargets } from './glass.ts'
 
 let adaptive: AdaptiveQuality | null = null
+/** runtime 建的 stage（显存预算跟着 configure 走）。 */
+let current: GlassStage | null = null
 let subscribed = false
 
 export function attachQuality(stage: GlassStage): void {
   adaptive?.dispose()
   const c = getConfig()
+  stage.setMemoryBudget(c.memoryBudget)
+  current = stage
   adaptive = new AdaptiveQuality(stage, {
     fixed: fixedQuality(c.quality),
     remember: c.rememberQuality,
@@ -26,6 +30,7 @@ export function attachQuality(stage: GlassStage): void {
     subscribed = true
     onConfigChange((next, prev) => {
       if (next.quality !== prev.quality) adaptive?.setFixed(fixedQuality(next.quality))
+      if (next.memoryBudget !== prev.memoryBudget) current?.setMemoryBudget(next.memoryBudget)
     })
   }
 }

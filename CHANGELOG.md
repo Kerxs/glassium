@@ -22,6 +22,9 @@
 - **零配置的静止页面不再每帧都画**：内置 gradient 场景被页面根背景（不透明、铺满）整个盖住时，它随时间漂也看不见，不算变化。
 - **GPU 计时**：WebGPU 有 `timestamp-query` 时量每帧的 GPU 时间（`stats().gpuMs`、`StageFrame.gpuMs`、调试面板），
   自适应质量按它判断 GPU 吃不吃紧（`OVER_GPU` / `COMFORT_GPU`，`FrameWindow.gpuRatio`）。
+- **显存预算与驱逐**：`createGlassStage({ memoryBudget })` / `stage.setMemoryBudget(bytes)` / `configure({ memoryBudget })` ——
+  超了先放闲着的纹理（层的来源与备份），还超就把场景的像素预算一次降两成，到保底清晰度为止（`stats().memoryScale`、
+  `memoryOverBudget`）；去掉预算就回到原样。连着 600 帧没有层时后端自己放掉层的纹理（`IDLE_LAYER_FRAMES`）。
 - **资源账**：`stats().gpuMemory`（显存估计：模糊链、草稿、层的来源与备份、图集、场景纹理、画布；调试面板按项列出）。
 - **调试面板三页**：概览、场景（场景检查器与材质检查器：上一帧的每一块玻璃与填充，点一行或「选取」页面上的元素，框出它、
   列出材质、效果链、质量系数、呈现变换）、资源（显存每一项、创建计数）。`stage.debug.scene()`（`SceneSnapshot`）。

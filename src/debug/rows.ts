@@ -25,7 +25,7 @@ export function debugRows(): Array<[string, string]> {
     ['GPU', s.gpuMs === null ? '量不了（WebGL2，或设备没有 timestamp-query）' : `${s.gpuMs.toFixed(2)} ms / 帧`],
     [
       '显存（估计）',
-      `${formatBytes(s.gpuMemory.bytes)} · ${s.gpuMemory.textures} 张 · ` +
+      `${formatBytes(s.gpuMemory.bytes)}${s.memoryBudget === null ? '' : ` / 预算 ${formatBytes(s.memoryBudget)}${s.memoryScale < 1 ? `（场景 × ${s.memoryScale.toFixed(2)}）` : ''}${s.memoryOverBudget ? '（到保底了还超）' : ''}`} · ${s.gpuMemory.textures} 张 · ` +
         Object.entries(s.gpuMemory.items)
           .sort((a, b) => b[1] - a[1])
           .map(([k, v]) => `${k} ${formatBytes(v)}`)

@@ -3212,6 +3212,83 @@ async function run(): Promise<void> {
     }
   })
 
+  await check('memory-budget', async () => {
+    // 显存预算（stage.setMemoryBudget）：
+    // - 画过一次嵌套玻璃（层的来源与备份分配出来）再拿掉：预算只比「没有层的纹理」多一点 → 先放闲着的纹理，场景不降；
+    // - 预算再压到现在的八五成 → 场景的像素预算一次降两成，降到不超为止；
+    // - 压到 1 MB → 降到保底清晰度就停，memoryOverBudget 为真；
+    // - 去掉预算 → 场景回到原来的尺寸，整张画布与一开始逐位相同。
+    // 反向对照：不设预算时画过嵌套玻璃，层的纹理还在（只有连着 600 帧没有层才自己放）。
+    calibrationScene()
+    const s0 = stage.debug.stats()
+    const v0 = s0.viewport!
+    const full = { x: 0, y: 0, width: v0.compositeWidth, height: v0.compositeHeight }
+    const frame0 = await readback(full)
+    const settle = (until: () => boolean): number => {
+      let n = 0
+      for (; n < 400 && !until(); n++) stage.debug.renderNow()
+      return n
+    }
+    const outer = document.createElement('div')
+    Object.assign(outer.style, { position: 'absolute', left: '440px', top: '420px', width: '240px', height: '140px', borderRadius: '20px' })
+    const inner = document.createElement('div')
+    Object.assign(inner.style, { position: 'absolute', left: '40px', top: '30px', width: '100px', height: '60px', borderRadius: '14px' })
+    outer.append(inner)
+    document.body.append(outer)
+    const po = stage.register(outer, { blur: 4 })
+    const pi = stage.register(inner, { blur: 2 })
+    try {
+      stage.debug.renderNow()
+      const layered = stage.debug.stats().gpuMemory
+      pi.unregister()
+      po.unregister()
+      outer.remove()
+      stage.debug.renderNow()
+      const kept = stage.debug.stats().gpuMemory.items
+      const layerBytes = (kept['layerSource'] ?? 0) + (kept['layerBackup'] ?? 0)
+      // 1) 预算刚好够「没有层的纹理」：只放闲着的
+      const baseBytes = stage.debug.stats().gpuMemory.bytes - layerBytes
+      stage.setMemoryBudget(baseBytes + 512 * 1024)
+      const n1 = settle(() => stage.debug.stats().gpuMemory.bytes <= baseBytes + 512 * 1024)
+      const t1 = stage.debug.stats()
+      // 2) 压到八五成：降场景
+      const target = Math.floor(t1.gpuMemory.bytes * 0.85)
+      stage.setMemoryBudget(target)
+      const n2 = settle(() => stage.debug.stats().gpuMemory.bytes <= target)
+      const t2 = stage.debug.stats()
+      // 3) 1 MB：到保底就停
+      stage.setMemoryBudget(1024 * 1024)
+      settle(() => stage.debug.stats().memoryOverBudget)
+      const t3 = stage.debug.stats()
+      // 4) 去掉预算：回到原样
+      stage.setMemoryBudget(null)
+      stage.debug.renderNow()
+      const t4 = stage.debug.stats()
+      // 复原：逐位相同；WebGL2 在这台机器上有一个像素会在整帧重建之间跳 1 级（limitations.md），容它 —— 只容差 1 级的几个像素
+      const d = diffFrames(frame0, await readback(full), full.width)
+      const restored = d.changed === 0 || (d.max <= 1 && d.changed <= 8)
+      const mb = (b: number): string => `${(b / 1024 / 1024).toFixed(1)} MB`
+      const px = (v: typeof v0 | null | undefined): string => (v ? `${v.sceneWidth}×${v.sceneHeight}` : '—')
+      const detail =
+        `一开始 ${mb(s0.gpuMemory.bytes)}、场景 ${px(v0)} · 画过嵌套 ${mb(layered.bytes)}（层的纹理 ${mb(layerBytes)}，拿掉之后还在 ${layerBytes > 0}） · ` +
+        `预算够「没有层的」：${n1} 帧后 ${mb(t1.gpuMemory.bytes)}、层的纹理放了 ${!('layerBackup' in t1.gpuMemory.items)}、场景 ${px(t1.viewport)}、倍数 ${t1.memoryScale} · ` +
+        `八五成 ${mb(target)}：${n2} 帧后 ${mb(t2.gpuMemory.bytes)}、场景 ${px(t2.viewport)}、倍数 ${t2.memoryScale.toFixed(3)} · ` +
+        `1 MB：保底 ${t3.memoryOverBudget}、场景 ${px(t3.viewport)} · 去掉预算：场景 ${px(t4.viewport)}、整张画布与一开始${d.changed === 0 ? '逐位相同' : `差 ${d.changed} 个像素、最多 ${d.max} 级${d.where}`}`
+      const ok =
+        layerBytes > 0 &&
+        !('layerBackup' in t1.gpuMemory.items) && t1.memoryScale === 1 && t1.viewport!.sceneWidth === v0.sceneWidth &&
+        t2.gpuMemory.bytes <= target && t2.memoryScale < 1 && t2.viewport!.sceneWidth < v0.sceneWidth && !t2.memoryOverBudget &&
+        t3.memoryOverBudget &&
+        t4.viewport!.sceneWidth === v0.sceneWidth && t4.memoryScale === 1 && restored
+      return ok ? pass(detail) : fail(detail)
+    } finally {
+      stage.setMemoryBudget(null)
+      outer.remove()
+      calibrationScene()
+      stage.debug.renderNow()
+    }
+  })
+
   await check('element-motion', async () => {
     // 任意元素的果冻与飞行（interaction/element-motion.ts，只动玻璃）：一块红色的 <div glass glass-jelly glass-glide>。
     // - 按 1 px/ms 往右挪 10 帧：画布上的红色横向比元素宽（拉长）、纵向比元素矮（收），中心还在元素的中心；
