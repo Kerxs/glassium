@@ -163,12 +163,12 @@ await createGlassStage({ scene: '/wallpaper.jpg' }) // 背景图；不写就是�
 ## JavaScript
 
 ```js
-import { createGlassStage, morphGlass, glass, GlassPresets } from 'glassium'
+import { createGlassStage, glass, morphGlass } from 'glassium'
 
 const stage = await createGlassStage({ scene: '/bg.jpg' })
-await stage.setScene(videoElement)                 // 背景换成视频（有新帧才上传）
-stage.register(someDiv, glass(GlassPresets.thin))  // 任意元素注册成玻璃
-await morphGlass(button, menu).finished            // 按钮变成菜单
+await stage.setScene(videoElement)                         // 背景换成视频（有新帧才上传）
+glass(someDiv, { preset: 'thin', interaction: { jelly: true } })  // 任意元素变成玻璃（动起来时拉长）
+await morphGlass(button, menu).finished                    // 按钮变成菜单
 ```
 
 全部公开接口（stage 的选项与方法、组件的属性 / 事件 / CSS、材质、调试与验证）见 **[docs/api.md](docs/api.md)**。

@@ -629,7 +629,7 @@ reject 一个 `name === 'AbortError'` 的 DOMException。跨源的图片与视�
 |---|---|
 | `GlassMaterial` | 上面「材质属性」表的 camelCase 版（`cornerRadius`、`depthEffect`……） |
 | `GlassPresets` | 五个预设 |
-| `glass(preset, overrides?)` | `{ ...preset, ...overrides }` |
+| `glass(preset, overrides?)` | 旧的写法（已废弃）：`{ ...preset, ...overrides }`。第一个参数是元素时是 runtime 的 `glass(element, options)`，见上 |
 | `MATERIAL_DEFAULTS` | 默认值（冻结） |
 | `lowerMaterial(material, [w, h])` | 材质 → 有序效果管线（`colorFilter → blur → lens`）。调试或实现别的渲染器时用 |
 | `parseTint(css)` | tint 的解析；解析不了就抛 |
