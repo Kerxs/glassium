@@ -43,6 +43,7 @@ import type { LabelAtlas } from '../renderer/atlas.ts'
 import { CANVAS_DEST, packFill, sceneDest, sceneScissor, type MeasuredFill } from '../renderer/fills.ts'
 import { layerRegion, levelRegion, splitLayers, unionRegion, type LayerItems, type LayerRegion } from '../renderer/layers.ts'
 import { sceneReusable, type SceneKey } from '../renderer/idle.ts'
+import { textureBytes, usage, type ResourceUsage } from '../renderer/resources.ts'
 import {
   PANEL_STRUCT_FLOATS,
   packGroup,
@@ -94,6 +95,8 @@ export class Gl2Renderer implements Renderer {
   readonly #scene: Program
   readonly #sceneImage: Program
   #imageTexture: WebGLTexture | null = null
+  /** 场景纹理的字节数（上传时记下，资源账用）。 */
+  #imageBytes = 0
   #uploadedSource: SceneImage['source'] | null = null
   #uploadedVersion = -1
   #uploadWarned = false
@@ -245,6 +248,22 @@ export class Gl2Renderer implements Renderer {
   resize(viewport: ResolvedViewport): number {
     this.#ensureTargets(viewport)
     return this.#levels
+  }
+
+  /** 现在占着的显存（估计，见 resources.ts）。 */
+  get resources(): ResourceUsage {
+    const gl = this.gl
+    const chain = this.#chain ? textureBytes(this.#width, this.#height, 4, this.#levels) : 0
+    const atlas = this.#atlasSource as { width?: number; height?: number } | null
+    return usage({
+      chain,
+      scratch: this.#scratch ? chain : 0,
+      layerSource: this.#layerSource ? textureBytes(this.#layerSourceWidth, this.#layerSourceHeight) : 0,
+      layerBackup: this.#layerBackup ? textureBytes(this.#width, this.#height) : 0,
+      atlas: atlas?.width && atlas.height ? textureBytes(atlas.width, atlas.height) : 0,
+      sceneImage: this.#imageTexture ? this.#imageBytes : 0,
+      canvas: textureBytes(gl.drawingBufferWidth, gl.drawingBufferHeight) * 2
+    })
   }
 
   // —— 资源 ——
@@ -829,6 +848,7 @@ export class Gl2Renderer implements Renderer {
       gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false)
       try {
         gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, gl.RGBA, gl.UNSIGNED_BYTE, img.source as TexImageSource)
+        this.#imageBytes = textureBytes(img.width, img.height)
         this.#uploadedSource = img.source
         this.#uploadedVersion = img.version
         uploaded = true

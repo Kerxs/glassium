@@ -40,6 +40,7 @@ import { frostForColor, reduceTransparency, type Frost } from '../core/transpare
 import { describeViewport, MAX_PIXELS, resolveViewport, type ResolvedViewport } from '../core/units.ts'
 import { FULL_QUALITY, sameQuality, type QualityFactors } from './quality.ts'
 import { flushFrame, setTimelineReducedMotion } from '../animation/timeline.ts'
+import { EMPTY_USAGE, type ResourceUsage } from './resources.ts'
 import type { PanelDebugMode } from '../shaders/glass.wgsl.ts'
 import {
   acquireDevice,
@@ -130,6 +131,8 @@ export interface GlassStats {
   readonly sceneReuses: number
   /** 最近一次量到的一帧 GPU 时间（ms）；后端量不了（WebGL2、设备没有 timestamp-query）是 null。 */
   readonly gpuMs: number | null
+  /** 现在占着的显存（估计）：合计字节、纹理数、每一项（见 renderer/resources.ts）。 */
+  readonly gpuMemory: ResourceUsage
   /** 模糊链的级数 K。 */
   readonly blurLevels: number
   /** 本帧实际画了的面板数，含合并组里的成员（屏外的不算）。 */
@@ -1219,6 +1222,7 @@ async function buildStage(options: GlassStageOptions): Promise<GlassStage> {
           sceneReused,
           sceneReuses,
           gpuMs: renderer?.gpuMs ?? null,
+          gpuMemory: renderer?.resources ?? EMPTY_USAGE,
           blurLevels: renderer?.blurLevels ?? 0,
           panels: panelsLastFrame,
           groups: groupsLastFrame,
@@ -1490,6 +1494,7 @@ function makeInertStage(canvas: HTMLCanvasElement, options: GlassStageOptions): 
         sceneReused: false,
         sceneReuses: 0,
         gpuMs: null,
+        gpuMemory: EMPTY_USAGE,
         blurLevels: 0,
         panels: 0,
         groups: 0,

@@ -53,6 +53,7 @@ import { CANVAS_DEST, packFill, sceneDest, sceneScissor, type MeasuredFill } fro
 import { layerRegion, splitLayers, unionRegion, type LayerItems, type LayerRegion } from './layers.ts'
 import { sceneReusable, type SceneKey } from './idle.ts'
 import { GpuTimer } from './gpu-timer.ts'
+import { textureBytes, usage, type ResourceUsage } from './resources.ts'
 import {
   PANEL_STRUCT_FLOATS,
   packGroup,
@@ -498,6 +499,23 @@ export class GpuRenderer implements Renderer {
   /** 最近一次量到的一帧 GPU 时间（ms）；设备不支持计时、还没读回来是 null。 */
   get gpuMs(): number | null {
     return this.#timer?.lastMs ?? null
+  }
+
+  /** 现在占着的显存（估计，见 resources.ts）。 */
+  get resources(): ResourceUsage {
+    const t = this.#blurChain.textures
+    const tex = (x: GPUTexture | null | undefined, mips = 1): number => (x ? textureBytes(x.width, x.height, 4, mips) : 0)
+    const canvas = this.#context.canvas as { width?: number; height?: number }
+    return usage({
+      chain: t ? textureBytes(t.width, t.height, 4, t.levels) : 0,
+      scratch: t ? textureBytes(t.width, t.height, 4, t.levels) : 0,
+      layerSource: tex(this.#layerSource),
+      layerBackup: tex(this.#layerBackup),
+      atlas: tex(this.#atlasTexture),
+      sceneImage: tex(this.#imageTexture),
+      // 画布按双缓冲算（交换链至少两张）
+      canvas: canvas.width && canvas.height ? textureBytes(canvas.width, canvas.height) * 2 : 0
+    })
   }
 
   resize(viewport: ResolvedViewport): number {

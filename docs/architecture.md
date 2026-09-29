@@ -30,7 +30,7 @@ Glassium 的定位是**面向 Web 的 Liquid Glass 渲染运行时**：让任意
 | Compositor | 分层合成、嵌套玻璃、顶层（对话框 / popover）、morph | `src/renderer/layers.ts`、`gpu.ts` / `webgl2/renderer.ts` 的分层绘制、`core/overlay.ts`、`components/morph-glass.ts` | 有（共享场景与一条模糊链） |
 | Renderer | WebGPU / WebGL2 / CSS / 普通 DOM | `src/renderer/gpu.ts`、`src/webgl2/`、`core/overlay.ts` + `runtime/styles.ts`、`[glass]` 没有 active 时的 CSS | 有 |
 | Performance | 帧监测、自适应质量、预算、profile、局部质量 | `src/performance/`、`renderer/quality.ts`、`stage.setQuality` / `onFrame`、`GlassPanel.setQuality` | 整页 + 先降贵的那几块（0.4） |
-| Resources | 纹理、目标、管线、缓存、显存预算 | 分散在各后端（目标池、管线缓存、图集） | 没有统一的管理器 |
+| Resources | 纹理、目标、管线、缓存、显存预算 | 分散在各后端（目标池、管线缓存、图集）；`renderer/resources.ts` 记账（`stats().gpuMemory`） | 有账本、没有预算与驱逐 |
 | Accessibility | 语义、ARIA、键盘、焦点、减少动效 / 透明度、高对比度 | 元素本身不被改写；`stage.ts` 的四个系统设置 | 有 |
 | Debug | 调试面板、统计、验证页 | `src/debug/`、`stage.debug`、`playground/verify.html`、`debug.html` | 有 |
 

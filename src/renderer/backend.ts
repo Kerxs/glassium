@@ -7,6 +7,7 @@
  * 在这些结构体上逐字节相同），吐同样格式的回读与探针，于是验证代码不用知道底下是谁。
  */
 
+import type { ResourceUsage } from './resources.ts'
 import type { LabelAtlas } from './atlas.ts'
 import type { BlendSpace } from '../core/color.ts'
 import type { ResolvedViewport } from '../core/units.ts'
@@ -173,6 +174,8 @@ export interface Renderer {
   readonly allocations: number
   /** 最近一次量到的一帧 GPU 时间（ms，timestamp-query）；量不了是 null。 */
   readonly gpuMs?: number | null
+  /** 现在占着的显存（估计，见 resources.ts）。 */
+  readonly resources?: ResourceUsage
   /** 视口尺寸变了（或刚重建）时调用：重建纹理。返回模糊链级数。 */
   resize(viewport: ResolvedViewport): number
   /** 画一帧。资源还没就绪时返回 null，调用方下一帧再来。 */

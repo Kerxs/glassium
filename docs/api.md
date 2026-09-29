@@ -563,6 +563,7 @@ GPU 玻璃画在最底下，盖不住滚上来的 DOM 文字。
 | `fps`、`frames`、`skippedFrames` | 最近一秒实际画了几帧、画了的总帧数、因为与上一帧逐像素相同而没画的帧数 |
 | `drawCalls`、`blurPasses`、`blurLevels` | 上一帧的 draw 数 = 2 + 模糊趟数 + 单独绘制的面板 + 组数 + 2 × 填充数（+ 每个更高的层一次重采样）；模糊趟数 = 2 × (级数 − 1)，每个更高的层再加一轮局部的。沿用场景的帧：1 + 面板 + 组 + 按画布分辨率画的填充，模糊 0 趟 |
 | `sceneReused`、`sceneReuses` | 上一帧有没有沿用上一帧的场景与模糊链（只动了玻璃）；沿用过的帧数 |
+| `gpuMemory` | 现在占着的显存（估计，`ResourceUsage`：`bytes`、`textures`、`items` 每一项 —— chain、scratch、layerSource、layerBackup、atlas、sceneImage、canvas）；`textureBytes`、`formatBytes` 是算法 |
 | `gpuMs` | 最近一次量到的一帧 GPU 时间（ms，WebGPU 的 timestamp-query，晚一两帧、浏览器会量化）；WebGL2、设备没有 timestamp-query 时是 null |
 | `panels`、`groups`、`fills` | 上一帧画了的面板（含组员）、组、填充 |
 | `cpuMs` | 上一帧主线程耗时：`measure`（量面板）与 `total` |

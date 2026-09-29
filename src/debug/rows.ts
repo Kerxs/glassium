@@ -2,6 +2,7 @@
  * 调试面板的内容（拆出来是为了在 Node 里测、给面板以外的地方用）。每行一对 [名字, 值]。
  */
 
+import { formatBytes } from '../renderer/resources.ts'
 import { currentStage } from '../renderer/stage.ts'
 import { absorbedElements } from '../runtime/absorb.ts'
 import { contentBlocks } from '../runtime/content.ts'
@@ -20,6 +21,14 @@ export function debugRows(): Array<[string, string]> {
     ['draw calls', String(s.drawCalls)],
     ['模糊', `${s.blurPasses} 趟 / ${s.blurLevels} 级${s.sceneReused ? '（沿用场景）' : ''} · 沿用过 ${s.sceneReuses} 帧`],
     ['GPU', s.gpuMs === null ? '量不了（WebGL2，或设备没有 timestamp-query）' : `${s.gpuMs.toFixed(2)} ms / 帧`],
+    [
+      '显存（估计）',
+      `${formatBytes(s.gpuMemory.bytes)} · ${s.gpuMemory.textures} 张 · ` +
+        Object.entries(s.gpuMemory.items)
+          .sort((a, b) => b[1] - a[1])
+          .map(([k, v]) => `${k} ${formatBytes(v)}`)
+          .join(' · ')
+    ],
     ['创建', `管线 ${s.pipelineCreations} · 目标 ${s.targetAllocations}`]
   ]
   if (v) rows.push(['画布', `${v.compositeWidth}×${v.compositeHeight} · 场景 ${v.sceneWidth}×${v.sceneHeight}`])
