@@ -30,12 +30,24 @@ const fromAttribute = new WeakSet<HTMLElement>()
 /** 每个元素报过的属性错误（同一条只报一次）。 */
 const reported = new WeakMap<HTMLElement, Set<string>>()
 
+/** 第一次扫描（接管页面上已有的 [glass]）做完了；不会有扫描（关了自动启动）时也算完。glassium.ready 等它。 */
+let markScanned: () => void = () => {}
+const scanned = new Promise<void>((resolve) => (markScanned = resolve))
+
+/**
+ * 第一次扫描做完时 resolve（等 DOMContentLoaded）。没有安排启动（Node、configure({ auto: false }) 之后没手动启动）时马上 resolve。
+ */
+export function whenScanned(): Promise<void> {
+  return scheduled || started ? scanned : Promise.resolve()
+}
+
 /** 安排启动（import 时调一次；幂等）。 */
 export function scheduleAutoStart(): void {
   if (scheduled || typeof document === 'undefined' || typeof MutationObserver === 'undefined') return
   scheduled = true
   queueMicrotask(() => {
     if (getConfig().auto) startRuntime()
+    else if (!started) markScanned()
   })
 }
 
@@ -47,6 +59,7 @@ export function startRuntime(): void {
   installRuntimeStyles()
   const begin = (): void => {
     for (const el of document.querySelectorAll<HTMLElement>('[glass]')) adopt(el)
+    markScanned()
     observer = new MutationObserver(onMutations)
     observer.observe(document.documentElement, {
       subtree: true,

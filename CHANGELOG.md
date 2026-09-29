@@ -5,6 +5,12 @@
 
 ## [未发布]
 
+### 修复
+
+- `glassium.ready` 在 import 之后马上读（runtime 还没开始扫描）时，不等 stage 就 resolve，`renderer` 报 `none`、`tier` 却是 3；
+  现在先等第一次扫描。
+- `morphGlass` / `glassium.morph` 的 to 原来被 CSS 的 `opacity: 0` 藏着时，走完还是看不见；现在终点写成 `opacity: 1`。
+
 ### 新增
 
 - **任意元素的果冻与飞行**：`glass-jelly` / `interaction: { jelly: true }` —— 元素怎么动的都行（拖、CSS 过渡、JS 动画），

@@ -16,7 +16,7 @@
 import { morphGlass } from '../components/morph-glass.ts'
 import { currentStage, onStageChange, stageOrPending, type GlassStage } from '../renderer/stage.ts'
 import { absorbedElements } from './absorb.ts'
-import { startRuntime } from './auto.ts'
+import { startRuntime, whenScanned } from './auto.ts'
 import { contentBlocks, contentStats } from './content.ts'
 import { detectSync, detectWebGpu, tierOf, type GlassiumCapabilities, type RendererKind } from './capabilities.ts'
 import { configure, getConfig, type GlassiumConfig } from './config.ts'
@@ -46,8 +46,11 @@ function probeWebGpu(): Promise<boolean> {
 
 /** WebGPU 查完、runtime 正在建的 stage 建完（或者失败）之后 resolve，给出完整的能力。 */
 function ready(): Promise<GlassiumCapabilities> {
-  const pending = stageOrPending()
-  return Promise.all([probeWebGpu(), pending ? pending.catch(() => null) : Promise.resolve(null)]).then(() => capabilities())
+  // 先等 runtime 第一次扫描（import 之后马上读 ready 时它还没开始：那时还没有在建的 stage，renderer 会是 none）
+  return whenScanned().then(() => {
+    const pending = stageOrPending()
+    return Promise.all([probeWebGpu(), pending ? pending.catch(() => null) : Promise.resolve(null)]).then(() => capabilities())
+  })
 }
 
 const debug = {

@@ -219,10 +219,12 @@ export function morphGlass(from: HTMLElement, to: HTMLElement, options: MorphGla
   let settle = (): void => {}
   const finished = new Promise<void>((resolve) => (settle = resolve))
 
-  // 终点：from 藏起来，to 回到原来的不透明度（变形之前那个，不是上一次变形设的 0）
+  // 终点：from 藏起来，to 回到原来的不透明度（变形之前那个，不是上一次变形设的 0）。
+  // to 原来是被 CSS 的 opacity: 0 藏着的（很常见的写法）：回到原样它还是看不见 —— 那就写成 1，变形的终点总是看得见的 to
   const land = (): void => {
     from.style.opacity = '0'
     to.style.opacity = toBase
+    if (toBase === '' && typeof getComputedStyle === 'function' && parseFloat(getComputedStyle(to).opacity) === 0) to.style.opacity = '1'
     originalOpacity.delete(to)
   }
 

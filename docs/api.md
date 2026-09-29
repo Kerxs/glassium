@@ -238,7 +238,7 @@ q（`QUALITY_MIN` 0.35 到 1）：连续 3 个窗口超预算降 0.1，连续 8 
 ```js
 import { morphGlass } from 'glassium'
 
-card.classList.remove('collapsed')          // 先让 to 排版、可见（visibility: hidden 可以，display: none 不行）
+card.classList.remove('collapsed')          // 先让 to 排版（visibility: hidden、CSS 的 opacity: 0 都可以，display: none 不行）
 await morphGlass(button, card).finished     // 按钮变成卡片；结束时按钮的 opacity 是 0
 button.classList.add('collapsed')           // 接着把 from 藏起来（或拿掉）
 ```
@@ -253,7 +253,8 @@ button.classList.add('collapsed')           // 接着把 from 藏起来（或拿
 
 返回的 `GlassMorph`：`finished`（走完、`finish()`、`cancel()` 时 resolve）、`seek(p)`（停在进度 p、不再自己走 ——
 跟着手指拖，或者验证用）、`finish()`（跳到终点）、`cancel()`（拿掉过渡玻璃，两头回到开始之前的不透明度）。
-减少动效、没有 stage 时直接换。`cubicBezier(x1, y1, x2, y2)` 是 CSS 同名缓动的 JS 版（返回 `t => y`）。
+减少动效、没有 stage 时直接换。to 原来被 CSS 的 `opacity: 0` 藏着时，走完写成行内的 `opacity: 1`（终点总是看得见的 to）。
+`cubicBezier(x1, y1, x2, y2)` 是 CSS 同名缓动的 JS 版（返回 `t => y`）。
 边界见 [limitations.md](limitations.md)。
 
 ### `<glass-fill>`
