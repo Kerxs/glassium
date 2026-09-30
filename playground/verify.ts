@@ -3148,6 +3148,80 @@ async function run(): Promise<void> {
     }
   })
 
+  await check('content-border-decoration', async () => {
+    // 内容进场景时连边框与文字装饰一起画（paint-content.ts）：一块带 6px 红边框的块，里面一段带 4px 蓝下划线的字，
+    // 盖一块 clear 的 [glass]。块收进场景之后 DOM 里的边框与下划线变透明，画布上玻璃里有红的边、蓝的线。
+    // 反向对照：configure({ absorbContent: false }) 时不收，画布上没有红边也没有蓝线（照旧是 DOM 画的）。
+    stage.debug.setBackdrop({ scene: 'flat' })
+    const v = stage.debug.stats().viewport!
+    const sc = v.compositeWidth / v.cssWidth
+    const canvasBox = stage.canvas.getBoundingClientRect()
+    const count = async (r: { left: number; top: number; width: number; height: number }, test: (r: number, g: number, b: number) => boolean): Promise<number> => {
+      const d = await readback({
+        x: Math.floor((r.left - canvasBox.left) * sc),
+        y: Math.floor((r.top - canvasBox.top) * sc),
+        width: Math.max(1, Math.ceil(r.width * sc)),
+        height: Math.max(1, Math.ceil(r.height * sc))
+      })
+      let n = 0
+      for (let i = 0; i < d.length; i += 4) if (test(d[i]!, d[i + 1]!, d[i + 2]!)) n++
+      return n
+    }
+    const isRed = (r: number, g: number, b: number): boolean => r > 150 && g < 100 && b < 100
+    const isBlue = (r: number, g: number, b: number): boolean => b > 150 && r < 110 && g < 130
+    const settle = async (): Promise<void> => {
+      await sleep(0)
+      await sleep(0)
+      await sleep(30)
+      stage.debug.renderNow()
+    }
+    const wrap = document.createElement('div')
+    Object.assign(wrap.style, { position: 'absolute', left: '400px', top: '460px', width: '380px', height: '160px', background: '#fff' })
+    wrap.innerHTML =
+      '<div class="b" style="position:absolute;left:24px;top:24px;width:300px;box-sizing:border-box;border:6px solid rgb(230, 20, 20);' +
+      'padding:8px 12px;font:600 28px/1.2 system-ui,sans-serif;color:#000">' +
+      '<span class="u" style="text-decoration:underline 4px rgb(20, 40, 230)">Underlined</span></div>'
+    const lens = document.createElement('div')
+    lens.setAttribute('glass', 'clear')
+    lens.setAttribute('glass-refraction', '0')
+    Object.assign(lens.style, { position: 'absolute', left: '0px', top: '0px', width: '360px', height: '140px', borderRadius: '20px', pointerEvents: 'none' })
+    wrap.append(lens)
+    document.body.append(wrap)
+    const block = wrap.querySelector<HTMLElement>('.b')!
+    const span = wrap.querySelector<HTMLElement>('.u')!
+    const measure = async (): Promise<{ absorbed: boolean; domBorder: string; border: number; underline: number }> => {
+      await settle()
+      const b = block.getBoundingClientRect()
+      const u = span.getBoundingClientRect()
+      return {
+        absorbed: contentBlocks().some((el) => el === block || el.contains(block)),
+        domBorder: getComputedStyle(block).borderTopColor,
+        // 上边框那一条（避开两头的圆角与玻璃的边）
+        border: await count({ left: b.left + 20, top: b.top + 1, width: b.width - 40, height: 4 }, isRed),
+        // 字的下沿往下一点：下划线
+        underline: await count({ left: u.left + 4, top: u.bottom - 10, width: u.width - 8, height: 14 }, isBlue)
+      }
+    }
+    try {
+      const on = await measure()
+      configure({ absorbContent: false })
+      const off = await measure()
+      const detail =
+        `收了 ${on.absorbed}、DOM 的边框 ${on.domBorder} · 玻璃里红边 ${on.border} 像素、蓝下划线 ${on.underline} 像素 · ` +
+        `关掉：收了 ${off.absorbed}、红边 ${off.border}、蓝线 ${off.underline}`
+      const ok =
+        on.absorbed && on.domBorder === 'rgba(0, 0, 0, 0)' && on.border > 100 && on.underline > 50 &&
+        !off.absorbed && off.border === 0 && off.underline === 0
+      return ok ? pass(detail) : fail(detail)
+    } finally {
+      configure({ absorbContent: true })
+      wrap.remove()
+      await settle()
+      calibrationScene()
+      stage.debug.renderNow()
+    }
+  })
+
   await check('atlas-upload', async () => {
     // 位图图集只传画过的格子（atlas.ts 的 dirtySince）：两块位图填充 A、B，A 换一次颜色、作废，下一帧传进图集纹理的
     // 像素只有 A 那一格（含空隙）的量级，远小于整张图集；画布上 A 换了色、B 不变。什么都没变的帧一个像素都不传。

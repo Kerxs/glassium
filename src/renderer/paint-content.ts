@@ -15,7 +15,10 @@
  *   序列化成图片异步解码 —— 解码好之前这个图标先不画，好了调 onReady 让调用方重画。
  * - 同源的 `<img>`（已经加载好的）。跨源图片不画：它会污染共享的图集画布，之后整张图集都传不进 GPU。
  *
- * 画不了的（跨源图片、canvas、视频、CSS 背景图、text-shadow、渐变文字……）跳过：按住时它们就不在场景里，
+ * 全开（runtime 把玻璃后面的内容画进场景）时另外画：元素的纯色背景与边框（实线、虚线、点线；四边一样时带圆角）、
+ * 文字的下划线 / 上划线 / 删除线（祖先上写的也算，装饰会传给里面的文字）、`<canvas>` 与 `<video>` 的画面。
+ *
+ * 画不了的（跨源图片、CSS 背景图、text-shadow、渐变文字、波浪线……）跳过：按住时它们就不在场景里，
  * 见 docs/limitations.md。坐标按包围盒换算，不支持旋转。
  */
 
@@ -37,7 +40,9 @@ const FIT_TOLERANCE = 0.15
 
 /** paintContent 的选项：默认只画文字、SVG、图片（组件的标签用）；runtime 把玻璃后面的内容画进场景时全开。 */
 export interface PaintOptions {
-  /** 元素的纯色背景（含圆角；内联元素按每一行的矩形）也画，画在最底下。 */
+  /**
+   * 元素的纯色背景（含圆角；内联元素按每一行的矩形）与边框也画，画在最底下；文字的下划线、删除线也画。
+   */
   readonly backgrounds?: boolean
   /** `<canvas>` 与 `<video>` 的当前画面也画（按 object-fit / object-position）。跨源的、被污染的跳过。 */
   readonly media?: boolean
@@ -70,7 +75,7 @@ export function paintContent(
     paintImages(ctx, source, map)
     if (options.media) paintMedia(ctx, source, map)
     paintSvgs(ctx, source, map, onReady)
-    paintTexts(ctx, source, map)
+    paintTexts(ctx, source, map, options.backgrounds === true)
   }
 }
 
@@ -128,7 +133,7 @@ function visible(el: Element): boolean {
   return cs.visibility !== 'hidden' && cs.display !== 'none'
 }
 
-function paintTexts(ctx: Context2D, source: LabelSource, map: LocalMapping): void {
+function paintTexts(ctx: Context2D, source: LabelSource, map: LocalMapping, decorate = false): void {
   const root = source.element
   const doc = root.ownerDocument
   const walker = doc.createTreeWalker(root, NodeFilter.SHOW_TEXT)
@@ -149,8 +154,14 @@ function paintTexts(ctx: Context2D, source: LabelSource, map: LocalMapping): voi
     ctx.textAlign = 'left'
     ctx.direction = cs.direction === 'rtl' ? 'rtl' : 'ltr'
     if ('letterSpacing' in ctx) ctx.letterSpacing = cs.letterSpacing === 'normal' ? '0px' : cs.letterSpacing
+    const lines = decorate ? decorationsOf(parent, root) : []
     range.selectNodeContents(node)
     const rects = Array.from(range.getClientRects()).filter((r) => r.width > 0 && r.height > 0)
+    if (lines.length > 0) {
+      // 装饰线按每一行的矩形画（折行的文字每行一段），画在字下面
+      const fontSize = parseFloat(cs.fontSize) || 16
+      for (const r of rects) drawDecorations(ctx, lines, toLocal(map, r), fontSize, source.color)
+    }
     if (rects.length === 1) {
       drawRun(ctx, node.data.replace(/\s+/g, ' ').trim(), toLocal(map, rects[0]!))
     } else if (rects.length > 1) {
@@ -168,6 +179,96 @@ function paintTexts(ctx: Context2D, source: LabelSource, map: LocalMapping): voi
     ctx.restore()
   }
   range.detach()
+}
+
+/** 一条文字装饰：哪几种线、颜色、粗细、线型。 */
+export interface Decoration {
+  readonly underline: boolean
+  readonly overline: boolean
+  readonly lineThrough: boolean
+  readonly color: string
+  /** CSS 像素；auto / from-font 时是 null（按字号算）。 */
+  readonly thickness: number | null
+  readonly style: string
+}
+
+/** 解析一个元素的 text-decoration 计算值（没有线返回 null）。 */
+export function parseDecoration(
+  cs: Pick<CSSStyleDeclaration, 'textDecorationLine' | 'textDecorationColor' | 'textDecorationThickness' | 'textDecorationStyle' | 'color'>
+): Decoration | null {
+  const line = cs.textDecorationLine || 'none'
+  if (line === 'none') return null
+  const underline = /\bunderline\b/.test(line)
+  const overline = /\boverline\b/.test(line)
+  const lineThrough = /\bline-through\b/.test(line)
+  if (!underline && !overline && !lineThrough) return null
+  const t = parseFloat(cs.textDecorationThickness)
+  return {
+    underline,
+    overline,
+    lineThrough,
+    color: cs.textDecorationColor || cs.color,
+    thickness: Number.isFinite(t) && t > 0 ? t : null,
+    style: cs.textDecorationStyle || 'solid'
+  }
+}
+
+/**
+ * 一个文字节点身上的装饰：自己的父元素一直到 root，每一层写的都算 —— 装饰传给里面的文字，
+ * 但计算值不继承（`<a>` 里的 `<span>` 的 text-decoration-line 是 none，字照样有下划线）。
+ */
+function decorationsOf(parent: Element, root: Element): Decoration[] {
+  const out: Decoration[] = []
+  for (let e: Element | null = parent; e; e = e.parentElement) {
+    const d = parseDecoration(getComputedStyle(e))
+    if (d) out.push(d)
+    if (e === root) break
+  }
+  return out
+}
+
+/**
+ * 装饰线在一行里的位置（相对这一行矩形的顶，CSS 像素）：下划线在基线往下约 0.1em，删除线在基线往上约 0.3em
+ * （x 字高的一半），上划线在上伸处。基线按内容区高度估计（上伸约 0.8em、下伸约 0.2em）。
+ */
+export function decorationOffsets(height: number, fontSize: number, thickness: number): { underline: number; lineThrough: number; overline: number } {
+  const baseline = baselineIn(0, height, fontSize * 0.8, fontSize * 0.2)
+  return {
+    underline: baseline + Math.max(1, fontSize * 0.1) + thickness / 2,
+    lineThrough: baseline - fontSize * 0.3,
+    overline: Math.max(thickness / 2, baseline - fontSize * 0.8 + thickness / 2)
+  }
+}
+
+function drawDecorations(
+  ctx: Context2D,
+  lines: readonly Decoration[],
+  box: { x: number; y: number; w: number; h: number },
+  fontSize: number,
+  color?: string
+): void {
+  for (const d of lines) {
+    if (d.style === 'wavy') continue // 波浪线不画
+    const thickness = d.thickness ?? Math.max(1, fontSize / 14)
+    const at = decorationOffsets(box.h, fontSize, thickness)
+    ctx.save()
+    ctx.strokeStyle = color ?? d.color
+    ctx.lineWidth = thickness
+    if (d.style === 'dashed') ctx.setLineDash([thickness * 3, thickness * 2])
+    else if (d.style === 'dotted') ctx.setLineDash([thickness, thickness])
+    const ys = [d.underline ? at.underline : null, d.overline ? at.overline : null, d.lineThrough ? at.lineThrough : null]
+    for (const y of ys) {
+      if (y === null) continue
+      const rows = d.style === 'double' ? [y, y + thickness * 2] : [y]
+      for (const yy of rows) {
+        ctx.beginPath()
+        ctx.moveTo(box.x, box.y + yy)
+        ctx.lineTo(box.x + box.w, box.y + yy)
+        ctx.stroke()
+      }
+    }
+    ctx.restore()
+  }
 }
 
 /** 一段文字画在 box 里：基线按字体的上伸、下伸放，宽度差一点时水平拉到与 DOM 一样宽。 */
@@ -415,7 +516,78 @@ function transparentColor(color: string): boolean {
   return parts.length >= 4 && parseFloat(parts[3]!) === 0
 }
 
-/** 元素的纯色背景：块级按盒子与圆角，内联按每一行的矩形。渐变、背景图不画（那是 absorb 的事）。 */
+/** 一条边：宽度、颜色、线型（none / hidden 与宽度 0 一样不画）。 */
+export interface BorderSide {
+  readonly width: number
+  readonly color: string
+  readonly style: string
+}
+
+type BorderStyles = Pick<
+  CSSStyleDeclaration,
+  | 'borderTopStyle' | 'borderRightStyle' | 'borderBottomStyle' | 'borderLeftStyle'
+  | 'borderTopWidth' | 'borderRightWidth' | 'borderBottomWidth' | 'borderLeftWidth'
+  | 'borderTopColor' | 'borderRightColor' | 'borderBottomColor' | 'borderLeftColor'
+>
+
+/** 读四条边（上、右、下、左）；一条都不画时返回 null。 */
+export function bordersOf(cs: BorderStyles): readonly [BorderSide, BorderSide, BorderSide, BorderSide] | null {
+  const side = (s: 'Top' | 'Right' | 'Bottom' | 'Left'): BorderSide => {
+    const style = cs[`border${s}Style`]
+    const width = style === 'none' || style === 'hidden' ? 0 : parseFloat(cs[`border${s}Width`]) || 0
+    return { width, color: cs[`border${s}Color`], style }
+  }
+  const sides = [side('Top'), side('Right'), side('Bottom'), side('Left')] as const
+  return sides.some((s) => s.width > 0 && !transparentColor(s.color)) ? sides : null
+}
+
+/**
+ * 画一个盒子的边框。四边一样（宽度、颜色、线型）时沿圆角描一圈（虚线、点线按线型近似）；否则逐边画实心的条
+ * （不管圆角 —— 四边不一样又带圆角的边框很少见）。double、groove 这些按实线画。
+ */
+function drawBorders(
+  ctx: Context2D,
+  sides: readonly [BorderSide, BorderSide, BorderSide, BorderSide],
+  b: { x: number; y: number; w: number; h: number },
+  radius: number
+): void {
+  const [t, r, btm, l] = sides
+  const same = sides.every((s) => s.width === t.width && s.color === t.color && s.style === t.style)
+  if (same) {
+    const w = t.width
+    ctx.save()
+    ctx.strokeStyle = t.color
+    ctx.lineWidth = w
+    if (t.style === 'dashed') ctx.setLineDash([w * 3, w * 2])
+    else if (t.style === 'dotted') {
+      ctx.setLineDash([0, w * 2])
+      ctx.lineCap = 'round'
+    }
+    const iw = b.w - w
+    const ih = b.h - w
+    const ir = Math.max(0, radius - w / 2)
+    ctx.beginPath()
+    if (ir > 0 && 'roundRect' in ctx) ctx.roundRect(b.x + w / 2, b.y + w / 2, iw, ih, Math.min(ir, iw / 2, ih / 2))
+    else ctx.rect(b.x + w / 2, b.y + w / 2, iw, ih)
+    ctx.stroke()
+    ctx.restore()
+    return
+  }
+  const bar = (s: BorderSide, x: number, y: number, w: number, h: number): void => {
+    if (!(s.width > 0) || transparentColor(s.color)) return
+    ctx.fillStyle = s.color
+    ctx.fillRect(x, y, w, h)
+  }
+  bar(t, b.x, b.y, b.w, t.width)
+  bar(btm, b.x, b.y + b.h - btm.width, b.w, btm.width)
+  bar(l, b.x, b.y, l.width, b.h)
+  bar(r, b.x + b.w - r.width, b.y, r.width, b.h)
+}
+
+/**
+ * 元素的纯色背景与边框：块级按盒子与圆角，内联按每一行的矩形。一个元素先背景后边框，外层的先画。
+ * 渐变、背景图不画（那是 absorb 的事）。
+ */
 function paintBackgrounds(ctx: Context2D, source: LabelSource, map: LocalMapping): void {
   const root = source.element
   const els = [root, ...Array.from(root.querySelectorAll('*'))]
@@ -423,7 +595,9 @@ function paintBackgrounds(ctx: Context2D, source: LabelSource, map: LocalMapping
     if (el.localName !== 'svg' && el.closest('svg')) continue
     const cs = getComputedStyle(el)
     if (cs.visibility === 'hidden' || cs.display === 'none') continue
-    if (transparentColor(cs.backgroundColor)) continue
+    const fill = !transparentColor(cs.backgroundColor)
+    const borders = bordersOf(cs)
+    if (!fill && !borders) continue
     ctx.save()
     ctx.globalAlpha = el === root ? 1 : opacityUpTo(el, root)
     ctx.fillStyle = cs.backgroundColor
@@ -433,10 +607,13 @@ function paintBackgrounds(ctx: Context2D, source: LabelSource, map: LocalMapping
       if (!(r.width > 0 && r.height > 0)) continue
       const b = toLocal(map, r)
       const radius = inline ? 0 : parseFloat(cs.borderTopLeftRadius) || 0
-      ctx.beginPath()
-      if (radius > 0 && 'roundRect' in ctx) ctx.roundRect(b.x, b.y, b.w, b.h, Math.min(radius, b.w / 2, b.h / 2))
-      else ctx.rect(b.x, b.y, b.w, b.h)
-      ctx.fill()
+      if (fill) {
+        ctx.beginPath()
+        if (radius > 0 && 'roundRect' in ctx) ctx.roundRect(b.x, b.y, b.w, b.h, Math.min(radius, b.w / 2, b.h / 2))
+        else ctx.rect(b.x, b.y, b.w, b.h)
+        ctx.fill()
+      }
+      if (borders) drawBorders(ctx, borders, b, radius)
     }
     ctx.restore()
   }

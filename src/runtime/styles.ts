@@ -41,6 +41,7 @@ const BASE_CSS = `
   text-shadow: none !important;
   text-decoration-color: transparent !important;
   background-color: transparent !important;
+  border-color: transparent !important;
 }
 [data-glassium-content] :is(img, svg, canvas, video) {
   opacity: 0 !important;
