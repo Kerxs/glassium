@@ -53,7 +53,7 @@ import type { LabelAtlas } from './atlas.ts'
 import { CANVAS_DEST, packFill, sceneDest, sceneScissor, type MeasuredFill } from './fills.ts'
 import { layerRegion, splitLayers, unionRegion, type LayerItems, type LayerRegion } from './layers.ts'
 import { sceneReusable, type SceneKey } from './idle.ts'
-import { GpuTimer } from './gpu-timer.ts'
+import { GpuTimer, type GpuPasses } from './gpu-timer.ts'
 import { textureBytes, usage, type ResourceUsage } from './resources.ts'
 import {
   PANEL_STRUCT_FLOATS,
@@ -504,6 +504,11 @@ export class GpuRenderer implements Renderer {
     return this.#timer?.lastMs ?? null
   }
 
+  /** 最近一次量到的分账（场景、模糊、玻璃、层，ms）；量不了是 null。 */
+  get gpuPasses(): GpuPasses | null {
+    return this.#timer?.lastPasses ?? null
+  }
+
   /** 放掉层的来源与备份（没有层在用时；有层在用时什么都不做）。 */
   trim(): void {
     if (this.#damage) return
@@ -873,9 +878,13 @@ export class GpuRenderer implements Renderer {
         fillPass.end()
       }
 
+      this.#timer?.mark(encoder, 'scene')
       // 2) 建模糊链。趟数只和级数有关，与面板数量无关。
       blurPasses = this.#blurChain.build(encoder, pipelines.blur)
+    } else {
+      this.#timer?.mark(encoder, 'scene')
     }
+    this.#timer?.mark(encoder, 'blur')
 
     // 3) 背景 -> 画布
     const canvasTexture = this.#context.getCurrentTexture()
@@ -904,6 +913,7 @@ export class GpuRenderer implements Renderer {
     // 5) 合并组：每组一次 draw，与成员数无关。画在单块面板之后。
     draws += this.#drawGlass(presentPass, base, panels, groups)
     presentPass.end()
+    this.#timer?.mark(encoder, 'glass')
 
     // 6) 更高的层，逐层：拷画布 → 重采样回场景目标 → 这一层的填充 → 局部重建模糊链 → 填充、玻璃、合并组上屏
     //    画之前把所有层要改的那一块（并集）的第 0 级备份下来：下一帧沿用场景时拷回去

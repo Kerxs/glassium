@@ -7,6 +7,8 @@
 
 ### 新增
 
+- **GPU 时间分账**：`stats().gpuPasses` —— 一帧的 GPU 时间按段拆成场景、模糊、玻璃、层（WebGPU 的 timestamp-query，
+  在段与段之间打时间戳）；调试面板的「GPU」一行跟着显示。`passesFrom` 是时间戳到分账的算法。
 - **`glassium/runtime` 入口**：只有 runtime（`<div glass>`、`glass()`、`configure`、内容进场景、果冻与飞行、变形、时间轴……），
   不注册、不带 `<glass-*>` 组件 —— 打包压缩之后 gzip 约 98 KB（完整入口约 117 KB）。导出是完整入口的子集、同一个对象。
   示例页 `/runtime-only.html` 自己查一遍（玻璃生效、组件没注册）。

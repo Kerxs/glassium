@@ -41,6 +41,7 @@ import { describeViewport, MAX_PIXELS, resolveViewport, type ResolvedViewport } 
 import { FULL_QUALITY, sameQuality, type QualityFactors } from './quality.ts'
 import { flushFrame, setTimelineReducedMotion } from '../animation/timeline.ts'
 import { EMPTY_USAGE, type ResourceUsage } from './resources.ts'
+import type { GpuPasses } from './gpu-timer.ts'
 import { inspectFrame, type SceneSnapshot } from './inspect.ts'
 import type { PanelDebugMode } from '../shaders/glass.wgsl.ts'
 import {
@@ -132,6 +133,11 @@ export interface GlassStats {
   readonly sceneReuses: number
   /** 最近一次量到的一帧 GPU 时间（ms）；后端量不了（WebGL2、设备没有 timestamp-query）是 null。 */
   readonly gpuMs: number | null
+  /**
+   * gpuMs 的分账（ms）：scene 场景与场景里的填充、blur 模糊链、glass 背景上屏与第 0 层的玻璃、layers 更高的层。
+   * 量不了是 null。时间戳被浏览器量化过，各段是近似值。
+   */
+  readonly gpuPasses: GpuPasses | null
   /** 现在占着的显存（估计）：合计字节、纹理数、每一项（见 renderer/resources.ts）。 */
   readonly gpuMemory: ResourceUsage
   /** 显存预算（setMemoryBudget）；不限是 null。 */
@@ -1286,6 +1292,7 @@ async function buildStage(options: GlassStageOptions): Promise<GlassStage> {
           sceneReused,
           sceneReuses,
           gpuMs: renderer?.gpuMs ?? null,
+          gpuPasses: renderer?.gpuPasses ?? null,
           gpuMemory: renderer?.resources ?? EMPTY_USAGE,
           memoryBudget,
           memoryScale,
@@ -1572,6 +1579,7 @@ function makeInertStage(canvas: HTMLCanvasElement, options: GlassStageOptions): 
         sceneReused: false,
         sceneReuses: 0,
         gpuMs: null,
+        gpuPasses: null,
         gpuMemory: EMPTY_USAGE,
         memoryBudget: null,
         memoryScale: 1,

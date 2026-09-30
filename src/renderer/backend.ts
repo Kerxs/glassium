@@ -9,6 +9,7 @@
 
 import type { ResourceUsage } from './resources.ts'
 import type { LabelAtlas } from './atlas.ts'
+import type { GpuPasses } from './gpu-timer.ts'
 import type { BlendSpace } from '../core/color.ts'
 import type { ResolvedViewport } from '../core/units.ts'
 import type { PanelDebugMode } from '../shaders/glass.wgsl.ts'
@@ -179,6 +180,8 @@ export interface Renderer {
   readonly allocations: number
   /** 最近一次量到的一帧 GPU 时间（ms，timestamp-query）；量不了是 null。 */
   readonly gpuMs?: number | null
+  /** 同上，按段分账（场景、模糊、玻璃、层）。 */
+  readonly gpuPasses?: GpuPasses | null
   /** 现在占着的显存（估计，见 resources.ts）。 */
   readonly resources?: ResourceUsage
   /**

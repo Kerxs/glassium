@@ -22,7 +22,15 @@ export function debugRows(): Array<[string, string]> {
     ['玻璃', `${s.panels} 块 · ${s.groups} 组 · ${s.fills} 填充`],
     ['draw calls', String(s.drawCalls)],
     ['模糊', `${s.blurPasses} 趟 / ${s.blurLevels} 级${s.sceneReused ? '（沿用场景）' : ''} · 沿用过 ${s.sceneReuses} 帧`],
-    ['GPU', s.gpuMs === null ? '量不了（WebGL2，或设备没有 timestamp-query）' : `${s.gpuMs.toFixed(2)} ms / 帧`],
+    [
+      'GPU',
+      s.gpuMs === null
+        ? '量不了（WebGL2，或设备没有 timestamp-query）'
+        : `${s.gpuMs.toFixed(2)} ms / 帧` +
+          (s.gpuPasses
+            ? `（场景 ${s.gpuPasses.scene.toFixed(2)} · 模糊 ${s.gpuPasses.blur.toFixed(2)} · 玻璃 ${s.gpuPasses.glass.toFixed(2)} · 层 ${s.gpuPasses.layers.toFixed(2)}）`
+            : '')
+    ],
     [
       '显存（估计）',
       `${formatBytes(s.gpuMemory.bytes)}${s.memoryBudget === null ? '' : ` / 预算 ${formatBytes(s.memoryBudget)}${s.memoryScale < 1 ? `（场景 × ${s.memoryScale.toFixed(2)}）` : ''}${s.memoryOverBudget ? '（到保底了还超）' : ''}`} · ${s.gpuMemory.textures} 张 · ` +

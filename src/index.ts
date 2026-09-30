@@ -74,6 +74,7 @@ export {
 export { FrameMonitor } from './performance/monitor.ts'
 export { FULL_QUALITY, combineQuality, type QualityFactors } from './renderer/quality.ts'
 export { formatBytes, textureBytes, type ResourceUsage } from './renderer/resources.ts'
+export { passesFrom, type GpuPasses } from './renderer/gpu-timer.ts'
 export { IDLE_LAYER_FRAMES } from './renderer/backend.ts'
 export { inspectFrame, type InspectedFill, type InspectedGlass, type SceneSnapshot } from './renderer/inspect.ts'
 if (typeof window !== 'undefined') {

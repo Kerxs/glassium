@@ -579,6 +579,7 @@ GPU 玻璃画在最底下，盖不住滚上来的 DOM 文字。
 | `memoryBudget`、`memoryScale`、`memoryOverBudget` | 显存预算（`setMemoryBudget`）；为了它把场景的像素预算乘了多少；降到保底还超 |
 | `gpuMemory` | 现在占着的显存（估计，`ResourceUsage`：`bytes`、`textures`、`items` 每一项 —— chain、scratch、layerSource、layerBackup、atlas、sceneImage、canvas）；`textureBytes`、`formatBytes` 是算法 |
 | `gpuMs` | 最近一次量到的一帧 GPU 时间（ms，WebGPU 的 timestamp-query，晚一两帧、浏览器会量化）；WebGL2、设备没有 timestamp-query 时是 null |
+| `gpuPasses` | `gpuMs` 的分账（`GpuPasses`，ms）：`scene` 场景与场景里的填充（沿用场景的帧是 0）、`blur` 模糊链、`glass` 背景上屏与第 0 层的玻璃、`layers` 更高的层与探针；`passesFrom` 是时间戳到分账的算法。量不了是 null |
 | `panels`、`groups`、`fills` | 上一帧画了的面板（含组员）、组、填充 |
 | `cpuMs` | 上一帧主线程耗时：`measure`（量面板）与 `total` |
 | `pipelineCreations`、`bindGroupCreations`、`targetAllocations` | 创建计数，预热后应当走平 |
