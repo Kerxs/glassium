@@ -93,9 +93,23 @@
       #report .skip {
         color: #c9c9c9;
       }
+
+      /* 回到站点：放在报告面板的右下角（报告不是玻璃，也不和玻璃重叠；检测区域都在左边） */
+      .site-back {
+        position: fixed;
+        right: 24px;
+        bottom: 20px;
+        z-index: 1;
+        padding: 2px 8px;
+        border-radius: 6px;
+        background: rgba(6, 14, 26, 0.95);
+        font: 12px/1.6 system-ui, sans-serif;
+        color: #9ecbff;
+      }
     </style>
   </head>
   <body>
+    <a class="site-back" href="./#dev">← Glassium</a>
     <glass-card id="v-card" preset="regular" corner-radius="0.5frac" dispersion="0.3" highlight="0.7">
       <strong>verify.html</strong><br />逐项检查，结果写进标题栏。
     </glass-card>

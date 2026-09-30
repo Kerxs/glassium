@@ -1,0 +1,203 @@
+/*
+  「材质」标签（index.html#editor）：调材质、换背景，右边给出对应的 HTML 与 JS。限定在 section[data-tab="editor"] 里。
+  R1：html / body 背景透明，页面背景属于场景。两侧的面板是普通的深色 DOM（玻璃坏了也要能用），
+  它们不是预览玻璃的祖先，也不和它重叠。两侧面板贴在站点页头下面（--site-top）。
+*/
+
+@scope ([data-tab="editor"]) {
+  :scope {
+    display: block;
+    font: 13px/1.5 system-ui, -apple-system, 'Segoe UI', 'PingFang SC', sans-serif;
+    color: #fff;
+  }
+
+  .layout {
+    display: grid;
+    grid-template-columns: 300px minmax(0, 1fr) 380px;
+    min-height: calc(100vh - var(--site-top));
+  }
+
+  .panel,
+  .code {
+    box-sizing: border-box;
+    max-height: calc(100vh - var(--site-top));
+    overflow-y: auto;
+    position: sticky;
+    top: var(--site-top);
+    padding: 16px;
+    background: rgba(8, 12, 22, 0.88);
+    border-color: rgba(255, 255, 255, 0.12);
+    border-style: solid;
+    border-width: 0;
+  }
+
+  .panel {
+    border-right-width: 1px;
+  }
+
+  .code {
+    border-left-width: 1px;
+    display: grid;
+    align-content: start;
+    gap: 8px;
+  }
+
+  h1 {
+    margin: 0 0 2px;
+    font-size: 17px;
+  }
+
+  .stats {
+    margin: 0 0 12px;
+    font: 11px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
+    color: rgba(255, 255, 255, 0.6);
+  }
+
+  fieldset {
+    margin: 0 0 14px;
+    padding: 0;
+    border: 0;
+    display: grid;
+    gap: 6px;
+  }
+
+  legend {
+    padding: 0 0 6px;
+    font-weight: 600;
+    color: rgba(255, 255, 255, 0.85);
+  }
+
+  .row {
+    display: grid;
+    grid-template-columns: 5.2em minmax(0, 1fr) 3.4em;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .row output {
+    text-align: right;
+    font: 12px ui-monospace, SFMono-Regular, Menlo, monospace;
+    color: #aed5f3;
+  }
+
+  .row.changed span {
+    color: #ffd479; /* 与基准不同的项 */
+  }
+
+  select,
+  button {
+    font: inherit;
+    color: #fff;
+    background: rgba(255, 255, 255, 0.1);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    border-radius: 6px;
+    padding: 3px 6px;
+  }
+
+  button {
+    cursor: pointer;
+  }
+
+  button:hover {
+    background: rgba(255, 255, 255, 0.18);
+  }
+
+  input[type='range'] {
+    width: 100%;
+    accent-color: #aed5f3;
+  }
+
+  input[type='color'] {
+    width: 100%;
+    height: 22px;
+    padding: 0;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    border-radius: 5px;
+    background: transparent;
+  }
+
+  .check {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .code-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-weight: 600;
+    color: rgba(255, 255, 255, 0.85);
+  }
+
+  pre {
+    margin: 0 0 10px;
+    padding: 10px 12px;
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    font: 12px/1.55 ui-monospace, SFMono-Regular, Menlo, monospace;
+    white-space: pre-wrap;
+    word-break: break-all;
+  }
+
+  .hint {
+    margin: 0;
+    color: rgba(255, 255, 255, 0.6);
+  }
+
+  .hint a {
+    color: #aed5f3;
+  }
+
+  /* 预览区：玻璃放在中间。它的祖先背景透明（R1） */
+  .preview {
+    display: grid;
+    place-items: center;
+    min-height: 100vh;
+    padding: 32px;
+    box-sizing: border-box;
+  }
+
+  .preview glass-card {
+    box-sizing: border-box;
+    padding: 22px 24px;
+    color: #fff;
+    text-shadow: 0 1px 10px rgba(0, 0, 0, 0.35);
+  }
+
+  .preview glass-card h2 {
+    margin: 0 0 6px;
+    font-size: 22px;
+  }
+
+  .preview glass-card p {
+    margin: 0;
+    color: rgba(255, 255, 255, 0.85);
+  }
+
+  .preview glass-button {
+    font-size: 17px;
+    font-weight: 600;
+    color: #fff;
+  }
+
+  /* 窄屏：预览在上，控件与代码在下面依次排开 */
+  @media (max-width: 1000px) {
+    .layout {
+      grid-template-columns: minmax(0, 1fr);
+    }
+
+    .preview {
+      order: -1;
+      min-height: 60vh;
+    }
+
+    .panel,
+    .code {
+      position: static;
+      max-height: none;
+      border-width: 1px 0 0;
+    }
+  }
+}

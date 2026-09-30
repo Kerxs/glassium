@@ -17,10 +17,12 @@
 元素还是它自己 —— 语义、焦点、键盘、读屏都不变，玻璃只是画在它后面。建在同一个 runtime 上的组件（开关、滑块、分段控件、
 标签栏……）照旧可用。
 
-**在线看**：[零配置示例](https://kerxs.github.io/glassium/runtime.html)（一个普通网页，只写了 glass 属性）·
-[首页](https://kerxs.github.io/glassium/)（设置、控制中心、标签栏、锁屏四个场景里的控件，都能操作）·
-[iPhone 与 Mac](https://kerxs.github.io/glassium/devices.html) ·
-[Playground](https://kerxs.github.io/glassium/playground.html)（调材质、拿代码）· [性能测试](https://kerxs.github.io/glassium/bench.html)
+**在线看**：[kerxs.github.io/glassium](https://kerxs.github.io/glassium/) —— 一个页面、五个标签：
+[概览](https://kerxs.github.io/glassium/#overview)（一个普通网页，只写了 glass 属性）·
+[控件](https://kerxs.github.io/glassium/#controls)（设置、控制中心、标签栏、锁屏四个场景里的控件，都能操作）·
+[设备](https://kerxs.github.io/glassium/#devices)（iPhone 与 Mac）·
+[材质](https://kerxs.github.io/glassium/#editor)（调材质、拿代码）·
+[开发者](https://kerxs.github.io/glassium/#dev)（验证、回归、性能测试、调试台）
 
 - **真的折射**：边缘的透镜按圆角矩形的距离场弯折背景，浮点精度，没有 SVG 位移贴图的 ±128px 与色阶。
 - **逐通道色散**、一整圈的亮边（上下最亮）与白底上看得见的淡灰外线、按压时的放大与体光、按压处的光、投影、
@@ -206,20 +208,27 @@ npm ci
 npm run dev   # http://localhost:5174
 ```
 
-七个页面，在线版和本地一样：
+在线版和本地一样。展示站点是一个页面（[`/`](https://kerxs.github.io/glassium/)），顶部五个标签，地址带 `#标签`：
 
-- [`/runtime.html`](https://kerxs.github.io/glassium/runtime.html)：零配置示例 —— 一个普通网页（背景色、渐变、背景图），
+- [`#overview`](https://kerxs.github.io/glassium/#overview)：概览（零配置）—— 一个普通网页（背景色、渐变、背景图），
   只写了 `import 'glassium'` 与 `glass` 属性；可以切质量档位、打开调试面板
-- [`/`](https://kerxs.github.io/glassium/)：首页 —— 照着 iOS 27 实机截图搭的四个场景（设置、控制中心、应用列表与标签栏、锁屏），
+- [`#controls`](https://kerxs.github.io/glassium/#controls)：控件 —— 照着 iOS 27 实机截图搭的四个场景（设置、控制中心、应用列表与标签栏、锁屏），
   控件都能操作；只用公开 API，壁纸、分组、图块是 `<glass-fill>`，列表标题与锁屏壁纸用位图填充画进场景
-- [`/devices.html`](https://kerxs.github.io/glassium/devices.html)：iPhone 与 Mac 的界面 —— 清透的玻璃图标、照片在玻璃标签栏底下滚动、
+- [`#devices`](https://kerxs.github.io/glassium/#devices)：设备 —— iPhone 与 Mac 的界面：清透的玻璃图标、照片在玻璃标签栏底下滚动、
   控制中心、从按钮变形出来的面板（`morphGlass`）
-- [`/playground.html`](https://kerxs.github.io/glassium/playground.html)：playground —— 调材质、换背景、看调试视图，右边给出对应的 HTML 与 JS
+- [`#editor`](https://kerxs.github.io/glassium/#editor)：材质 —— 调材质、换背景、看调试视图，右边给出对应的 HTML 与 JS
+- [`#dev`](https://kerxs.github.io/glassium/#dev)：开发者 —— 下面这些工具页与文档的入口
+
+整页只有一个 stage，切到哪个标签只有那个标签的内容在文档里（其余不画）。旧地址 `runtime.html`、`devices.html`、
+`playground.html`、`demo.html` 跳到对应的标签。开发 Glassium 本身用的工具页各自独立（自己建 stage、固定视口）：
+
 - [`/bench.html`](https://kerxs.github.io/glassium/bench.html)：性能测试（面板数与帧开销，结果见 [docs/benchmark.md](docs/benchmark.md)）
 - [`/regress.html`](https://kerxs.github.io/glassium/regress.html)：视觉回归（标准场景与基准比，见 [spec/golden/README.md](spec/golden/README.md)）
 - [`/debug.html`](https://kerxs.github.io/glassium/debug.html)：调试台（给开发 Glassium 本身用：统计、校准场景、各种模拟开关）
 - [`/verify.html`](https://kerxs.github.io/glassium/verify.html)：逐项验证，结果写进标题栏（`PASS n/n`）；`?glassium.backend=webgl2` 换后端；
   视口至少要 820×720
+- [`/runtime-only.html`](https://kerxs.github.io/glassium/runtime-only.html)：只引 `glassium/runtime` 的页面，自己查一遍玻璃生效、组件没注册
+- [`/lab.html`](https://kerxs.github.io/glassium/lab.html)：质感对照（对着真机截图调质感的实验页）
 
 ## 开发
 

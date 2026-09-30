@@ -54,6 +54,6 @@ Glassium 在任何浏览器里都不会让页面坏掉：能力不够时一级�
    `NO BASELINE`：点「记为基准」，把 JSON 贴进 `spec/golden/baselines.json`，以后在这台设备上跑就有对照了。
    换一种 GPU 就是另一份基准 —— 不同驱动的像素本来就不同，不跨设备比。
 3. `/bench.html` —— 这台设备的帧开销、GPU 时间、显存，「复制 JSON」贴进 docs/benchmark.md。
-4. `/runtime.html` —— 零配置的页面：看 `tier`、`renderer`，拖一拖「动起来的玻璃」那一节，打开调试面板看质量与显存。
+4. `/#overview`（站点的「概览」标签）—— 零配置的页面：看 `tier`、`renderer`，拖一拖「动起来的玻璃」那一节，打开调试面板看质量与显存。
 
 没有 WebGPU 的浏览器里 1、2 的 WebGPU 那一遍会直接落到 WebGL2（标题栏的第一项 `backend` 写着实际的后端）。

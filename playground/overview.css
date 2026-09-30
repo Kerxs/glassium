@@ -1,0 +1,76 @@
+/*
+  「概览」标签（index.html#overview）：一个普通网页的样式，限定在 section[data-tab="overview"] 里。
+  背景色、渐变、背景图都是普通 CSS —— runtime 把玻璃后面的那几层收进场景。页面的底色与渐变在 site.css
+  （html.tab-overview / body.tab-overview：它们在 section 外面）。
+*/
+
+@scope ([data-tab="overview"]) {
+  :scope { color: #fff; }
+  * { box-sizing: border-box; }
+  a { color: inherit; }
+  .tab-main { width: min(960px, calc(100% - 32px)); margin: 0 auto; padding: 40px 0 80px; }
+  .hero h1 { font-size: clamp(32px, 6vw, 56px); line-height: 1.1; margin: 24px 0 8px; }
+  .lede { max-width: 640px; color: rgba(255,255,255,0.9); }
+  .card {
+    margin-top: 28px; padding: 24px 28px; border-radius: 28px; max-width: 520px;
+  }
+  .card h2 { margin: 0 0 6px; font-size: 22px; }
+  .card button, .controls button {
+    font: inherit; color: #fff; border: 0; background: none; cursor: pointer;
+    padding: 10px 22px; border-radius: 999px; margin-top: 8px;
+  }
+  .grid {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 20px; margin-top: 48px;
+  }
+  .tile {
+    position: relative; height: 220px; border-radius: 24px; overflow: hidden;
+    display: flex; align-items: flex-end; padding: 16px;
+  }
+  .tile-photo { background: url('./assets/runtime-hills.svg') center / cover no-repeat; }
+  .tile-mint { background: #3ddc97; }
+  .tile-night { background: radial-gradient(circle at 30% 30%, #4cc9f0, #3a0ca3 70%); }
+  .badge { padding: 10px 16px; border-radius: 16px; font-weight: 600; color: #fff; }
+  .content { position: relative; margin-top: 56px; }
+  .content h2 { font-size: 26px; margin: 0 0 12px; }
+  .article { max-width: 720px; font-size: 18px; }
+  .article mark { background: #ffe066; color: #3a2a00; border-radius: 4px; padding: 0 4px; }
+  .media { display: flex; flex-wrap: wrap; gap: 16px; margin-top: 16px; }
+  .media img, .media canvas, .media video { border-radius: 16px; display: block; }
+  .lens {
+    position: absolute; left: 40px; top: 60px; width: 200px; height: 130px; border-radius: 999px;
+    pointer-events: none; transition: translate 0.08s linear;
+  }
+  .motion { margin-top: 56px; }
+  .motion h2 { font-size: 26px; margin: 0 0 8px; }
+  .motion code { font-size: 0.9em; }
+  .pad {
+    position: relative; height: 220px; margin-top: 16px; border-radius: 24px; overflow: hidden;
+    background: url('./assets/runtime-hills.svg') center / cover no-repeat; touch-action: none;
+  }
+  .puck {
+    position: absolute; left: 40px; top: 70px; width: 120px; height: 72px; border-radius: 999px;
+    display: grid; place-items: center; font-weight: 600; cursor: grab; user-select: none;
+  }
+  .tabs {
+    position: relative; display: inline-flex; gap: 4px; margin-top: 24px; padding: 6px; border-radius: 999px;
+    background: rgba(20, 10, 40, 0.35);
+  }
+  .tabs button {
+    position: relative; z-index: 1; font: inherit; color: #fff; border: 0; background: none; cursor: pointer;
+    padding: 8px 18px; border-radius: 999px;
+  }
+  .pill { position: absolute; top: 6px; height: calc(100% - 12px); border-radius: 999px; pointer-events: none; }
+  .morph-row { position: relative; margin-top: 24px; min-height: 150px; }
+  .chip { font: inherit; color: #fff; border: 0; background: none; cursor: pointer; padding: 10px 22px; border-radius: 999px; }
+  .sheet {
+    position: absolute; left: 0; top: 0; width: min(360px, 100%); padding: 18px 22px; border-radius: 26px; opacity: 0;
+    pointer-events: none;
+  }
+  .sheet p { margin: 6px 0 4px; }
+  .sheet button { font: inherit; color: #fff; border: 0; background: none; cursor: pointer; padding: 6px 16px; border-radius: 999px; }
+  .controls {
+    display: flex; flex-wrap: wrap; align-items: center; gap: 16px; margin-top: 48px;
+  }
+  .controls select { font: inherit; padding: 4px 8px; border-radius: 8px; }
+  .caps { width: 100%; margin: 0; font: 13px/1.5 ui-monospace, Menlo, Consolas, monospace; color: rgba(255,255,255,0.85); }
+}

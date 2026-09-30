@@ -3,102 +3,14 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Glassium · 零配置的玻璃</title>
-    <meta name="description" content="import 'glassium' 之后写 <div glass> 就是玻璃：一个普通的网页，背景、渐变、图片都被玻璃折射。" />
-    <link rel="stylesheet" href="./runtime.css" />
-    <!--
-      Runtime 的示例：一个普通的网页（有背景色、渐变、背景图），只写了 import 'glassium' 与 glass 属性。
-      玻璃后面的 CSS 背景由 runtime 自动收进场景（runtime/absorb.ts），玻璃能折射它们。
-    -->
+    <!-- 旧地址：这一页并进了首页的「零配置示例」标签（index.html#overview）。地址参数（?glassium.backend=…）原样带过去 -->
+    <script>
+      location.replace('./index.html' + location.search + '#overview')
+    </script>
+    <meta http-equiv="refresh" content="0; url=./index.html#overview" />
+    <title>Glassium</title>
   </head>
   <body>
-    <header class="top" glass="clear">
-      <strong>Glassium</strong>
-      <nav>
-        <a href="./index.html">首页</a>
-        <a href="./playground.html">Playground</a>
-        <a href="./verify.html">验证</a>
-      </nav>
-    </header>
-
-    <main>
-      <section class="hero">
-        <h1>写一个属性，就是玻璃</h1>
-        <p class="lede">这一页只有 <code>import 'glassium'</code> 与 <code>glass</code> 属性。后端、质量、背景都是 runtime 自己定的。</p>
-        <div class="card" glass>
-          <h2>&lt;div glass&gt;</h2>
-          <p>Default Glass：模糊、折射、色散、亮边、投影。背后的渐变被弯过来。</p>
-          <button glass>按一下</button>
-        </div>
-      </section>
-
-      <section class="grid">
-        <div class="tile tile-photo">
-          <div class="badge" glass="tinted">tinted</div>
-        </div>
-        <div class="tile tile-mint">
-          <div class="badge" glass="frosted">frosted</div>
-        </div>
-        <div class="tile tile-night">
-          <div class="badge" glass="clear" glass-dispersion="0.3">clear · 色散 0.3</div>
-        </div>
-      </section>
-
-      <section class="content" id="content">
-        <h2>玻璃后面的内容也被折射</h2>
-        <p class="article">
-          这一段是普通的 DOM 文字，里面有<mark>高亮</mark>、<a href="#content">链接</a>与 <strong>粗体</strong>。
-          把鼠标移到这一块上，玻璃透镜跟着走：它后面的文字、图片、画布动画、视频都被 runtime 画进场景（DOM Renderer），
-          玻璃把它们模糊、弯折、放大。离开玻璃的内容照旧由浏览器画，选中、链接、读屏都不受影响。
-        </p>
-        <div class="media">
-          <img src="./assets/runtime-hills.svg" alt="黄昏的山丘" width="240" height="150" />
-          <canvas id="spin" width="240" height="150" aria-label="转动的色环"></canvas>
-          <video id="clip" width="240" height="150" muted playsinline aria-label="由画布生成的视频"></video>
-        </div>
-        <div class="lens" glass="clear" glass-refraction="0.45" glass-magnify="0.25" glass-jelly aria-hidden="true"></div>
-      </section>
-
-      <section class="motion" id="motion">
-        <h2>动起来的玻璃</h2>
-        <p class="lede">
-          <code>glass-jelly</code>：元素怎么动的都行（拖、过渡、JS），玻璃顺着速度拉长、停下圆回去；
-          <code>glass-glide</code>：元素一下子换了位置，玻璃抬起、飞过去、落下。只动玻璃，里面的字不变形。
-        </p>
-        <div class="pad" id="pad">
-          <div class="puck" glass glass-jelly tabindex="0" role="button" aria-label="可拖动的玻璃">拖我</div>
-        </div>
-        <div class="tabs" role="tablist" id="tabs">
-          <div class="pill" glass glass-glide glass-jelly aria-hidden="true"></div>
-          <button type="button" role="tab" aria-selected="true">今天</button>
-          <button type="button" role="tab" aria-selected="false">本周</button>
-          <button type="button" role="tab" aria-selected="false">本月</button>
-          <button type="button" role="tab" aria-selected="false">全年</button>
-        </div>
-        <div class="morph-row">
-          <button type="button" class="chip" id="chip" glass>展开</button>
-          <div class="sheet" id="sheet" glass="frosted">
-            <strong>一块变成另一块</strong>
-            <p><code>glassium.morph(from, to)</code>：形状、圆角、材质一起过渡。</p>
-            <button type="button" id="collapse" glass>收起</button>
-          </div>
-        </div>
-      </section>
-
-      <section class="controls">
-        <label>质量
-          <select id="quality">
-            <option value="auto">auto（自适应）</option>
-            <option value="high">high</option>
-            <option value="medium">medium</option>
-            <option value="low">low</option>
-          </select>
-        </label>
-        <button type="button" id="debug" glass>调试面板</button>
-        <p id="caps" class="caps"></p>
-      </section>
-    </main>
-
-    <script type="module" src="./runtime.ts"></script>
+    <p>这一页并进了<a href="./index.html#overview">首页的「零配置示例」</a>。</p>
   </body>
 </html>

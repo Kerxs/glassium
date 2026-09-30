@@ -1,0 +1,219 @@
+/*
+  站点外壳（index.html）：底色、字体、顶部的玻璃导航、「开发者」标签。各标签自己的样式在 overview.css、controls.css、
+  devices.css、editor.css，都用 @scope 限定在各自的 section[data-tab="…"] 里（不加特异性，与原来单独成页时一样）。
+
+  R1：html / body 平时透明 —— 页面背景是各标签交给 stage 的场景。「概览」例外：它演示的是一个普通网页，
+  html 的底色与 body 的渐变就是普通 CSS，由 runtime 收进场景（site.ts 在 html、body 上挂 tab-<名字> 这个 class）。
+*/
+
+:root {
+  color-scheme: dark;
+  /* 页头占的高度（上边距 + 页头 + 下边距）：贴顶的面板从这里开始 */
+  --site-top: 76px;
+}
+
+html,
+body {
+  margin: 0;
+  background: transparent;
+}
+
+body {
+  font: 16px/1.6 system-ui, -apple-system, 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', 'Segoe UI', sans-serif;
+  color: #f2f3f7;
+  -webkit-font-smoothing: antialiased;
+  overflow-x: hidden;
+  /* 页头的上边距不穿出 body（不然「概览」顶上露出一条 html 的底色） */
+  display: flow-root;
+}
+
+html.tab-overview {
+  background: #1b1030;
+}
+
+body.tab-overview {
+  min-height: 100vh;
+  background: linear-gradient(135deg, #ff8a5b 0%, #ea526f 35%, #6a4c93 70%, #1982c4 100%);
+}
+
+/* —— 顶部导航：一块 runtime 的玻璃（<header glass>，默认材质：底下滚过去的字模糊掉，导航看得清），贴在顶上 —— */
+
+.site-top {
+  position: sticky;
+  top: 12px;
+  z-index: 20;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: min(1120px, calc(100% - 24px));
+  height: 52px;
+  margin: 12px auto;
+  padding: 0 8px 0 20px;
+  border-radius: 999px;
+}
+
+.site-top a {
+  color: #fff;
+  text-decoration: none;
+}
+
+.site-brand {
+  flex: none;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.site-tabs {
+  display: flex;
+  flex: 1;
+  justify-content: center;
+  gap: 2px;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.site-tabs::-webkit-scrollbar {
+  display: none;
+}
+
+.site-tabs a {
+  flex: none;
+  padding: 6px 14px;
+  border-radius: 999px;
+  font-size: 15px;
+  white-space: nowrap;
+  color: rgba(255, 255, 255, 0.78);
+}
+
+.site-tabs a:hover {
+  color: #fff;
+}
+
+/* 当前标签：一块淡淡的底（普通 DOM 在玻璃上面画，不挡玻璃） */
+.site-tabs a[aria-current='page'] {
+  color: #fff;
+  font-weight: 600;
+  background: rgba(255, 255, 255, 0.16);
+}
+
+.site-gh {
+  flex: none;
+  padding: 6px 12px;
+  font-size: 15px;
+}
+
+.site-top a:focus-visible {
+  outline: 2px solid #9ecbff;
+  outline-offset: 2px;
+}
+
+@media (max-width: 560px) {
+  .site-top {
+    padding-left: 16px;
+  }
+
+  .site-tabs {
+    justify-content: flex-start;
+  }
+
+  .site-tabs {
+    gap: 0;
+  }
+
+  .site-tabs a {
+    padding: 6px 8px;
+  }
+
+  .site-gh {
+    display: none;
+  }
+}
+
+.site-noscript {
+  text-align: center;
+}
+
+/* —— 开发者 —— */
+
+@scope ([data-tab='dev']) {
+  .dev {
+    box-sizing: border-box;
+    width: min(960px, 100%);
+    margin: 0 auto;
+    padding: 24px 16px 72px;
+  }
+
+  h1 {
+    margin: 16px 0 10px;
+    font-size: clamp(30px, 5vw, 44px);
+    letter-spacing: -0.02em;
+  }
+
+  h2 {
+    margin: 40px 0 14px;
+    font-size: 22px;
+  }
+
+  a {
+    color: #9ecbff;
+  }
+
+  code {
+    font: 0.9em ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+
+  .dev-lede {
+    max-width: 720px;
+    color: rgba(242, 243, 247, 0.8);
+  }
+
+  .dev-cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+    gap: 14px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .dev-cards li {
+    padding: 16px 18px;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 18px;
+    background: rgba(255, 255, 255, 0.04);
+  }
+
+  .dev-cards a {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 8px;
+    text-decoration: none;
+  }
+
+  .dev-cards strong {
+    font-size: 17px;
+    color: #fff;
+  }
+
+  .dev-cards span {
+    font: 12px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    color: #9ecbff;
+  }
+
+  .dev-cards p {
+    margin: 6px 0 0;
+    font-size: 14px;
+    color: rgba(242, 243, 247, 0.72);
+  }
+
+  .dev-links {
+    display: grid;
+    gap: 6px;
+    margin: 0;
+    padding-left: 1.2em;
+    color: rgba(242, 243, 247, 0.8);
+  }
+}

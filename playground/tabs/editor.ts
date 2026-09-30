@@ -1,14 +1,17 @@
 /**
- * Playground（playground.html）：调材质、换背景，右边给出对应的 HTML 与 JS。
+ * 材质（#editor）：调材质、换背景，右边给出对应的 HTML 与 JS。
  *
  * 预览的玻璃是一个 `<glass-card>` 或 `<glass-button>`，材质写在它的 HTML 属性上 —— 与作者在标记里写属性是同一条路径；
  * 写的就是右边那段 HTML 里的属性（material-code.ts 算出来的最短写法），所以「看到的」与「拿到的代码」是同一份。
+ *
+ * stage 是整个站点共用的那一个（site.ts）。这一节改的 stage 状态（场景、调试视图、混合空间、模拟减少透明度）
+ * 切走时复原，回来时按控件上的值重新设。
  */
 
-import '../src/components/glassium.css'
+import '../../src/components/glassium.css'
+import '../editor.css'
 
 import {
-  createGlassStage,
   defineGlassElements,
   MATERIAL_ATTRIBUTES,
   simulateReducedTransparency,
@@ -18,10 +21,11 @@ import {
   type SceneFit
 } from 'glassium'
 
-import { FIELDS, PREVIEW_SIZE, attributesOf, fmt, htmlSnippet, jsSnippet, runtimeSnippet, stateFromPreset, type EditorState, type NumericField, type PreviewElement } from './material-code.ts'
-import { userScenes, type UserScene } from './scenes.ts'
+import { FIELDS, PREVIEW_SIZE, attributesOf, fmt, htmlSnippet, jsSnippet, runtimeSnippet, stateFromPreset, type EditorState, type NumericField, type PreviewElement } from '../material-code.ts'
+import { userScenes, type UserScene } from '../scenes.ts'
 
-const $ = <T extends HTMLElement>(id: string): T => document.getElementById(id) as T
+let root: HTMLElement
+const $ = <T extends HTMLElement = HTMLElement>(id: string): T => root.querySelector<T>(`#${id}`)!
 
 let state: EditorState = stateFromPreset('glass-card', 'regular')
 let preview: HTMLElement | null = null
@@ -59,7 +63,7 @@ function apply(): void {
 
   const changed = new Set(attrs.map(([k]) => k))
   for (const f of FIELDS) {
-    const row = document.getElementById(`row-${f.key}`)!
+    const row = $(`row-${f.key}`)
     row.classList.toggle('changed', changed.has(f.attr))
     ;(row.querySelector('input') as HTMLInputElement).value = String(state.values[f.key])
     row.querySelector('output')!.textContent = fmt(state.values[f.key])
@@ -143,7 +147,7 @@ function wireMaterial(): void {
       apply()
     })
   }
-  for (const button of document.querySelectorAll<HTMLButtonElement>('[data-copy]')) {
+  for (const button of root.querySelectorAll<HTMLButtonElement>('[data-copy]')) {
     button.addEventListener('click', () => {
       const text = $(button.dataset.copy!).textContent ?? ''
       navigator.clipboard.writeText(text).then(
@@ -161,7 +165,8 @@ function wireMaterial(): void {
 
 type BuiltinScene = 'gradient' | 'calibration' | 'radial' | 'flat'
 
-function wireScene(stage: GlassStage): void {
+/** 场景的控件：接一次线；返回「按控件上的值重新设一遍」（回到这一节时用）与「停下动画与视频」。 */
+function wireScene(stage: GlassStage): { restore(): void; stop(): void } {
   const scene = $<HTMLSelectElement>('scene')
   const fit = $<HTMLSelectElement>('fit')
   const file = $<HTMLInputElement>('file')
@@ -201,16 +206,21 @@ function wireScene(stage: GlassStage): void {
   fit.addEventListener('change', () => {
     if (userSceneOf(shown)) show(shown)
   })
-  show(scene.value)
+  return { restore: () => show(shown), stop: () => scenes.stop() }
 }
 
-function wireView(stage: GlassStage): void {
-  const debug = $<HTMLSelectElement>('debug')
-  debug.addEventListener('change', () => stage.debug.setPanelDebug(debug.value as PanelDebugMode))
+/** 看得更清楚的三个控件：接一次线；返回「按控件上的值设一遍」。 */
+function wireView(stage: GlassStage): () => void {
+  const debug = $<HTMLSelectElement>('panel-debug')
   const linear = $<HTMLInputElement>('linear')
-  linear.addEventListener('change', () => stage.setBlendSpace(linear.checked ? 'linear' : 'srgb'))
   const rt = $<HTMLInputElement>('rt')
-  rt.addEventListener('change', () => simulateReducedTransparency(rt.checked ? true : null))
+  const apply = (): void => {
+    stage.debug.setPanelDebug(debug.value as PanelDebugMode)
+    stage.setBlendSpace(linear.checked ? 'linear' : 'srgb')
+    simulateReducedTransparency(rt.checked ? true : null)
+  }
+  for (const el of [debug, linear, rt]) el.addEventListener('change', apply)
+  return apply
 }
 
 function showStats(stage: GlassStage): void {
@@ -220,17 +230,38 @@ function showStats(stage: GlassStage): void {
     `${s.backend} · ${s.fps} fps · CPU ${s.cpuMs.total.toFixed(2)} ms` + (v ? ` · ${v.compositeWidth}×${v.compositeHeight}` : '')
 }
 
-async function main(): Promise<void> {
+// —— 标签的生命周期（site.ts 调） ——
+
+let wired: { scene: ReturnType<typeof wireScene>; view: () => void } | null = null
+let statsTimer: ReturnType<typeof setInterval> | null = null
+
+export function mount(section: HTMLElement): void {
+  root = section
   defineGlassElements()
   buildFields()
   wireMaterial()
   apply()
-  const stage = await createGlassStage()
-  Object.assign(window as unknown as Record<string, unknown>, { glassiumStage: stage })
-  wireScene(stage)
-  wireView(stage)
-  showStats(stage)
-  setInterval(() => showStats(stage), 500)
 }
 
-void main()
+export function activate(stage: GlassStage | null): void {
+  if (!stage) {
+    $('stats').textContent = '没有 GPU：玻璃用 CSS 画'
+    return
+  }
+  wired ??= { scene: wireScene(stage), view: wireView(stage) }
+  wired.scene.restore()
+  wired.view()
+  showStats(stage)
+  statsTimer = setInterval(() => showStats(stage), 500)
+}
+
+export function deactivate(stage: GlassStage | null): void {
+  if (statsTimer !== null) clearInterval(statsTimer)
+  statsTimer = null
+  wired?.scene.stop()
+  if (!stage) return
+  // 这一节改过的 stage 状态复原：别的标签看到的是默认的样子
+  stage.debug.setPanelDebug('off')
+  stage.setBlendSpace('srgb')
+  simulateReducedTransparency(null)
+}

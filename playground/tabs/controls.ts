@@ -1,21 +1,23 @@
 /**
- * 首页：四个照着 iOS 27 实机截图搭的场景（设置、控制中心、应用列表 + 标签栏、锁屏）。只用公开 API。
+ * 控件（#controls）：四个照着 iOS 27 实机截图搭的场景（设置、控制中心、应用列表 + 标签栏、锁屏）。只用公开 API。
  *
  * - 每块屏幕按 390×780 排版，按格子的宽度缩放（--k），玻璃跟着视觉缩放走。
  * - 应用列表里的标题（.scene-text）用 stage.registerBitmapFill 画进场景 —— 标签栏的透镜能放大、扭弯它们；
- *   DOM 那一份在玻璃生效时透明（html[data-gpu]），读屏与选中照旧。
+ *   DOM 那一份在玻璃生效时透明（这一节的 section[data-gpu]），读屏与选中照旧。
  * - 锁屏的丝带壁纸也是位图填充：自己用 2D 画布画的曲线。
  * - 控制中心的两条竖向滑块：一块胶囊玻璃，里面一块白色填充从下往上长（填充写在玻璃里面，画在它上面）。
  *
- * 与 devices.html 一样认 ?glassium.backend=webgl2 与 ?glassium.simulate=no-webgpu。
+ * stage 是整个站点共用的那一个（site.ts）；这一节显示时换上自己的场景、注册两份位图填充，切走时注销。
  */
 
-import '../src/components/glassium.css'
+import '../../src/components/glassium.css'
+import '../controls.css'
 
-import { createGlassStage, defineGlassElements, paintContent, simulateNoWebGpu, type GlassStage } from 'glassium'
-import { fillIcons, icon } from './showcase-icons.ts'
+import { defineGlassElements, paintContent, type GlassStage, type SceneBitmapFill } from 'glassium'
+import { fillIcons, icon } from '../showcase-icons.ts'
 
-const $ = <T extends HTMLElement = HTMLElement>(id: string): T => document.getElementById(id) as T
+let root: HTMLElement
+const $ = <T extends HTMLElement = HTMLElement>(id: string): T => root.querySelector<T>(`#${id}`)!
 
 // —— 页面背景：深色，几团很淡的光（静态的 Blob：stage 静止时不重画；没有 GPU 时写成画布的 CSS 背景） ——
 
@@ -44,7 +46,8 @@ const SCREEN_W = 390
 const MAX_K = 1.2
 
 function fitScreens(): void {
-  for (const slot of document.querySelectorAll<HTMLElement>('.slot')) {
+  if (!root.isConnected) return // 切走了：量不出宽度，回来时再算
+  for (const slot of root.querySelectorAll<HTMLElement>('.slot')) {
     const width = slot.parentElement?.clientWidth ?? SCREEN_W
     const k = Math.min(MAX_K, width / SCREEN_W)
     slot.style.setProperty('--k', k.toFixed(4))
@@ -112,13 +115,14 @@ function appRow(app: AppEntry): HTMLElement {
 
 // —— 画进场景的字：DOM 那一份透明，场景里画一份同样的（颜色写死成这块屏幕的正文色） ——
 
-function paintSceneText(stage: GlassStage): void {
-  for (const el of document.querySelectorAll<HTMLElement>('.scene-text')) {
+function paintSceneText(stage: GlassStage): SceneBitmapFill[] {
+  const fills: SceneBitmapFill[] = []
+  for (const el of root.querySelectorAll<HTMLElement>('.scene-text')) {
     const color = getComputedStyle(el.closest('.screen') ?? el).color
     const fill = stage.registerBitmapFill(el, (ctx) => paintContent(ctx, el, [{ element: el, color }], () => fill.invalidate()))
-    // 字体加载完、尺寸变了会自己重画（尺寸由 stage 量）；字体换了要手动作废
-    document.fonts?.addEventListener('loadingdone', () => fill.invalidate())
+    fills.push(fill)
   }
+  return fills
 }
 
 // —— 锁屏壁纸：暖灰的丝带（自己画的曲线） ——
@@ -207,7 +211,7 @@ function applyToggle(b: HTMLElement): void {
 }
 
 function setupToggles(): void {
-  for (const b of document.querySelectorAll<HTMLElement>('[data-toggle]')) {
+  for (const b of root.querySelectorAll<HTMLElement>('[data-toggle]')) {
     // 打开时变白的那几颗：图标是彩色 / 深色的，自适应会把它当成浅色字、把白玻璃压暗 —— 关掉
     if (b.hasAttribute('data-light')) b.setAttribute('adaptive', '0')
     applyToggle(b)
@@ -263,46 +267,49 @@ function setupVSlider(el: HTMLElement): void {
   })
 }
 
-// —— 页头的按钮是链接 ——
+// —— 标签的生命周期（site.ts 调） ——
 
-function setupNav(): void {
-  for (const b of document.querySelectorAll<HTMLElement>('[data-href]')) {
-    b.addEventListener('click', () => {
-      location.href = b.dataset.href!
-    })
-  }
-}
+let scene: Promise<Blob | HTMLCanvasElement> | null = null
+let fills: SceneBitmapFill[] = []
+let fontsHooked = false
 
-// 不用顶层 await：Vite 的默认构建目标（es2020）不支持
-async function main(): Promise<void> {
+export function mount(section: HTMLElement): void {
+  root = section
   defineGlassElements()
   $('store-apps').append(...APPS.map(appRow))
   $('store-games').append(...GAMES.map(appRow))
-  fillIcons(document)
+  fillIcons(root)
   tick()
   setInterval(tick, 15_000)
   setupToggles()
   setupVSlider($('cc-bright'))
   setupVSlider($('cc-volume'))
-  setupNav()
 
-  fitScreens()
   addEventListener('resize', fitScreens)
   if (typeof ResizeObserver === 'function') {
     const observer = new ResizeObserver(() => fitScreens())
-    for (const scene of document.querySelectorAll('.scene')) observer.observe(scene)
+    for (const el of root.querySelectorAll('.scene')) observer.observe(el)
   }
-
-  const params = new URLSearchParams(location.search)
-  if (params.get('glassium.simulate') === 'no-webgpu') simulateNoWebGpu(true)
-  const requested = params.get('glassium.backend')
-  const backend = requested === 'webgl2' || requested === 'webgpu' ? requested : 'auto'
-  const stage = await createGlassStage({ scene: await backdrop(), sceneOptions: { background: '#08090e' }, backend })
-  Object.assign(window as unknown as Record<string, unknown>, { glassiumStage: stage })
-  if (!stage.active) return
-  document.documentElement.toggleAttribute('data-gpu', true)
-  paintSceneText(stage)
-  stage.registerBitmapFill($('lock-wall'), paintRibbons)
 }
 
-void main()
+export function activate(stage: GlassStage | null): void {
+  fitScreens()
+  if (!stage?.active) return
+  void (scene ??= backdrop())
+    .then((s) => (root.isConnected ? stage.setScene(s, { background: '#08090e' }) : undefined))
+    .catch(() => undefined)
+  root.toggleAttribute('data-gpu', true)
+  fills = [...paintSceneText(stage), stage.registerBitmapFill($('lock-wall'), paintRibbons)]
+  if (!fontsHooked) {
+    fontsHooked = true
+    // 字体加载完、尺寸变了会自己重画（尺寸由 stage 量）；字体换了要手动作废
+    document.fonts?.addEventListener('loadingdone', () => {
+      for (const f of fills) f.invalidate()
+    })
+  }
+}
+
+export function deactivate(): void {
+  for (const f of fills) f.unregister()
+  fills = []
+}

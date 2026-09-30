@@ -145,6 +145,8 @@ function makeAnimatedCanvas(): { readonly canvas: HTMLCanvasElement; start(): vo
 export function userScenes(stage: GlassStage): {
   show(which: UserScene | null, fit: SceneFit): Promise<void>
   pickFile(file: File, fit: SceneFit): Promise<void>
+  /** 停下动画画布与视频（不动 stage 的场景）：切到别的标签时用。 */
+  stop(): void
 } {
   let photo: Promise<Blob> | null = null
   let animated: ReturnType<typeof makeAnimatedCanvas> | null = null
@@ -189,6 +191,10 @@ export function userScenes(stage: GlassStage): {
     pickFile(picked: File, fit: SceneFit): Promise<void> {
       file = picked
       return show('file', fit)
+    },
+    stop(): void {
+      animated?.stop()
+      video?.pause()
     }
   }
 }

@@ -1,19 +1,20 @@
 /**
- * 展示页（index.html）：iPhone 与 Mac 上的液态玻璃。只用公开 API。
+ * 设备（#devices）：iPhone 与 Mac 上的液态玻璃。只用公开 API。
  *
  * - 场景：一张静态的深色小画布（页面背景）。设备的壁纸、App 里的照片都是 <glass-fill>，画进场景，玻璃看得见。
  * - 两台设备按原尺寸排版，按可用宽度整体 transform: scale（--k）—— 玻璃的模糊、折射、圆角跟着缩。
  * - 重复的东西（图标格、照片格、Dock、月历）在这里生成；交互都是切换属性，过渡交给 CSS。
  */
 
-import '../src/components/glassium.css'
-import './showcase.css'
+import '../../src/components/glassium.css'
+import '../devices.css'
 
-import { createGlassStage, defineGlassElements, morphGlass, simulateNoWebGpu } from 'glassium'
+import { defineGlassElements, morphGlass, type GlassStage } from 'glassium'
 
-import { fillIcons, icon } from './showcase-icons.ts'
+import { fillIcons, icon } from '../showcase-icons.ts'
 
-const $ = <T extends HTMLElement = HTMLElement>(id: string): T => document.getElementById(id) as T
+let root: HTMLElement
+const $ = <T extends HTMLElement = HTMLElement>(id: string): T => root.querySelector<T>(`#${id}`)!
 const reducedMotion = (): boolean => matchMedia('(prefers-reduced-motion: reduce)').matches
 
 // —— 照片：一块填充一层渐变（最多 5 个色标），按几种「照片」的样子配色 ——
@@ -115,7 +116,8 @@ const PHONE_WIDTH = 470
 const PHONE_MAX_VH = 0.86
 
 function fitDevices(): void {
-  for (const slot of document.querySelectorAll<HTMLElement>('[data-slot]')) {
+  if (!root.isConnected) return // 切走了：量不出尺寸，回来时再算
+  for (const slot of root.querySelectorAll<HTMLElement>('[data-slot]')) {
     const device = slot.firstElementChild as HTMLElement
     const phone = slot.dataset.slot === 'phone'
     const w = phone ? PHONE_WIDTH : device.offsetWidth
@@ -139,15 +141,15 @@ function tick(): void {
   const now = new Date()
   const hm = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`
   const weekday = new Intl.DateTimeFormat('zh-CN', { weekday: 'short' }).format(now)
-  for (const el of document.querySelectorAll<HTMLElement>('[data-clock="time"]')) el.textContent = hm
-  for (const el of document.querySelectorAll<HTMLElement>('[data-clock="long"]')) {
+  for (const el of root.querySelectorAll<HTMLElement>('[data-clock="time"]')) el.textContent = hm
+  for (const el of root.querySelectorAll<HTMLElement>('[data-clock="long"]')) {
     el.textContent = `${now.getMonth() + 1}月${now.getDate()}日 ${weekday} ${hm}`
   }
 }
 
 function fillDates(now: Date): void {
   const set = (key: string, text: string): void => {
-    for (const el of document.querySelectorAll<HTMLElement>(`[data-date="${key}"]`)) el.textContent = text
+    for (const el of root.querySelectorAll<HTMLElement>(`[data-date="${key}"]`)) el.textContent = text
   }
   set('weekday', new Intl.DateTimeFormat('zh-CN', { weekday: 'long' }).format(now))
   set('day', String(now.getDate()))
@@ -499,29 +501,29 @@ function setupMac(): void {
   })
 }
 
-// 不用顶层 await：Vite 的默认构建目标（es2020）不支持
-async function main(): Promise<void> {
+// —— 标签的生命周期（site.ts 调）：stage 是整个站点共用的那一个 ——
+
+let scene: Promise<Blob | HTMLCanvasElement> | null = null
+
+export function mount(section: HTMLElement): void {
+  root = section
   defineGlassElements()
-  fillIcons(document)
-  const now = new Date()
-  fillDates(now)
+  fillIcons(root)
+  fillDates(new Date())
   tick()
   setInterval(tick, 15_000)
   setupPhone()
   setupMac()
 
-  fitDevices()
   const observer = new ResizeObserver(() => fitDevices())
-  for (const slot of document.querySelectorAll('[data-slot]')) observer.observe(slot)
+  for (const slot of root.querySelectorAll('[data-slot]')) observer.observe(slot)
   addEventListener('resize', fitDevices)
-
-  // 与调试台一样认两个 URL 参数：?glassium.backend=webgl2 换后端，?glassium.simulate=no-webgpu 走一遍降级
-  const params = new URLSearchParams(location.search)
-  if (params.get('glassium.simulate') === 'no-webgpu') simulateNoWebGpu(true)
-  const requested = params.get('glassium.backend')
-  const backend = requested === 'webgl2' || requested === 'webgpu' ? requested : 'auto'
-  const stage = await createGlassStage({ scene: await backdrop(), sceneOptions: { background: '#07080d' }, backend })
-  Object.assign(window as unknown as Record<string, unknown>, { glassiumStage: stage })
 }
 
-void main()
+export function activate(stage: GlassStage | null): void {
+  fitDevices()
+  if (!stage?.active) return
+  void (scene ??= backdrop())
+    .then((s) => (root.isConnected ? stage.setScene(s, { background: '#07080d' }) : undefined))
+    .catch(() => undefined)
+}

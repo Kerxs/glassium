@@ -26,9 +26,10 @@ export default defineConfig({
     outDir: '../playground/dist',
     emptyOutDir: true,
     rollupOptions: {
-      // 首页是展示页（iPhone 与 Mac 上的液态玻璃，只用公开 API）；调材质、拿代码的 playground.html；
-      // 性能测试 bench.html；开发用的调试台 debug.html；把验证固化下来的 verify.html；
-      // 对着 iOS 26 截图调质感的 lab.html。demo.html 只是跳转页：旧的示例页并进了首页，旧链接跳过去
+      // 首页是整个展示站点（五个标签：概览、控件、设备、材质、开发者；标签的模块由 site.ts 动态引入、分包，不单列入口）。
+      // 工具页各自独立：性能测试 bench.html、开发用的调试台 debug.html、把验证固化下来的 verify.html、视觉回归 regress.html、
+      // 对着 iOS 26 截图调质感的 lab.html、只引 runtime 的 runtime-only.html。
+      // playground / devices / demo / runtime 只是跳转页：旧地址跳到首页对应的标签
       input: {
         main: fileURLToPath(new URL('./playground/index.html', import.meta.url)),
         playground: fileURLToPath(new URL('./playground/playground.html', import.meta.url)),

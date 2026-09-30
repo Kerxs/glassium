@@ -15,8 +15,17 @@
 
 ### 变化
 
+- **站点合成一个页面**：顶部一条玻璃导航，五个标签 —— 概览（零配置）、控件、设备、材质（原 Playground）、开发者（工具页与文档的入口）；
+  地址带 `#标签`。整页一个 stage，同一时间只有当前标签的内容在文档里，各标签显示时换上自己的场景。旧地址 `runtime.html`、
+  `devices.html`、`playground.html`、`demo.html` 跳到对应的标签（地址参数照带）；工具页（verify、regress、bench、debug、lab、
+  runtime-only）各自独立，顶上有回到站点的链接。
 - runtime 用到的几样挪出了组件目录：画内容进 2D 画布（`renderer/paint-content.ts`）、材质属性的解析（`core/attributes.ts`）、
   变形（`interaction/morph.ts`）；组件目录里原来的文件照旧能引（转发）。runtime 启动时注册组件改由完整入口注入。
+
+### 修复
+
+- runtime 收进场景的背景元素被摘出文档之后（单页应用换页、切走的标签）一直留在收进去的名单里、填充不注销：
+  现在下一次扫描就放掉（摘掉属性，挂回来时按那时的样式重新收）。
 
 ## [0.4.0] — 2026-09-29
 
