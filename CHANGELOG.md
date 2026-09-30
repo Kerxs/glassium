@@ -15,6 +15,9 @@
 
 ### 变化
 
+- **位图图集只传画过的格子**：图集记着每一格画在哪个版本，后端只把上次之后画过的那几块传进纹理（WebGPU 的
+  `copyExternalImageToTexture` 带原点、WebGL2 的 `texSubImage2D` + `UNPACK_SKIP_*`），清空重排、长大时才整张传。
+  玻璃后面播着视频、分段控件按住拖动时，每帧传的从整张图集（1024² 起）降到变了的那一格。`stats().atlasUploadPixels` 记累计像素。
 - **站点合成一个页面**：顶部一条玻璃导航，五个标签 —— 概览（零配置）、控件、设备、材质（原 Playground）、开发者（工具页与文档的入口）；
   地址带 `#标签`。整页一个 stage，同一时间只有当前标签的内容在文档里，各标签显示时换上自己的场景。旧地址 `runtime.html`、
   `devices.html`、`playground.html`、`demo.html` 跳到对应的标签（地址参数照带）；工具页（verify、regress、bench、debug、lab、

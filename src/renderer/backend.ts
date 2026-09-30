@@ -144,6 +144,8 @@ export interface FrameResult {
   readonly sceneReused?: boolean
   /** 这一帧有没有把用户场景重新传进纹理（0 或 1）。静态图片只该传一次。 */
   readonly sceneUploads: number
+  /** 这一帧传进图集纹理的像素数（只传画过的格子；整张重传时是整张）。 */
+  readonly atlasUploadPixels?: number
 }
 
 /**

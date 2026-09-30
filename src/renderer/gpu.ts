@@ -614,24 +614,30 @@ export class GpuRenderer implements Renderer {
   }
 
   /**
-   * 位图填充的图集变了（画了新的一格、清空、长大）就整张重新传：预乘（与图集着色器的约定一致），
-   * 第 0 行是图集顶部。尺寸变了先换纹理、重建填充的 bind group。
+   * 位图填充的图集变了就传：只传上次之后画过的那几格（atlas.dirtySince）；清空、长大、换了画布时整张传。
+   * 预乘（与图集着色器的约定一致），第 0 行是图集顶部。尺寸变了先换纹理、重建填充的 bind group。返回传了几个像素。
    */
-  #syncAtlas(atlas: LabelAtlas | null): void {
-    if (!atlas || (atlas.canvas === this.#atlasSource && atlas.version === this.#atlasVersion)) return
+  #syncAtlas(atlas: LabelAtlas | null): number {
+    if (!atlas || (atlas.canvas === this.#atlasSource && atlas.version === this.#atlasVersion)) return 0
     const { width, height } = atlas
     if (this.#atlasTexture.width !== width || this.#atlasTexture.height !== height) {
       this.#atlasTexture.destroy()
       this.#atlasTexture = this.#makeAtlasTexture(width, height)
       this.#rebuildFillBindGroups()
     }
-    this.device.queue.copyExternalImageToTexture(
-      { source: atlas.canvas },
-      { texture: this.#atlasTexture, premultipliedAlpha: true },
-      [width, height]
-    )
+    const rects = atlas.canvas === this.#atlasSource ? atlas.dirtySince(this.#atlasVersion) : null
+    let pixels = 0
+    for (const r of rects ?? [{ x: 0, y: 0, w: width, h: height }]) {
+      this.device.queue.copyExternalImageToTexture(
+        { source: atlas.canvas, origin: [r.x, r.y] },
+        { texture: this.#atlasTexture, origin: [r.x, r.y], premultipliedAlpha: true },
+        [r.w, r.h]
+      )
+      pixels += r.w * r.h
+    }
     this.#atlasSource = atlas.canvas
     this.#atlasVersion = atlas.version
+    return pixels
   }
 
   #rebuildGlassBindGroups(): void {
@@ -776,7 +782,7 @@ export class GpuRenderer implements Renderer {
 
     const fills = input.fills
     this.#ensureFillCapacity(fills.length)
-    this.#syncAtlas(input.atlas)
+    const atlasPixels = this.#syncAtlas(input.atlas)
     for (let i = 0; i < fills.length; i++) packFill(this.#fillData, i, fills[i]!)
     if (fills.length > 0 && this.#fillBuffer) {
       device.queue.writeBuffer(this.#fillBuffer, 0, this.#fillData, 0, fills.length * FILL_STRIDE_FLOATS)
@@ -973,6 +979,7 @@ export class GpuRenderer implements Renderer {
       drawCalls: draws + blurPasses,
       blurPasses,
       sceneUploads: image === 'uploaded' ? 1 : 0,
+      atlasUploadPixels: atlasPixels,
       sceneReused: reuse
     }
   }

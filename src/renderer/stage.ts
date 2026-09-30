@@ -169,6 +169,11 @@ export interface GlassStats {
    * 视频只在出新帧时传。一直涨说明有东西在每帧重传。
    */
   readonly sceneUploads: number
+  /**
+   * 位图填充的图集累计传了多少像素。只传画过的格子：玻璃后面播着视频时每出一帧只加那一格的面积，
+   * 不是整张图集（1024² 或 2048²）。
+   */
+  readonly atlasUploadPixels: number
   readonly viewport: ResolvedViewport | null
   readonly reducedMotion: boolean
   /** 高对比度模式（forced-colors: active）。开着时 stage 停用，画布隐藏。 */
@@ -680,6 +685,7 @@ async function buildStage(options: GlassStageOptions): Promise<GlassStage> {
   let measureMs = 0
   let frameMs = 0
   let sceneUploads = 0
+  let atlasUploadPixels = 0
   let fps = 0
   let fpsWindowStart = 0
   let fpsWindowFrames = 0
@@ -889,6 +895,7 @@ async function buildStage(options: GlassStageOptions): Promise<GlassStage> {
 
     frames++
     sceneUploads += result.sceneUploads
+    atlasUploadPixels += result.atlasUploadPixels ?? 0
     measureMs = t1 - t0
     frameMs = performance.now() - t0
     drawCalls = result.drawCalls
@@ -1293,6 +1300,7 @@ async function buildStage(options: GlassStageOptions): Promise<GlassStage> {
           bindGroupCreations: gpuCreated.bindGroups + glCreated.objects,
           scene: scene.kind,
           sceneUploads,
+          atlasUploadPixels,
           viewport,
           reducedMotion,
           forcedColors,
@@ -1578,6 +1586,7 @@ function makeInertStage(canvas: HTMLCanvasElement, options: GlassStageOptions): 
         bindGroupCreations: 0,
         scene: sceneKind,
         sceneUploads: 0,
+        atlasUploadPixels: 0,
         viewport: null,
         reducedMotion: prefersReducedMotion(),
         forcedColors: forcedColorsOverride ?? window.matchMedia('(forced-colors: active)').matches,

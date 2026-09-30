@@ -3148,6 +3148,80 @@ async function run(): Promise<void> {
     }
   })
 
+  await check('atlas-upload', async () => {
+    // 位图图集只传画过的格子（atlas.ts 的 dirtySince）：两块位图填充 A、B，A 换一次颜色、作废，下一帧传进图集纹理的
+    // 像素只有 A 那一格（含空隙）的量级，远小于整张图集；画布上 A 换了色、B 不变。什么都没变的帧一个像素都不传。
+    // 反向对照：图集换了代数（这里用一块比剩余空间大的填充逼它清空重排）的那一帧整张传。
+    stage.debug.setBackdrop({ scene: 'flat' })
+    const v = stage.debug.stats().viewport!
+    const sc = v.compositeWidth / v.cssWidth
+    const canvasBox = stage.canvas.getBoundingClientRect()
+    const pixel = async (el: HTMLElement): Promise<[number, number, number]> => {
+      const r = el.getBoundingClientRect()
+      const d = await readback({
+        x: Math.floor((r.left + r.width / 2 - canvasBox.left) * sc),
+        y: Math.floor((r.top + r.height / 2 - canvasBox.top) * sc),
+        width: 1,
+        height: 1
+      })
+      return [d[0]!, d[1]!, d[2]!]
+    }
+    const colors = { a: 'rgb(220, 30, 30)', b: 'rgb(30, 180, 60)' }
+    const made: HTMLElement[] = []
+    const fills: { unregister(): void; invalidate(): void }[] = []
+    const add = (key: 'a' | 'b', left: number, w = 80, h = 40): HTMLElement => {
+      const el = document.createElement('div')
+      Object.assign(el.style, { position: 'absolute', left: `${left}px`, top: '520px', width: `${w}px`, height: `${h}px` })
+      document.body.append(el)
+      made.push(el)
+      fills.push(
+        stage.registerBitmapFill(el, (ctx, cw, ch) => {
+          ctx.fillStyle = colors[key]
+          ctx.fillRect(0, 0, cw, ch)
+        })
+      )
+      return el
+    }
+    const uploaded = (): number => stage.debug.stats().atlasUploadPixels
+    try {
+      const a = add('a', 440)
+      const b = add('b', 540)
+      stage.debug.renderNow()
+      stage.debug.renderNow()
+      const atlasPixels = (stage.debug.stats().gpuMemory.items.atlas ?? 0) / 4
+      const p0 = uploaded()
+      stage.debug.renderNow()
+      const idle = uploaded() - p0
+      colors.a = 'rgb(30, 60, 220)'
+      fills[0]!.invalidate()
+      stage.debug.renderNow()
+      const one = uploaded() - p0 - idle
+      const cell = (80 * sc + 2) * (40 * sc + 2)
+      const pa = await pixel(a)
+      const pb = await pixel(b)
+      // 反向对照：比剩下的地方都大的一块，逼图集清空重排 —— 这一帧整张传
+      const side = Math.floor((atlasPixels ** 0.5 * 0.9) / sc)
+      const big = add('b', 20, side, side)
+      big.style.top = '60px'
+      const p1 = uploaded()
+      stage.debug.renderNow()
+      const whole = uploaded() - p1
+      const blue = pa[2] > 150 && pa[0] < 90
+      const green = pb[1] > 120 && pb[0] < 90
+      const detail =
+        `图集 ${atlasPixels} 像素 · 没变的帧传了 ${idle} · A 换色那帧传了 ${one}（一格约 ${Math.round(cell)}）· ` +
+        `A ${pa.join('/')}、B ${pb.join('/')} · 清空重排那帧传了 ${whole}`
+      return idle === 0 && one > 0 && one <= cell * 1.5 && one < atlasPixels / 20 && blue && green && whole >= atlasPixels
+        ? pass(detail)
+        : fail(detail)
+    } finally {
+      for (const f of fills) f.unregister()
+      for (const el of made) el.remove()
+      calibrationScene()
+      stage.debug.renderNow()
+    }
+  })
+
   await check('scene-reuse', async () => {
     // 合成器的脏状态（idle.ts 的 sceneReusable）：只动了玻璃的帧沿用上一帧的场景与模糊链。
     // - 一块玻璃 + 一块填充：玻璃挪 12px，沿用场景画出来的整张画布与关掉沿用整帧画的逐位相同，那一帧模糊 0 趟；

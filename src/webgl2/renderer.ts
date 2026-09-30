@@ -424,21 +424,38 @@ export class Gl2Renderer implements Renderer {
   }
 
   /**
-   * 位图填充的图集变了（画了新的一格、清空、长大）就整张重新传。与 WebGPU 的 copyExternalImageToTexture
-   * （premultipliedAlpha: true）一致：预乘，第 0 行是图集顶部。
+   * 位图填充的图集变了就传：只传上次之后画过的那几格（atlas.dirtySince，texSubImage2D + UNPACK_SKIP_* 从画布里
+   * 取那一块）；清空、长大、换了画布时整张传（texImage2D，尺寸跟着变）。与 WebGPU 的 copyExternalImageToTexture
+   * （premultipliedAlpha: true）一致：预乘，第 0 行是图集顶部。返回传了几个像素。
    */
-  #syncAtlas(atlas: LabelAtlas | null): void {
-    if (!atlas || !this.#atlasTexture || (atlas.canvas === this.#atlasSource && atlas.version === this.#atlasVersion)) return
+  #syncAtlas(atlas: LabelAtlas | null): number {
+    if (!atlas || !this.#atlasTexture || (atlas.canvas === this.#atlasSource && atlas.version === this.#atlasVersion)) return 0
     const gl = this.gl
+    const source = atlas.canvas as TexImageSource
+    const rects = atlas.canvas === this.#atlasSource ? atlas.dirtySince(this.#atlasVersion) : null
+    let pixels = 0
     gl.activeTexture(gl.TEXTURE1)
     gl.bindTexture(gl.TEXTURE_2D, this.#atlasTexture)
     gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false)
     gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, true)
-    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, gl.RGBA, gl.UNSIGNED_BYTE, atlas.canvas as TexImageSource)
+    if (rects) {
+      for (const r of rects) {
+        gl.pixelStorei(gl.UNPACK_SKIP_PIXELS, r.x)
+        gl.pixelStorei(gl.UNPACK_SKIP_ROWS, r.y)
+        gl.texSubImage2D(gl.TEXTURE_2D, 0, r.x, r.y, r.w, r.h, gl.RGBA, gl.UNSIGNED_BYTE, source)
+        pixels += r.w * r.h
+      }
+      gl.pixelStorei(gl.UNPACK_SKIP_PIXELS, 0)
+      gl.pixelStorei(gl.UNPACK_SKIP_ROWS, 0)
+    } else {
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, gl.RGBA, gl.UNSIGNED_BYTE, source)
+      pixels = atlas.width * atlas.height
+    }
     gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false)
     gl.activeTexture(gl.TEXTURE0)
     this.#atlasSource = atlas.canvas
     this.#atlasVersion = atlas.version
+    return pixels
   }
 
   #replaceBuffer(old: WebGLBuffer | null, bytes: number): WebGLBuffer {
@@ -506,7 +523,7 @@ export class Gl2Renderer implements Renderer {
       packGroup(this.#groupData, i, groups[i]!, viewport, this.#levels, input.panelDebugMode)
     }
     this.#ensureFillCapacity(fills.length)
-    this.#syncAtlas(input.atlas)
+    const atlasPixels = this.#syncAtlas(input.atlas)
     for (let i = 0; i < fills.length; i++) packFill(this.#fillData, i, fills[i]!)
     if (this.#rangeBinding) {
       if (panels.length > 0) {
@@ -695,6 +712,7 @@ export class Gl2Renderer implements Renderer {
       drawCalls: draws + passes,
       blurPasses: passes,
       sceneUploads: scene === 'uploaded' ? 1 : 0,
+      atlasUploadPixels: atlasPixels,
       sceneReused: reuse
     }
   }

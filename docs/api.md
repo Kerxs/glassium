@@ -584,6 +584,7 @@ GPU 玻璃画在最底下，盖不住滚上来的 DOM 文字。
 | `pipelineCreations`、`bindGroupCreations`、`targetAllocations` | 创建计数，预热后应当走平 |
 | `deviceLosses` | 意外丢失的次数 |
 | `scene`、`sceneUploads` | 当前场景类型（`builtin` / `image` / `canvas` / `video`）与累计上传次数 |
+| `atlasUploadPixels` | 位图填充的图集累计传了多少像素（只传画过的格子；清空重排、长大时整张传）|
 | `reducedMotion`、`forcedColors`、`reducedTransparency`、`moreContrast` | 四个系统设置的当前状态 |
 
 ---
