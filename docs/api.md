@@ -733,14 +733,31 @@ reject 一个 `name === 'AbortError'` 的 DOMException。跨源的图片与视�
 | `parseTint(css)`、`resolveCornerRadii(radius, [w, h])` | tint 的解析（解析不了就抛）；圆角解算成四角绝对 dp |
 | `MATERIAL_ATTRIBUTES`、`parseMaterialAttributes(get)` | 组件认的材质属性名；从属性读出材质（组件内部用的同一个函数） |
 
-### 动起来的玻璃、时间轴、局部质量（进阶）
+### 交互、动画、质量与资源（稳定）
+
+1.0 起冻结（0.4 时在「进阶」里，用过一阵之后定下来）。
 
 | 导出 | 说明 |
 |---|---|
-| `ElementMotion`、`ElementMotionOptions`、`MotionBox`、`JUMP_PX`、`ELEMENT_FLY_SCALE`、`jellyScale2`、`noteScroll` | 任意元素的果冻与飞行（`glass-jelly` / `glass-glide` 背后就是它），见上面「动起来的玻璃」 |
-| `nextFrame`、`cancelFrame`、`everyFrame`、`flushFrame`、`pendingFrames`、`REDUCED_MOTION_SKIP`、`FrameCallback` | 统一的时间轴，见上面 |
-| `PanelPresentation`、`presentRect` | `GlassPanel.setPresentation` 的参数；按它换算盒子 |
-| `allocateQuality`、`QualityAllocation`、`HEAVY_SHARE`、`LOCAL_SPAN`、`LocalQualityTarget`、`combineQuality` | 局部质量：先降贵的那几块；单块系数乘整页系数 |
+| `ElementMotion`、`ElementMotionOptions`、`MotionBox` | 任意元素的果冻与飞行（`glass-jelly` / `glass-glide` 背后就是它），见上面「动起来的玻璃」 |
+| `everyFrame`、`FrameCallback`、`REDUCED_MOTION_SKIP` | 帧观察者（搭帧循环的车）；回调的类型；减少动效时回调拿到的时间往后跳多少 |
+| `PanelPresentation`、`presentRect` | `GlassPanel.setPresentation` 的参数（玻璃相对元素的盒子挪、缩）；按它换算盒子 |
+| `PressInteraction`、`PressOptions`、`GlassBinding`、`GlassSource` | 悬停、按压、焦点的反馈；元素到面板的注册路径（组件与 runtime 共用） |
+| `AdaptiveQuality`、`AdaptiveOptions`、`LocalQualityTarget`、`FrameMonitor`、`FrameWindow` | 自适应质量、它的选项、能单独降的目标；帧时间的窗口 |
+| `QualityController`、`QualityFactors`、`FULL_QUALITY`、`QUALITY_MIN`、`factorsFor`、`jellyFactor`、`combineQuality` | 质量档位 → 各项系数；单块系数乘整页系数 |
+| `allocateQuality`、`QualityAllocation` | 局部质量：先降贵的那几块 |
+| `ResourceUsage`、`formatBytes`、`textureBytes`、`IDLE_LAYER_FRAMES` | 显存的账（`stats().gpuMemory`）与算法；闲多少帧放掉层的纹理 |
+| `GpuPasses`、`passesFrom` | GPU 时间的分账（`stats().gpuPasses`）与算法 |
+| `SceneSnapshot`、`InspectedGlass`、`InspectedFill`、`inspectFrame` | 场景检查器（`stage.debug.scene()`）的数据 |
+| `hitStacksBehind` | 玻璃里逐格的命中测试（DOM Renderer 找内容用） |
+
+### 动起来的玻璃、时间轴、局部质量的内部件（进阶）
+
+| 导出 | 说明 |
+|---|---|
+| `JUMP_PX`、`ELEMENT_FLY_SCALE`、`jellyScale2`、`noteScroll` | 飞行的起跳距离与鼓起的倍数、果冻的拉伸算法、滚动时不算动 |
+| `flushFrame`、`pendingFrames` | 时间轴的冲刷（stage 的帧循环调）与排着的回调数（测试用） |
+| `HEAVY_SHARE`、`LOCAL_SPAN` | 局部质量的阈值：成本占多少算「贵」；整体从 1 降到 1 − LOCAL_SPAN 的这一段只降贵的那几块 |
 
 ### 颜色、渐变、场景、磨砂（进阶：纯函数）
 
