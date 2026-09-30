@@ -140,6 +140,8 @@ function scan(): void {
     if (content) scanContent(stage!, runtimePanels(), takeOverBackground)
     return
   }
+  // 摘出文档的元素（单页应用换页、标签切走）：放掉它的填充、摘掉属性 —— 挂回来时按那时的样式重新收
+  for (const e of [...entries.values()]) if (!e.root && !e.element.isConnected) drop(e)
   let added = false
   if (!rootEl) {
     ensureRoot()
@@ -171,10 +173,14 @@ function runtimePanels(): HTMLElement[] {
 /** 内容块接管它自己的背景（背景色由内容的 painter 画）：背景层那一份放手。 */
 function takeOverBackground(el: HTMLElement): void {
   const e = entries.get(el)
-  if (!e || e.root) return
+  if (e && !e.root) drop(e)
+}
+
+/** 放掉一个收进去的元素：注销填充、摘属性（元素的 CSS 背景回来）。 */
+function drop(e: Entry): void {
   e.fill?.unregister()
-  el.removeAttribute(ABSORBED_ATTRIBUTE)
-  entries.delete(el)
+  e.element.removeAttribute(ABSORBED_ATTRIBUTE)
+  entries.delete(e.element)
 }
 
 function ensureRoot(): void {

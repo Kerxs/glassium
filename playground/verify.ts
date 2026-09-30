@@ -2843,6 +2843,7 @@ async function run(): Promise<void> {
     // 玻璃后面挡着的 CSS 背景自动收进场景（runtime/absorb.ts）：一个有不透明背景的方块里放 <div glass> ——
     // 方块被收进场景（挂 data-glassium-absorbed、CSS 背景的计算值变透明），画布上玻璃里透出那块背景的颜色，
     // 层级检查 0 个问题；纯色、渐变、同源图片各一例。玻璃拿掉之后全部还原（属性摘掉、背景回来、根背景元素拿掉）。
+    // 别的 runtime 玻璃还在时，摘出文档的元素也放掉（单页应用换页、标签切走）：属性摘掉，挂回来时背景是它自己的。
     // 反向对照：configure({ absorbBackgrounds: false }) 时不收，画布上玻璃里看不到那块颜色。
     stage.debug.setBackdrop({ scene: 'flat' })
     const v = stage.debug.stats().viewport!
@@ -2886,6 +2887,16 @@ async function run(): Promise<void> {
       const grad = await run('linear-gradient(90deg, rgb(20, 40, 220), rgb(20, 40, 220))')
       // 双引号：内联成 data: 的 SVG 里有单引号
       const image = await run(`url("${HILLS_URL}") center / cover no-repeat`)
+      const keep = document.createElement('div')
+      Object.assign(keep.style, { position: 'absolute', left: '20px', top: '480px', width: '80px', height: '40px', borderRadius: '12px' })
+      keep.setAttribute('glass', '')
+      document.body.append(keep)
+      let detached: Awaited<ReturnType<typeof run>>
+      try {
+        detached = await run('rgb(210, 40, 40)')
+      } finally {
+        keep.remove()
+      }
       configure({ absorbBackgrounds: false })
       await sleep(0)
       const off = await run('rgb(210, 40, 40)')
@@ -2897,12 +2908,14 @@ async function run(): Promise<void> {
         `纯色：收了 ${solid.absorbed}、CSS 背景透明 ${solid.cleared}、玻璃里 ${f(solid.inGlass)}、层级问题 ${solid.problems} · ` +
         `渐变：收了 ${grad.absorbed}、玻璃里 ${f(grad.inGlass)} · 图片：收了 ${image.absorbed}、玻璃里 ${f(image.inGlass)} · ` +
         `拿掉后还原 ${solid.restored && grad.restored && image.restored}、根背景元素拿掉 ${solid.rootGone && image.rootGone} · ` +
+        `别的玻璃还在时摘出文档：收了 ${detached.absorbed}、放掉 ${detached.restored} · ` +
         `关掉收背景：收了 ${off.absorbed}、玻璃里 ${f(off.inGlass)}`
       const ok =
         solid.absorbed && solid.cleared && red(solid.inGlass) && solid.problems === 0 &&
         grad.absorbed && blue(grad.inGlass) &&
         image.absorbed && !red(image.inGlass) && !blue(image.inGlass) && image.inGlass[0]! > 60 &&
         solid.rootGone && image.rootGone &&
+        detached.absorbed && detached.restored &&
         !off.absorbed && !red(off.inGlass)
       return ok ? pass(detail) : fail(detail)
     } finally {
