@@ -27,7 +27,7 @@ Glassium 的定位是**面向 Web 的 Liquid Glass 渲染运行时**：让任意
 | DOM Adapter | DOM → 场景的中间表示：几何、变换、裁剪、遮罩、不透明度、层 | `src/renderer/panels.ts`（测量）、`clipping.ts`、`clip-path.ts`、`mask.ts`、`pose.ts`、`layers.ts` | 有（面板、填充） |
 | 场景内容 | 页面背景、填充、位图、文字、图片、画布、视频 | `src/renderer/fills.ts`、`atlas.ts`、`scene-source.ts`、`src/components/scene-label.ts`、`src/runtime/absorb.ts`、`src/runtime/content.ts` | 背景自动收进场景、玻璃后面的内容块画进场景（DOM Renderer），都是 0.3 |
 | Scene Graph | 层级、Z 序、脏状态 | 层与 Z 序在 `panels.ts` 的测量结果与 `layers.ts` 里；脏状态分三级：整帧（`idle.ts` 的 `unchangedFrame`）、场景（`sceneReusable`）、层改过的那一块（备份与局部复原） | 没有独立的场景图对象 |
-| Compositor | 分层合成、嵌套玻璃、顶层（对话框 / popover）、morph | `src/renderer/layers.ts`、`gpu.ts` / `webgl2/renderer.ts` 的分层绘制、`core/overlay.ts`、`components/morph-glass.ts` | 有（共享场景与一条模糊链） |
+| Compositor | 分层合成、嵌套玻璃、顶层（对话框 / popover）、morph | `src/renderer/layers.ts`、`gpu.ts` / `webgl2/renderer.ts` 的分层绘制、`core/overlay.ts`、`interaction/morph.ts` | 有（共享场景与一条模糊链） |
 | Renderer | WebGPU / WebGL2 / CSS / 普通 DOM | `src/renderer/gpu.ts`、`src/webgl2/`、`core/overlay.ts` + `runtime/styles.ts`、`[glass]` 没有 active 时的 CSS | 有 |
 | Performance | 帧监测、自适应质量、预算、profile、局部质量 | `src/performance/`、`renderer/quality.ts`、`stage.setQuality` / `onFrame`、`GlassPanel.setQuality` | 整页 + 先降贵的那几块（0.4） |
 | Resources | 纹理、目标、管线、缓存、显存预算 | 分散在各后端（目标池、管线缓存、图集）；`renderer/resources.ts` 记账（`stats().gpuMemory`）；`stage.setMemoryBudget` | 有账本、预算与空闲驱逐 |
@@ -162,7 +162,7 @@ Firefox / Safari / 移动端的实测（没有设备，矩阵里是推断的格�
 一条路，以后真要拆也是顺着它拆。
 
 **已定（2026-09-29）：折中，已做。** runtime 用的四样挪出了组件目录（`renderer/paint-content.ts`、`core/attributes.ts`、
-`interaction/morph.ts`；组件注册改成完整入口注入 —— `setElementRegistrar`），组件目录里原来的文件留成转发。新入口
+`interaction/morph.ts`；组件注册改成完整入口注入 —— `setElementRegistrar`）。新入口
 `glassium/runtime`（`src/runtime-entry.ts`，`package.json` 的 `exports["./runtime"]`）：import 图里没有组件（有测试），
 实测打包压缩之后 gzip 98 KB，完整入口 117 KB（runtime 本身要用的那几样挪走了，组件多出来的约两成）。
 

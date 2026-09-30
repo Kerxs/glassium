@@ -6,7 +6,7 @@ import { resolveViewport } from '../core/units.ts'
 import { MAX_LEVELS } from '../renderer/blur.ts'
 import { PANEL_STRUCT_FLOATS, PanelRegistry, packPanel } from '../renderer/panels.ts'
 import { PANEL_STRIDE_FLOATS } from '../shaders/glass.wgsl.ts'
-import { cubicBezier, morphEnd, morphFrame, MORPH_GLASS_EASE, type MorphBox, type MorphEnd } from './morph-glass.ts'
+import { cubicBezier, morphEnd, morphFrame, MORPH_GLASS_EASE, type MorphBox, type MorphEnd } from './morph.ts'
 
 test('cubic-bezier：两头、线性、CSS 的 ease 在 0.5 处', () => {
   const linear = cubicBezier(0, 0, 1, 1)

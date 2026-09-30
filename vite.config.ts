@@ -19,7 +19,7 @@ export default defineConfig({
   server: {
     port: 5174,
     // 必须 strict：Vite 默认会在端口被占时静默漂到 5175，
-    // 而 .claude/launch.json 里写死了 5174，漂了就再也对不上。
+    // 而本地的预览配置（编辑器、脚本）写死了 5174，漂了就再也对不上。
     strictPort: true
   },
   build: {
@@ -29,12 +29,11 @@ export default defineConfig({
       // 首页是整个展示站点（五个标签：概览、控件、设备、材质、开发者；标签的模块由 site.ts 动态引入、分包，不单列入口）。
       // 工具页各自独立：性能测试 bench.html、开发用的调试台 debug.html、把验证固化下来的 verify.html、视觉回归 regress.html、
       // 对着 iOS 26 截图调质感的 lab.html、只引 runtime 的 runtime-only.html。
-      // playground / devices / demo / runtime 只是跳转页：旧地址跳到首页对应的标签
+      // playground / devices / runtime 只是跳转页：旧地址跳到首页对应的标签
       input: {
         main: fileURLToPath(new URL('./playground/index.html', import.meta.url)),
         playground: fileURLToPath(new URL('./playground/playground.html', import.meta.url)),
         devices: fileURLToPath(new URL('./playground/devices.html', import.meta.url)),
-        demo: fileURLToPath(new URL('./playground/demo.html', import.meta.url)),
         bench: fileURLToPath(new URL('./playground/bench.html', import.meta.url)),
         debug: fileURLToPath(new URL('./playground/debug.html', import.meta.url)),
         lab: fileURLToPath(new URL('./playground/lab.html', import.meta.url)),

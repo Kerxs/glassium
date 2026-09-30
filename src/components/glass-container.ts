@@ -28,7 +28,7 @@
 import { DEFAULT_SMOOTHING_DP, type GlassGroup } from '../renderer/panels.ts'
 import { currentStage, onStageChange, prefersReducedMotion, type GlassStage } from '../renderer/stage.ts'
 import { describeElement } from '../renderer/layering.ts'
-import { strictNumber } from './attributes.ts'
+import { strictNumber } from '../core/attributes.ts'
 import { sharedSheet } from './base.ts'
 
 const HTMLElementBase: typeof HTMLElement =

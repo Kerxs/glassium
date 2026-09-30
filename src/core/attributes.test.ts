@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 
-import { GlassPresets } from '../core/material.ts'
+import { GlassPresets } from './material.ts'
 import { parseMaterialAttributes } from './attributes.ts'
 
 const from = (attrs: Record<string, string>) =>

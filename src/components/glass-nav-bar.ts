@@ -29,7 +29,7 @@
  * 底边、正文从它底下经过（模糊渐隐往上），滚到底时停在它本来的位置。没有大标题；中间一格是状态文字（13px）。
  */
 
-import { MATERIAL_ATTRIBUTES } from './attributes.ts'
+import { MATERIAL_ATTRIBUTES } from '../core/attributes.ts'
 import { HTMLElementBase, sharedSheet } from './base.ts'
 import { FROST_CSS, SCROLL_EDGE_RAMP } from './scroll-edge.ts'
 

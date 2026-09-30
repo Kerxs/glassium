@@ -240,7 +240,7 @@ export {
   MORPH_GLASS_MS,
   type GlassMorph,
   type MorphGlassOptions
-} from './components/morph-glass.ts'
+} from './interaction/morph.ts'
 export { GlassFill } from './components/glass-fill.ts'
 export { GlassSwitch } from './components/glass-switch.ts'
 export { GlassSegmented } from './components/glass-segmented.ts'
@@ -277,7 +277,7 @@ export {
 } from './components/thumb.ts'
 // 文字进场景：把元素里的文字、图标画进 2D 画布（位图填充的 painter），分段控件与标签栏按住时用
 export { SceneLabels, paintContent, type LabelSource } from './components/scene-label.ts'
-export { MATERIAL_ATTRIBUTES, parseMaterialAttributes } from './components/attributes.ts'
+export { MATERIAL_ATTRIBUTES, parseMaterialAttributes } from './core/attributes.ts'
 
 // —— 玻璃面板（T7 起）与合并组（T10 起）——
 export {

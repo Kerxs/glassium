@@ -195,7 +195,6 @@ await morphGlass(button, menu).finished                    // 按钮变成菜单
 | [docs/frameworks.md](docs/frameworks.md) | 在 React、Vue、Svelte 里用：属性怎么写、TypeScript 声明、命令式写法、SSR |
 | [docs/architecture.md](docs/architecture.md)、[spec/](spec/) | 架构、光学与管线规格（给实现别的渲染器的人） |
 | [docs/calibration.md](docs/calibration.md) | 每一项功能的实测数字与反向对照 |
-| [docs/progress.md](docs/progress.md) | 开发记录 |
 | [CHANGELOG.md](CHANGELOG.md) | 版本更新 |
 
 ## Playground、示例与验证
@@ -220,7 +219,7 @@ npm run dev   # http://localhost:5174
 - [`#dev`](https://kerxs.github.io/glassium/#dev)：开发者 —— 下面这些工具页与文档的入口
 
 整页只有一个 stage，切到哪个标签只有那个标签的内容在文档里（其余不画）。旧地址 `runtime.html`、`devices.html`、
-`playground.html`、`demo.html` 跳到对应的标签。开发 Glassium 本身用的工具页各自独立（自己建 stage、固定视口）：
+`playground.html` 跳到对应的标签。开发 Glassium 本身用的工具页各自独立（自己建 stage、固定视口）：
 
 - [`/bench.html`](https://kerxs.github.io/glassium/bench.html)：性能测试（面板数与帧开销，结果见 [docs/benchmark.md](docs/benchmark.md)）
 - [`/regress.html`](https://kerxs.github.io/glassium/regress.html)：视觉回归（标准场景与基准比，见 [spec/golden/README.md](spec/golden/README.md)）

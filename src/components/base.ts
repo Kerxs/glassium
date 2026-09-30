@@ -21,7 +21,7 @@ import { overlayHostRule } from '../core/overlay.ts'
 import { describeElement } from '../renderer/layering.ts'
 import type { PanelLight } from '../renderer/panels.ts'
 import { ACTIVE_ATTRIBUTE, GlassBinding } from '../runtime/binding.ts'
-import { MATERIAL_ATTRIBUTES, parseMaterialAttributes } from './attributes.ts'
+import { MATERIAL_ATTRIBUTES, parseMaterialAttributes } from '../core/attributes.ts'
 import { ScrollEdgeLayer } from './scroll-edge.ts'
 
 /** 玻璃生效时组件带上的属性（见 runtime/binding.ts）。 */

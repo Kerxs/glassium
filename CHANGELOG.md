@@ -5,6 +5,12 @@
 
 ## [未发布]
 
+### 变化
+
+- 删掉了用不上的文件：组件目录里两个转发文件（`components/attributes.ts`、`components/morph-glass.ts`，包的 `exports`
+  本来就不允许深路径引用，对使用者没有影响；它们的测试挪到了真身旁边）、旧地址的跳转页 `demo.html`、早期的开发记录
+  `docs/progress.md`（内容在 CHANGELOG 与 calibration.md 里）。旧版本的标签与 Release 删了，下面旧版本的链接改指当时的提交。
+
 ## [1.0.0] — 2026-09-30
 
 第一个稳定版。路线（docs/architecture.md「路线」）做完了能在开发机上做完、验证得了的部分；有意不做、做不了的写在各节里
@@ -233,8 +239,8 @@ Glassium 从组件库转向 **Web Liquid Glass 渲染运行时**（docs/architec
 
 [未发布]: https://github.com/Kerxs/glassium/compare/v1.0.0...HEAD
 [1.0.0]: https://github.com/Kerxs/glassium/releases/tag/v1.0.0
-[0.4.0]: https://github.com/Kerxs/glassium/releases/tag/v0.4.0
-[0.3.0]: https://github.com/Kerxs/glassium/releases/tag/v0.3.0
-[0.2.0]: https://github.com/Kerxs/glassium/releases/tag/v0.2.0
-[0.1.0]: https://github.com/Kerxs/glassium/releases/tag/v0.1.0
-[0.0.1]: https://github.com/Kerxs/glassium/releases/tag/v0.0.1
+[0.4.0]: https://github.com/Kerxs/glassium/tree/ebbbdd9f83c37a8bacbdcb11b343d86684514772
+[0.3.0]: https://github.com/Kerxs/glassium/tree/d8f5be53c182395513a5d62c1172d732ad474373
+[0.2.0]: https://github.com/Kerxs/glassium/tree/7ecb67174db54b13551a822635b053bc31d33cbf
+[0.1.0]: https://github.com/Kerxs/glassium/tree/1c726dc370ce13cabadfbd2f28e338ef04806f3a
+[0.0.1]: https://github.com/Kerxs/glassium/tree/247b312e69cc9fca79a174446ae6b20f64bad8c0
