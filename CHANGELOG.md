@@ -1,12 +1,27 @@
 # 更新记录
 
 格式按 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号按 [语义化版本](https://semver.org/lang/zh-CN/)。
-0.x 期间次版本号的变化也可能不兼容。
+0.x 期间次版本号的变化也可能不兼容；1.0 起按下面 1.0.0 那一节写的承诺，2.0 之前不破。
 
 ## [未发布]
 
+## [1.0.0] — 2026-09-30
+
+第一个稳定版。路线（docs/architecture.md「路线」）做完了能在开发机上做完、验证得了的部分；有意不做、做不了的写在各节里
+（可变的场景图对象、顶层里的 GPU 玻璃、画布的脏区域、Firefox / Safari / 移动端的实测）。
+
+**兼容承诺**（2.0 之前不破）：docs/api.md 里标（稳定）的导出（`spec/api/stable.txt`）；写在 HTML 里的 `glass` / `glass-*`
+属性、预设名、组件的材质属性、`configure` 的配置项（`spec/api/attributes.txt`）；`stats()` 已有的字段；`glassium.css` 的兜底表面。
+标（进阶）的导出、画出来的像素（调校会让外观细微地变）、控制台信息不在承诺里。已废弃的 `glass(preset, overrides)` 1.x 里照旧能用。
+
 ### 新增
 
+- **接口冻结补全**：交互、动画、质量与资源、检查器的 37 个接口从「进阶」转成稳定（`ElementMotion`、`everyFrame`、`PressInteraction`、
+  `GlassBinding`、`AdaptiveQuality`、`FrameMonitor`、`QualityController`、`allocateQuality`、`ResourceUsage`、`GpuPasses`、
+  `SceneSnapshot`、`hitStacksBehind` ……）；写在 HTML 里的接口签进 `spec/api/attributes.txt`，有测试核对，api.md 补了逐项的属性表。
+- **verify 多了三项**：`atlas-upload`（图集局部上传）、`content-border-decoration`（边框与装饰线进场景）、`accessibility`
+  （画布不进无障碍树、玻璃元素还是它自己、收进场景的字还在 DOM 里、高对比度时退回 CSS 并还原）；`absorb-background`
+  加了「摘出文档」一例。
 - **GPU 时间分账**：`stats().gpuPasses` —— 一帧的 GPU 时间按段拆成场景、模糊、玻璃、层（WebGPU 的 timestamp-query，
   在段与段之间打时间戳）；调试面板的「GPU」一行跟着显示。`passesFrom` 是时间戳到分账的算法。
 - **`glassium/runtime` 入口**：只有 runtime（`<div glass>`、`glass()`、`configure`、内容进场景、果冻与飞行、变形、时间轴……），
@@ -216,7 +231,8 @@ Glassium 从组件库转向 **Web Liquid Glass 渲染运行时**（docs/architec
 玻璃折射的是 Glassium 自己画的场景，不是它背后的 DOM；盖在 DOM 上的玻璃没有折射。完整的列表在
 [docs/limitations.md](docs/limitations.md)，先读开头那三条编写规则。
 
-[未发布]: https://github.com/Kerxs/glassium/compare/v0.4.0...HEAD
+[未发布]: https://github.com/Kerxs/glassium/compare/v1.0.0...HEAD
+[1.0.0]: https://github.com/Kerxs/glassium/releases/tag/v1.0.0
 [0.4.0]: https://github.com/Kerxs/glassium/releases/tag/v0.4.0
 [0.3.0]: https://github.com/Kerxs/glassium/releases/tag/v0.3.0
 [0.2.0]: https://github.com/Kerxs/glassium/releases/tag/v0.2.0

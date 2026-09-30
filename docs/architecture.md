@@ -81,7 +81,12 @@ Glassium 的定位是**面向 Web 的 Liquid Glass 渲染运行时**：让任意
 
 ## 路线：后续版本（范围与验收）
 
-每一版的验收都包括：单元测试、verify.html 两个后端 × 两种视口全过、新功能各有一项验证并做反向对照、零配置示例页与首页照旧。
+下面几节的小标题是路线上的阶段，不是发布的版本号：阶段 0.4、0.5 随 0.3.0、0.4.0 发布，0.6–1.0 随 **1.0.0** 发布。
+每一段的验收都包括：单元测试、verify.html 两个后端 × 两种视口全过、新功能各有一项验证并做反向对照、零配置示例页与首页照旧。
+
+**1.0.0 的状态**：路线做完了能在这台开发机上做完、验证得了的部分；剩下的三类是有意不做或做不了的，各节里写明了原因 ——
+可变的场景图对象与顶层（对话框、popover）里的 GPU 玻璃（设计上不做）、画布的脏区域（WebGPU 的画布每帧是新纹理）、
+Firefox / Safari / 移动端的实测（没有设备，矩阵里是推断的格子）。
 
 ### 0.4 —— DOM Renderer（提前做了，随 0.3.0 发布，见上）
 - 玻璃后面的**文字、`<img>`、SVG、`<canvas>`、`<video>`** 画进场景（把 `scene-label.ts` 的 `paintContent` 推广成通用的子树光栅化，
@@ -98,8 +103,10 @@ Glassium 的定位是**面向 Web 的 Liquid Glass 渲染运行时**：让任意
 - 独立的场景图（层、Z 序、脏状态），嵌套玻璃共享场景采集与模糊链的规则写成显式的；Portal、Overlay、Popover、离屏渲染。
 - **已做**：脏状态三级（整帧、场景、层改过的那一块，见上面「一帧」）—— 只动了玻璃的帧沿用场景与模糊链，有层的页面
   局部复原；被不透明根背景盖住的内置场景不再让静止页面每帧都画。
-- **没做**：独立的场景图对象；顶层（对话框、popover）里的 GPU 玻璃 —— 顶层的玻璃只能折射 Glassium 的场景、看不见它
-  背后的页面内容，画出来像在页面上开了一个窗，不如现在的 backdrop-filter 近似对，先不做（limitations.md「盖在 DOM 上的玻璃」）。
+- **1.0 定下来不做**：可变的场景图对象 —— 场景图就是 DOM（层、Z 序、嵌套都从元素树与层叠上下文读出来，layers.ts），
+  再给一份可以改的对象就有了两个真源；只读的一份是 `stage.debug.scene()`（`SceneSnapshot`：每块玻璃的组、层、矩形、材质、
+  效果链、质量，每块填充），检查器与测试用它。顶层（对话框、popover）里的 GPU 玻璃 —— 顶层的玻璃只能折射 Glassium 的场景、
+  看不见它背后的页面内容，画出来像在页面上开了一个窗，不如现在的 backdrop-filter 近似对（limitations.md「盖在 DOM 上的玻璃」）。
 
 ### 0.7 —— 性能与资源（大半已做）
 - 统一的 GPU 资源管理：纹理缓存、目标池、管线缓存、显存估算与预算、超预算时降分辨率 / 驱逐缓存。
@@ -108,14 +115,18 @@ Glassium 的定位是**面向 Web 的 Liquid Glass 渲染运行时**：让任意
 - **已做**：GPU 计时进自适应质量（`gpuRatio`）；刷新率自动认（monitor 按帧间隔的低分位数认 60 / 120 / 144 / 240Hz）；
   资源账（`stats().gpuMemory`）；性能测试页的全部场景，每组「整帧」与「实际」两遍（docs/benchmark.md）。
 - **后来补上**：显存预算（`setMemoryBudget`：先放闲着的纹理、再降场景分辨率、到保底为止）与空闲驱逐（连着 600 帧没有层就放掉层的纹理）。
-- **没做**：画布上的脏区域（WebGPU 的画布每帧都是新的纹理，要整张重画；省下的是场景与模糊链）；纹理缓存的跨 stage 共享。
+- **1.0 补上**：位图图集只传画过的格子（`atlas.dirtySince`，`stats().atlasUploadPixels`）—— 玻璃后面播视频、按住分段控件
+  拖动时每帧传的从整张图集降到变了的那一格；GPU 时间按段分账（`stats().gpuPasses`：场景、模糊、玻璃、层）。
+- **不做**：画布上的脏区域（WebGPU 的画布每帧都是新的纹理，要整张重画；省下的是场景与模糊链）；纹理缓存的跨 stage 共享
+  （一个文档只有一个 stage，R3）。
 
 ### 0.8 —— 兼容性（部分已做）
 - Chrome、Edge、Firefox、Safari × 桌面 / 移动 × WebGPU / WebGL2 / CSS / 普通 DOM 的兼容矩阵，逐格有结论。
 - 视觉回归：每个后端存标准场景（基本玻璃、嵌套、折射、色散、文字、裁剪、遮罩、morph、果冻）的基准图。
 - **已做**：矩阵写在 [compatibility.md](compatibility.md)（实测的格子与推断的格子分开写，附新设备上的验法）；视觉回归
   `playground/regress.html` + `spec/golden/baselines.json`（48×32 的小图、带容差，按后端 + GPU 存，本机两个后端的基准已签入）。
-- **没做**：Firefox、Safari、移动端的实测 —— 没有这些设备。
+- **做不了**：Firefox、Safari、移动端的实测 —— 没有这些设备。矩阵里那些格子是按规范与各家的实现状态推断的，标着「推断」；
+  compatibility.md 写了在新设备上怎么验（verify、regress 两页、两个后端），结果回填进矩阵。
 
 ### 0.9 —— 无障碍与开发体验、API 冻结（大半已做）
 - 场景检查器、材质检查器、资源检查器；文档与 playground 覆盖全部 runtime API。
@@ -123,11 +134,17 @@ Glassium 的定位是**面向 Web 的 Liquid Glass 渲染运行时**：让任意
 - **已做**：调试面板的三页（概览、场景 + 材质、资源；`stage.debug.scene()`）；API 冻结的机制 —— api.md「全部导出」里标
   （稳定）的几节（Runtime、组件、Stage、材质）的名字签在 `spec/api/stable.txt`，`src/api-stability.test.ts` 核对（删、改名、
   悄悄多出一个都失败）。
-- **没做**：Interaction / Animation / Adaptive Quality 里较新的接口（ElementMotion、everyFrame、allocateQuality……）还在「进阶」，
-  等它们在真实页面上用过一阵再冻结；属性（`glass-*`）的冻结靠文档，没有测试。
+- **1.0 补上**：Interaction / Animation / Adaptive Quality / 资源 / 检查器的接口冻结成稳定（api.md「交互、动画、质量与资源」，
+  37 个名字进快照；内部件留在进阶）；写在 HTML 里的接口 —— `glass` / `glass-*` 属性、预设名、组件的材质属性、`configure`
+  的配置项 —— 签在 `spec/api/attributes.txt`，`src/attributes-stability.test.ts` 核对；verify 加了无障碍一项（画布不进无障碍树、
+  玻璃元素还是它自己、收进场景的字还在 DOM 里、高对比度时退回 CSS 并还原）。
 
 ### 1.0 —— 生产可用的运行时
 - 组件是否拆成 `@glassium/components` 在这之前决定（现在它们留在主包里、建在 runtime 上）。
+- **1.0 的兼容承诺**（语义化版本，2.0 之前不破）：api.md 里标（稳定）的导出（`spec/api/stable.txt`）、写在 HTML 里的属性与
+  配置项（`spec/api/attributes.txt`）、`stats()` 里已有的字段、`glassium.css` 的兜底表面。标（进阶）的导出、画出来的像素
+  （调校会让外观细微地变，视觉回归的基准跟着更新）、控制台的信息不在承诺里。已废弃的写法（`glass(preset, overrides)`
+  返回合并后的材质）1.x 里照旧能用，2.0 再拿掉。
 
 **待决定：组件拆不拆（给维护者的材料）**
 
