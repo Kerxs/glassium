@@ -30,6 +30,7 @@ import {
   parseFillPaint,
   resolvePaint,
   simulateMoreContrast,
+  simulateForcedColors,
   simulateReducedMotion,
   simulateReducedTransparency,
   srgbToLinear,
@@ -3215,6 +3216,74 @@ async function run(): Promise<void> {
       return ok ? pass(detail) : fail(detail)
     } finally {
       configure({ absorbContent: true })
+      wrap.remove()
+      await settle()
+      calibrationScene()
+      stage.debug.renderNow()
+    }
+  })
+
+  await check('accessibility', async () => {
+    // 无障碍（limitations.md 的「无障碍」）：玻璃只是画在元素后面，元素还是它自己。
+    // - 画布不进无障碍树、不接指针、不能聚焦；
+    // - `<button glass>` 还是按钮：能聚焦、名字不变、没有被挂 aria-hidden / inert；
+    // - 收进场景的正文：DOM 里的字还在（textContent 不变、没有 aria-hidden、能选中），只是颜色透明；
+    // - 高对比度（forced-colors，simulateForcedColors 模拟）：stage 停用、画布藏起来、玻璃的 data-glassium-active 摘掉
+    //   （CSS 兜底）、收进场景的正文还给 DOM；关掉之后都回来。
+    stage.debug.setBackdrop({ scene: 'flat' })
+    const settle = async (): Promise<void> => {
+      await sleep(0)
+      await sleep(0)
+      await sleep(40)
+      stage.debug.renderNow()
+    }
+    const wrap = document.createElement('div')
+    Object.assign(wrap.style, { position: 'absolute', left: '400px', top: '460px', width: '380px', height: '180px', background: '#fff' })
+    wrap.innerHTML =
+      '<p class="t" style="margin:0;padding:16px;font:600 22px/1.3 system-ui,sans-serif;color:#000">可以选中、读屏照旧的正文</p>' +
+      '<button type="button" class="b" glass style="position:absolute;left:24px;top:110px;width:140px;height:48px;border:0;border-radius:24px;font:inherit">按一下</button>'
+    const lens = document.createElement('div')
+    lens.setAttribute('glass', 'clear')
+    Object.assign(lens.style, { position: 'absolute', left: '0px', top: '0px', width: '360px', height: '80px', borderRadius: '20px', pointerEvents: 'none' })
+    wrap.append(lens)
+    document.body.append(wrap)
+    const text = wrap.querySelector<HTMLElement>('.t')!
+    const btn = wrap.querySelector<HTMLButtonElement>('.b')!
+    const original = text.textContent
+    const absorbed = (): boolean => contentBlocks().some((el) => el === text || el.contains(text))
+    try {
+      await settle()
+      const canvas = stage.canvas
+      const cs = getComputedStyle(canvas)
+      const canvasOk = canvas.getAttribute('aria-hidden') === 'true' && cs.pointerEvents === 'none' && canvas.tabIndex < 0
+      btn.focus()
+      const buttonOk =
+        document.activeElement === btn && btn.localName === 'button' && btn.textContent === '按一下' &&
+        !btn.hasAttribute('aria-hidden') && !btn.inert && btn.hasAttribute('data-glassium-active')
+      const textIn = absorbed()
+      const textOk =
+        textIn && text.textContent === original && !text.closest('[aria-hidden="true"]') &&
+        getComputedStyle(text).userSelect !== 'none' && getComputedStyle(text).color === 'rgba(0, 0, 0, 0)'
+      simulateForcedColors(true)
+      await settle()
+      const forced = {
+        inactive: !stage.active,
+        hidden: getComputedStyle(canvas).display === 'none',
+        fallback: !btn.hasAttribute('data-glassium-active'),
+        textBack: !absorbed() && getComputedStyle(text).color === 'rgb(0, 0, 0)'
+      }
+      simulateForcedColors(null)
+      await settle()
+      await settle()
+      const back = { active: stage.active, shown: getComputedStyle(canvas).display !== 'none', glass: btn.hasAttribute('data-glassium-active'), text: absorbed() }
+      const f = (o: Record<string, boolean>): string => Object.entries(o).map(([k, v]) => `${k} ${v}`).join('、')
+      const detail =
+        `画布 ${canvasOk} · 按钮 ${buttonOk} · 正文收了 ${textIn}、字还在 ${textOk} · 高对比度：${f(forced)} · 关掉：${f(back)}`
+      const ok = canvasOk && buttonOk && textOk && Object.values(forced).every(Boolean) && Object.values(back).every(Boolean)
+      return ok ? pass(detail) : fail(detail)
+    } finally {
+      simulateForcedColors(null)
+      btn.blur()
       wrap.remove()
       await settle()
       calibrationScene()
