@@ -59,6 +59,15 @@ runtime 在微任务里自动启动（`startRuntime()`；`configure({ auto: fals
   `="false"` 关；`glass-quality="0.6"` 把这一块固定降一档（`auto` 是交给自适应）。见下面「动起来的玻璃」「局部质量」。
   `GLASS_BEHAVIOR_ATTRIBUTES` 是这三个属性名。
 
+全部属性（1.0 起冻结，快照在 `spec/api/attributes.txt`；增删改名都要进 CHANGELOG）：
+
+| 属性 | 取值 |
+|---|---|
+| `glass` | 预设名：`default`（空串同它）、`clear`、`tinted`、`frosted`、`ultraThin`、`thin`、`regular`、`thick` |
+| `glass-blur`、`glass-refraction`、`glass-distortion`、`glass-highlight`、`glass-dispersion`、`glass-saturation`、`glass-tint`、`glass-opacity`、`glass-corner-radius`、`glass-squircle`、`glass-depth-effect`、`glass-adaptive`、`glass-shadow`、`glass-magnify`、`glass-body-light` | 与组件的同名材质属性（下面「材质属性」一节）取值相同；`glass-corner-radius` 不写时取 CSS 的 `border-radius` |
+| `glass-jelly`、`glass-glide` | 写了就开，`="false"` 关 |
+| `glass-quality` | `0`–`1` 固定这一块的质量，`auto` 交给自适应 |
+
 ### `glass(element, options?)` → `GlassHandle`
 
 ```js
