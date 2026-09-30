@@ -8,7 +8,8 @@
 ### 变化
 
 - 删掉了用不上的文件：组件目录里两个转发文件（`components/attributes.ts`、`components/morph-glass.ts`，包的 `exports`
-  本来就不允许深路径引用，对使用者没有影响；它们的测试挪到了真身旁边）、旧地址的跳转页 `demo.html`、早期的开发记录
+  本来就不允许深路径引用，对使用者没有影响；它们的测试挪到了真身旁边）、旧地址的跳转页（`demo.html`、`runtime.html`、`devices.html`、`playground.html`；
+  旧链接现在是 404，站点入口是首页的 `#overview`、`#devices`、`#editor`）、早期的开发记录
   `docs/progress.md`（内容在 CHANGELOG 与 calibration.md 里）。旧版本的标签与 Release 删了，下面旧版本的链接改指当时的提交。
 
 ## [1.0.0] — 2026-09-30

@@ -218,8 +218,7 @@ npm run dev   # http://localhost:5174
 - [`#editor`](https://kerxs.github.io/glassium/#editor)：材质 —— 调材质、换背景、看调试视图，右边给出对应的 HTML 与 JS
 - [`#dev`](https://kerxs.github.io/glassium/#dev)：开发者 —— 下面这些工具页与文档的入口
 
-整页只有一个 stage，切到哪个标签只有那个标签的内容在文档里（其余不画）。旧地址 `runtime.html`、`devices.html`、
-`playground.html` 跳到对应的标签。开发 Glassium 本身用的工具页各自独立（自己建 stage、固定视口）：
+整页只有一个 stage，切到哪个标签只有那个标签的内容在文档里（其余不画）。开发 Glassium 本身用的工具页各自独立（自己建 stage、固定视口）：
 
 - [`/bench.html`](https://kerxs.github.io/glassium/bench.html)：性能测试（面板数与帧开销，结果见 [docs/benchmark.md](docs/benchmark.md)）
 - [`/regress.html`](https://kerxs.github.io/glassium/regress.html)：视觉回归（标准场景与基准比，见 [spec/golden/README.md](spec/golden/README.md)）

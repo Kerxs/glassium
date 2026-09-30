@@ -29,16 +29,12 @@ export default defineConfig({
       // 首页是整个展示站点（五个标签：概览、控件、设备、材质、开发者；标签的模块由 site.ts 动态引入、分包，不单列入口）。
       // 工具页各自独立：性能测试 bench.html、开发用的调试台 debug.html、把验证固化下来的 verify.html、视觉回归 regress.html、
       // 对着 iOS 26 截图调质感的 lab.html、只引 runtime 的 runtime-only.html。
-      // playground / devices / runtime 只是跳转页：旧地址跳到首页对应的标签
       input: {
         main: fileURLToPath(new URL('./playground/index.html', import.meta.url)),
-        playground: fileURLToPath(new URL('./playground/playground.html', import.meta.url)),
-        devices: fileURLToPath(new URL('./playground/devices.html', import.meta.url)),
         bench: fileURLToPath(new URL('./playground/bench.html', import.meta.url)),
         debug: fileURLToPath(new URL('./playground/debug.html', import.meta.url)),
         lab: fileURLToPath(new URL('./playground/lab.html', import.meta.url)),
         verify: fileURLToPath(new URL('./playground/verify.html', import.meta.url)),
-        runtime: fileURLToPath(new URL('./playground/runtime.html', import.meta.url)),
         regress: fileURLToPath(new URL('./playground/regress.html', import.meta.url)),
         'runtime-only': fileURLToPath(new URL('./playground/runtime-only.html', import.meta.url))
       }
