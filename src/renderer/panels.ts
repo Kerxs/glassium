@@ -236,6 +236,16 @@ export function drawnWithCss(el: { closest(selector: string): unknown }): boolea
 }
 
 /**
+ * 元素本身是一块玻璃：写了 `glass`、runtime 给了编号（`data-glassium-glass`）、或者已经在 stage 上生效（组件）。
+ * 收背景（absorb）不收它们：玻璃的 CSS 背景是它自己的兜底表面（还没生效时 runtime 的样式表照材质画的那一层），
+ * 不是挡在别的玻璃后面的背景 —— 收进场景的话，生效之后底下还垫着一块颜色。卡片里的着色按钮撞上过：
+ * 第一次扫描时按钮还没生效，卡片把它的兜底表面当成背景收走了
+ */
+export function isGlassElement(el: { hasAttribute(name: string): boolean }): boolean {
+  return el.hasAttribute('glass') || el.hasAttribute('data-glassium-glass') || el.hasAttribute('data-glassium-active')
+}
+
+/**
  * 玻璃最多叠几层（层号 0 起）。写在一块玻璃里面的玻璃（卡片里的按钮、卡片里开关的旋钮）在它上面一层：
  * 画它之前先把画布上已经画好的那一块（下面那层的玻璃也在里面）重新采回场景目标、重建那一块的模糊链，
  * 于是它折射、模糊的是下面那层玻璃，而不是在下面那层上开一个洞。每多一层多一轮局部的重采样与模糊。

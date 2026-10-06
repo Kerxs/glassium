@@ -14,6 +14,7 @@ import { UNBOUNDED } from './clipping.ts'
 import {
   CLIP_UNBOUNDED_PX,
   drawnWithCss,
+  isGlassElement,
   MAX_GLASS_LAYER,
   PanelRegistry,
   RIM_MIN_PX,
@@ -494,4 +495,12 @@ test('用 CSS 画的玻璃：自己或祖先写了 overlay、或已被标成 ove
   assert.equal(drawnWithCss(el(['glass'], ['glass', 'data-glassium-overlay'])), true, '对话框里的按钮：祖先被标成 overlay')
   assert.equal(drawnWithCss(el(['glass', 'data-glassium-overlay'])), true, 'stage 标上的（顶层里的对话框）')
   assert.equal(drawnWithCss(el(['glass'], ['glass'])), false, '普通的 GPU 玻璃')
+})
+
+test('玻璃元素：写了 glass、有 runtime 编号、或已经生效的都算；普通元素不算', () => {
+  const el = (...attrs: string[]) => ({ hasAttribute: (name: string) => attrs.includes(name) })
+  assert.equal(isGlassElement(el('glass')), true, '写了 glass、还没被接管')
+  assert.equal(isGlassElement(el('data-glassium-glass')), true, 'runtime 的玻璃')
+  assert.equal(isGlassElement(el('data-glassium-active')), true, '生效了的组件')
+  assert.equal(isGlassElement(el('class', 'style')), false)
 })

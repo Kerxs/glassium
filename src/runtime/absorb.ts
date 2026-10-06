@@ -18,7 +18,7 @@
 
 import { sameOriginImage } from '../renderer/paint-content.ts'
 import { inspectPanel } from '../renderer/layering.ts'
-import { drawnWithCss, type SceneBitmapFill, type SceneFill } from '../renderer/panels.ts'
+import { drawnWithCss, isGlassElement, type SceneBitmapFill, type SceneFill } from '../renderer/panels.ts'
 import { currentStage, onStageChange, type GlassStage } from '../renderer/stage.ts'
 import { placeImage, planBackground, type BackgroundPlan, type BackgroundStyle } from './background.ts'
 import { isContentBlock, releaseContent, scanContent } from './content.ts'
@@ -169,14 +169,16 @@ function scan(movedOnly = false): void {
     stageOf = stage
   }
   const selector = config.absorbForComponents ? `[${GLASS_ID_ATTRIBUTE}], [data-glassium-active]` : `[${GLASS_ID_ATTRIBUTE}]`
-  // 用 CSS 画的玻璃不收它后面的东西（drawnWithCss）
-  const panels = typeof document === 'undefined' ? [] : [...document.querySelectorAll<HTMLElement>(selector)].filter((p) => !drawnWithCss(p))
+  const all = typeof document === 'undefined' ? [] : [...document.querySelectorAll<HTMLElement>(selector)]
+  // 用 CSS 画的玻璃不拿来做命中测试、不收它后面的东西（drawnWithCss）。根背景照旧按「有没有玻璃」收：
+  // 页面上只剩 CSS 玻璃时画布还在，不收的话画布上露出来的是内置场景
+  const panels = all.filter((p) => !drawnWithCss(p))
   // 每次扫描都记下每块玻璃的位置；只扫动了的时候，没动的跳过命中测试
   const moved = new Set(panels.filter(movedInDocument))
   const probe = (list: readonly HTMLElement[]): readonly HTMLElement[] => (movedOnly ? list.filter((p) => moved.has(p)) : list)
   const content = stage && stage.active && config.absorbContent && panels.length > 0
   if (!content) releaseContent()
-  if (!stage || !stage.active || !config.absorbBackgrounds || panels.length === 0) {
+  if (!stage || !stage.active || !config.absorbBackgrounds || all.length === 0) {
     if (entries.size > 0) releaseAbsorbed()
     if (content) {
       const runtime = runtimePanels()
@@ -201,6 +203,8 @@ function scan(movedOnly = false): void {
       if (p.kind !== 'covered') continue
       const el = p.element as HTMLElement
       if (entries.has(el) || isContentBlock(el) || el === document.documentElement || !(el instanceof HTMLElement)) continue
+      // 别的玻璃的兜底表面不是背景（isGlassElement）
+      if (isGlassElement(el)) continue
       if (absorb(el)) added = true
     }
   }

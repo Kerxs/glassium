@@ -310,6 +310,11 @@ draw 降到 1 + N 次，模糊 0 趟。
   全屏元素）、写了 `overlay`、或者玻璃祖先是这样的 —— 是的话标上 `data-glassium-overlay`、不画 GPU 玻璃。组件把材质写成
   自己影子样式表里的 `:host { --glassium-* }`，影子样式里的 `:host([data-glassium-overlay])` 规则按它们画 CSS 玻璃。
   对话框的 `open`、`popover`、`overlay` 属性变化与 `toggle`、`fullscreenchange` 事件都会请求重画。
+  CSS 画的玻璃不参与收背景、收内容的扫描（`drawnWithCss`：它后面的东西 backdrop-filter 本来就看得见）；
+  玻璃元素自己的兜底表面也不当背景收（`isGlassElement`）。
+- `configure({ backend: 'css' })`：runtime 不建 stage（`ensure-stage.ts`），所有玻璃停在「没有 active」的 CSS 画法上 ——
+  材质变量照样写（`runtime/styles.ts`），与 overlay 同一套；组件等不到 stage，用自己影子样式里的 CSS。触屏设备用：
+  合成线程做的滚动比主线程画的 GPU 玻璃快一两帧。
 - 组件与 stage 的连接（stage 出现、换了、停用时重新注册，维护 `data-glassium-active`）在 `stage-link.ts`；
   `GlassElement` 是同一个模式的早期写法。
 - `<glass-button>` 是表单关联的自定义元素，提交借一个临时的原生提交按钮当 submitter。

@@ -11,8 +11,12 @@ export type QualitySetting = 'auto' | 'high' | 'medium' | 'low' | number
 export interface GlassiumConfig {
   /** 自动发现并接管 `[glass]` 元素。默认 true。 */
   readonly auto: boolean
-  /** 后端：auto 按 WebGPU → WebGL2 → CSS 挑。只在 runtime 建 stage 时用。 */
-  readonly backend: 'auto' | 'webgpu' | 'webgl2'
+  /**
+   * 后端：auto 按 WebGPU → WebGL2 → CSS 挑。只在 runtime 建 stage 时用。
+   * `'css'`：不建 GPU stage，所有玻璃照材质用 CSS 画（backdrop-filter，没有折射）—— 与 overlay 玻璃同一套画法。
+   * 触屏设备上用得着：那里的滚动由合成线程直接做，画在页面底下的 GPU 玻璃会慢一两帧、落在文字后面
+   */
+  readonly backend: 'auto' | 'webgpu' | 'webgl2' | 'css'
   /** 质量：auto 按实测帧时间自适应；high / medium / low 是固定档；0–1 是固定的质量值。 */
   readonly quality: QualitySetting
   /** 玻璃后面挡着的 CSS 背景自动收进场景（见 absorb.ts）。默认 true。 */
@@ -62,8 +66,8 @@ export function configure(options: Partial<GlassiumConfig>): GlassiumConfig {
       console.warn(`[Glassium] memoryBudget 只能是正的字节数或 null，收到 ${String(value)}`)
       continue
     }
-    if (key === 'backend' && value !== 'auto' && value !== 'webgpu' && value !== 'webgl2') {
-      console.warn(`[Glassium] backend 只能是 'auto' | 'webgpu' | 'webgl2'，收到 ${String(value)}`)
+    if (key === 'backend' && value !== 'auto' && value !== 'webgpu' && value !== 'webgl2' && value !== 'css') {
+      console.warn(`[Glassium] backend 只能是 'auto' | 'webgpu' | 'webgl2' | 'css'，收到 ${String(value)}`)
       continue
     }
     next[key] = value

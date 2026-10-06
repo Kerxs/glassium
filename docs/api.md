@@ -109,7 +109,7 @@ handle.destroy()
 | 字段 | 默认 | |
 |---|---|---|
 | `auto` | `true` | 自动发现 `[glass]` |
-| `backend` | `'auto'` | runtime 建 stage 时用：`'auto'` / `'webgpu'` / `'webgl2'` |
+| `backend` | `'auto'` | runtime 建 stage 时用：`'auto'` / `'webgpu'` / `'webgl2'`；`'css'` 不建 GPU stage，所有玻璃照材质用 CSS 画（与 overlay 同一套，没有折射；组件也是）。触屏设备上推荐：`configure({ backend: matchMedia('(pointer: coarse)').matches ? 'css' : 'auto' })` —— 那里的滚动由合成线程直接做，GPU 玻璃会慢一两帧、落在文字后面。要在 runtime 启动之前设（import 之后同步调） |
 | `quality` | `'auto'` | `QualitySetting`：`'auto'`（按实测帧时间自适应）、`'high'` / `'medium'` / `'low'`、或 0–1 |
 | `absorbBackgrounds` | `true` | 玻璃后面挡着的 CSS 背景自动收进场景 |
 | `absorbForComponents` | `false` | 组件（`<glass-*>`）也收 |

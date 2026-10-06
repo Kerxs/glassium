@@ -89,6 +89,9 @@ test('configure：合并、非法值报一次并忽略；固定档的质量值',
     assert.equal(getConfig().quality, 'low', '非法的质量不改')
     assert.equal(getConfig().backend, 'auto')
     assert.equal(warns.length, 3)
+    configure({ backend: 'css' })
+    assert.equal(getConfig().backend, 'css', "'css'：不建 GPU stage，玻璃全用 CSS 画")
+    assert.equal(warns.length, 3)
   } finally {
     console.warn = warn
     resetConfig()
