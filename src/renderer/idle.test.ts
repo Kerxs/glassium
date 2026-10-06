@@ -6,6 +6,7 @@ import type { BackdropState, SceneImage } from './backend.ts'
 import type { FillRecord, MeasuredFill } from './fills.ts'
 import { sceneHidden, sceneReusable, unchangedFrame, type FrameSnapshot, type SceneKey } from './idle.ts'
 import type { MeasuredGroup, MeasuredPanel, PanelRecord } from './panels.ts'
+import { buildScene } from './scene.ts'
 
 // 比较只看值与引用，不碰 DOM：假对象就够了
 const viewport = (over: Partial<ResolvedViewport> = {}): ResolvedViewport =>
@@ -92,15 +93,19 @@ const image = (over: Partial<SceneImage> = {}): SceneImage => ({
 
 const calibration = backdrop(1)
 
-const frame = (over: Partial<FrameSnapshot> = {}): FrameSnapshot => ({
+/** 量到的东西各自建场景（没有上一帧）：unchangedFrame 现比两份场景，与 stage 里「相对上一帧建」的结果相同（scene.test.ts）。 */
+interface FrameOver extends Partial<Omit<FrameSnapshot, 'scene'>> {
+  panels?: MeasuredPanel[]
+  groups?: MeasuredGroup[]
+  fills?: MeasuredFill[]
+}
+const frame = ({ panels = [panel()], groups = [], fills = [], ...over }: FrameOver = {}): FrameSnapshot => ({
   time: 1,
   viewport: viewport(),
   blendSpace: 'srgb',
   backdrop: calibration,
   sceneImage: null,
-  panels: [panel()],
-  groups: [],
-  fills: [],
+  scene: buildScene({ panels, groups, fills }, null),
   panelDebugMode: 'off',
   ...over
 })
@@ -299,9 +304,7 @@ test('内置场景被盖住：不透明、轴对齐、铺满画布的第 0 层�
     blendSpace: 'srgb',
     backdrop: backdrop0,
     sceneImage: null,
-    panels: [],
-    groups: [],
-    fills: [cover()],
+    scene: buildScene({ panels: [], groups: [], fills: [cover()] }, null),
     panelDebugMode: 'off'
   })
   assert.equal(unchangedFrame(frame(1), frame(2)), true)

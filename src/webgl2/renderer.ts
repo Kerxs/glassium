@@ -42,7 +42,7 @@ import {
 import { LOCAL_SIGMA, MAX_LEVELS, levelForSigma } from '../renderer/blur.ts'
 import type { LabelAtlas } from '../renderer/atlas.ts'
 import { CANVAS_DEST, packFill, sceneDest, sceneScissor, type MeasuredFill } from '../renderer/fills.ts'
-import { layerRegion, levelRegion, splitLayers, unionRegion, type LayerItems, type LayerRegion } from '../renderer/layers.ts'
+import { layerRegion, levelRegion, unionRegion, type LayerItems, type LayerRegion } from '../renderer/layers.ts'
 import { sceneReusable, type SceneKey } from '../renderer/idle.ts'
 import { textureBytes, usage, type ResourceUsage } from '../renderer/resources.ts'
 import {
@@ -541,7 +541,7 @@ export class Gl2Renderer implements Renderer {
     }
 
     // 分层：第 0 层照旧，更高的层在第 6 步逐层画（与 gpu.ts 相同）
-    const layers = splitLayers(panels, groups, fills)
+    const layers = input.scene.layers
     const base: LayerItems = layers[0]?.layer === 0 ? layers[0] : { layer: 0, panels: [], groups: [], fills: [] }
     let draws = 1 // 背景
     const backdropLevel = levelForSigma(backdrop.blurDp * viewport.sceneScale, this.#levels)

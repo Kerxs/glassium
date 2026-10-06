@@ -51,7 +51,7 @@ import {
 import { BACKDROP_FORMAT, backdropFormat, BlurChain, levelForSigma, type BlurChainTextures } from './blur.ts'
 import type { LabelAtlas } from './atlas.ts'
 import { CANVAS_DEST, packFill, sceneDest, sceneScissor, type MeasuredFill } from './fills.ts'
-import { layerRegion, splitLayers, unionRegion, type LayerItems, type LayerRegion } from './layers.ts'
+import { layerRegion, unionRegion, type LayerItems, type LayerRegion } from './layers.ts'
 import { sceneReusable, type SceneKey } from './idle.ts'
 import { GpuTimer, type GpuPasses } from './gpu-timer.ts'
 import { textureBytes, usage, type ResourceUsage } from './resources.ts'
@@ -799,7 +799,7 @@ export class GpuRenderer implements Renderer {
 
     // 分层（layers.ts）：第 0 层（直接在场景上的玻璃与场景里的填充）照旧；写在玻璃里面的东西在更高的层，
     // 画之前把画布上已经画好的那一块采回来、只在那一块里重建模糊链
-    const layers = splitLayers(panels, groups, fills)
+    const layers = input.scene.layers
     const base: LayerItems = layers[0]?.layer === 0 ? layers[0] : { layer: 0, panels: [], groups: [], fills: [] }
     let draws = 0
     const withFills = base.fills.length > 0 && this.#fillSceneBindGroup !== null

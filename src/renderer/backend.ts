@@ -16,6 +16,7 @@ import type { PanelDebugMode } from '../shaders/glass.wgsl.ts'
 import type { ProbeReport } from '../webgpu/probe.ts'
 import type { MeasuredFill } from './fills.ts'
 import type { MeasuredGroup, MeasuredPanel } from './panels.ts'
+import type { Scene } from './scene.ts'
 import type { GroupOpticsProbe, OpticsProbe } from './verify.ts'
 
 /**
@@ -121,6 +122,8 @@ export interface FrameInput {
   readonly backdrop: BackdropState
   /** 用户场景。null 时按 backdrop.sceneMode 画内置场景。 */
   readonly sceneImage: SceneImage | null
+  /** 这一帧的场景（scene.ts）：节点、层、脏标记。下面三个扁平数组是它的视图（scene.panels 等，同一份），后端暂时还读它们。 */
+  readonly scene: Scene
   readonly panels: readonly MeasuredPanel[]
   readonly groups: readonly MeasuredGroup[]
   /** 填充：先画进场景（玻璃看得见），再按画布分辨率画到画布上（见 fill.wgsl.ts）。 */

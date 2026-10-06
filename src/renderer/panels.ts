@@ -259,6 +259,11 @@ export interface MeasureResult {
   readonly groups: readonly MeasuredGroup[]
   /** 在屏上、不透明度不为 0 的填充，按注册顺序（先注册的画在下面）。 */
   readonly fills: readonly MeasuredFill[]
+  /**
+   * 这一帧找过的玻璃祖先：面板或填充 → 最近的注册过的玻璃祖先（沿渲染树往上，自己不算；没有是 null）。
+   * 只是结构信息（scene.ts 的父子），层号已经算进 layer 里。没有这一项时都当作根。
+   */
+  readonly glassParents?: ReadonlyMap<PanelRecord | FillRecord, PanelRecord | null>
 }
 
 /** 一帧里量到的面板，已换算到画布设备像素。 */
@@ -869,6 +874,7 @@ export class PanelRegistry {
     // 层：最近的玻璃祖先（沿渲染树往上，自己不算）是谁，缓存到树代数变了为止；层号 = 玻璃祖先的层号 + 1
     const treeGeneration = this.#treeGeneration
     let glassByElement: Map<Element, PanelRecord> | null = null
+    const glassParents = new Map<PanelRecord | FillRecord, PanelRecord | null>()
     const glassParentOf = (record: GeometryCache): PanelRecord | null => {
       if (record.glassParentGeneration !== treeGeneration) {
         glassByElement ??= new Map(this.#records.map((r) => [r.element, r]))
@@ -883,7 +889,9 @@ export class PanelRegistry {
         record.glassParent = found
         record.glassParentGeneration = treeGeneration
       }
-      return (record.glassParent as PanelRecord | null | undefined) ?? null
+      const parent = (record.glassParent as PanelRecord | null | undefined) ?? null
+      glassParents.set(record as PanelRecord | FillRecord, parent)
+      return parent
     }
     const layerOf = (record: GeometryCache): number => {
       let layer = 0
@@ -1166,7 +1174,7 @@ export class PanelRegistry {
         fills[i] = { ...f, hole }
       }
     }
-    return { panels, groups, fills }
+    return { panels, groups, fills, glassParents }
   }
 }
 

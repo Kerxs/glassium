@@ -7,8 +7,7 @@ import type { GlassMaterial } from '../core/material.ts'
 import type { EffectChain } from '../core/pipeline.ts'
 import type { ResolvedViewport } from '../core/units.ts'
 import type { MeasuredFill } from './fills.ts'
-import type { FrameSnapshot } from './idle.ts'
-import type { MeasuredPanel, PanelPresentation } from './panels.ts'
+import type { MeasuredGroup, MeasuredPanel, PanelPresentation } from './panels.ts'
 import type { QualityFactors } from './quality.ts'
 
 /** 一块玻璃（单独画的面板，或者合并组里的一个成员）。 */
@@ -56,8 +55,19 @@ export interface SceneSnapshot {
   readonly viewport: ResolvedViewport
 }
 
+/**
+ * 检查器要的一帧：视口与量到的面板、合并组、填充。stage 给的是上一帧场景（scene.ts）的扁平视图；
+ * 形状与 1.0 时的参数相同（那时它是整个帧快照，多出来的字段不读）。
+ */
+export interface InspectableFrame {
+  readonly viewport: ResolvedViewport
+  readonly panels: readonly MeasuredPanel[]
+  readonly groups: readonly MeasuredGroup[]
+  readonly fills: readonly MeasuredFill[]
+}
+
 /** 上一帧的快照 → 检查器的数据。没有画过（null）时是空的。 */
-export function inspectFrame(frame: FrameSnapshot | null): SceneSnapshot | null {
+export function inspectFrame(frame: InspectableFrame | null): SceneSnapshot | null {
   if (!frame) return null
   const v = frame.viewport
   const kx = v.cssWidth / v.compositeWidth

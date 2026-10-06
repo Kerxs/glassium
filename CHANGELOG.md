@@ -5,6 +5,14 @@
 
 ## [未发布]
 
+### 内部
+
+- **只读的场景**（`src/renderer/scene.ts`，内部，公开接口不变）：每帧量到的面板、合并组、填充编成有类型的 `Scene`
+  （节点带父子、层、Z 序、包围盒、裁剪、不透明度、transform / layout / material / content 四类脏标记），作为渲染器的正式输入
+  （`FrameInput.scene`）。「静止时不画」改为读场景的脏标记，结论与之前逐项相同（有对照测试）；`stage.debug.scene()` 从场景读；
+  两个后端的分层改读 `scene.layers`。像素、`stats()`、draw 数不变（verify、regress、bench 对照过）。
+  `inspectFrame` 的参数类型放宽成 `InspectableFrame`（视口 + 三个扁平数组，1.0 时传的对象照样能传）。
+
 ### 变化
 
 - 删掉了用不上的文件：组件目录里两个转发文件（`components/attributes.ts`、`components/morph-glass.ts`，包的 `exports`

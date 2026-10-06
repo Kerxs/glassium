@@ -1,8 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 
-import { inspectFrame } from './inspect.ts'
-import type { FrameSnapshot } from './idle.ts'
+import { inspectFrame, type InspectableFrame } from './inspect.ts'
 import type { MeasuredPanel } from './panels.ts'
 import type { MeasuredFill } from './fills.ts'
 import { sceneRows, detailLines } from '../debug/rows.ts'
@@ -25,7 +24,7 @@ test('场景检查器：面板、合并组的成员、填充换成 CSS 像素，
     panels: [panel(card)],
     groups: [{ members: [panel(member, { layer: 1 })], smoothingPx: 10, scissor: [0, 0, 1, 1], layer: 1 }],
     fills: [{ record: { element: fillEl }, x: 0, y: 0, w: 200, h: 100, color: [1, 0, 0, 1], gradient: null, layer: 0 } as unknown as MeasuredFill]
-  } as unknown as FrameSnapshot
+  } as unknown as InspectableFrame
   assert.equal(inspectFrame(null), null)
   const s = inspectFrame(frame)!
   assert.equal(s.glasses.length, 2)

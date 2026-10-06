@@ -63,6 +63,7 @@ import type {
 } from './backend.ts'
 import { GpuRenderer } from './gpu.ts'
 import { unchangedFrame, type FrameSnapshot } from './idle.ts'
+import { buildScene } from './scene.ts'
 import { LayerWatcher, type LayerProblem } from './layering.ts'
 import {
   PanelRegistry,
@@ -863,9 +864,8 @@ async function buildStage(options: GlassStageOptions): Promise<GlassStage> {
       blendSpace,
       backdrop,
       sceneImage: scene.frame(viewport),
-      panels: measured.panels,
-      groups: measured.groups,
-      fills: measured.fills,
+      // 脏标记相对上一个画了的帧（unchangedFrame 比的也是它）
+      scene: buildScene(measured, lastFrame?.scene ?? null),
       panelDebugMode
     }
 
@@ -886,7 +886,8 @@ async function buildStage(options: GlassStageOptions): Promise<GlassStage> {
     pendingGroupProbe = null
     pendingReadback = null
 
-    const result = renderer.render({ ...frame, atlas: panels.atlas, probe, groupProbe, readback, reuseScene })
+    const { panels: drawn, groups, fills } = frame.scene
+    const result = renderer.render({ ...frame, panels: drawn, groups, fills, atlas: panels.atlas, probe, groupProbe, readback, reuseScene })
     if (!result) {
       // 这一帧没画成（比如资源还没就绪、上下文刚丢）：请求放回去，下一帧再服务
       pendingProbe ??= probe
@@ -1316,7 +1317,7 @@ async function buildStage(options: GlassStageOptions): Promise<GlassStage> {
         }
       },
       checkLayers: (): LayerProblem<Element>[] => layers.check(),
-      scene: (): SceneSnapshot | null => inspectFrame(lastFrame),
+      scene: (): SceneSnapshot | null => (lastFrame ? inspectFrame({ viewport: lastFrame.viewport, ...lastFrame.scene }) : null),
       renderNow(): void {
         if (!isActive()) return
         renderFrame(performance.now(), true)

@@ -26,7 +26,7 @@ Glassium 的定位是**面向 Web 的 Liquid Glass 渲染运行时**：让任意
 | Animation | 统一的时间轴：一帧一个 rAF，与画同帧，减少动效一步到头 | `src/animation/timeline.ts` | 0.4 起有 |
 | DOM Adapter | DOM → 场景的中间表示：几何、变换、裁剪、遮罩、不透明度、层 | `src/renderer/panels.ts`（测量）、`clipping.ts`、`clip-path.ts`、`mask.ts`、`pose.ts`、`layers.ts` | 有（面板、填充） |
 | 场景内容 | 页面背景、填充、位图、文字、图片、画布、视频 | `src/renderer/fills.ts`、`atlas.ts`、`scene-source.ts`、`src/components/scene-label.ts`、`src/runtime/absorb.ts`、`src/runtime/content.ts` | 背景自动收进场景、玻璃后面的内容块画进场景（DOM Renderer），都是 0.3 |
-| Scene Graph | 层级、Z 序、脏状态 | 层与 Z 序在 `panels.ts` 的测量结果与 `layers.ts` 里；脏状态分三级：整帧（`idle.ts` 的 `unchangedFrame`）、场景（`sceneReusable`）、层改过的那一块（备份与局部复原） | 没有独立的场景图对象 |
+| Scene Graph | 层级、Z 序、脏状态 | `src/renderer/scene.ts`：每帧从测量结果派生的只读 `Scene`（节点 = 面板 / 合并组 / 填充，带父子、层、Z 序、包围盒、裁剪、不透明度、四类脏标记），`FrameInput.scene` 交给后端；脏状态分三级：整帧（`idle.ts` 的 `unchangedFrame`，读场景的脏标记）、场景（`sceneReusable`）、层改过的那一块（备份与局部复原） | 只读、内部（1.1 起）；没有可变的场景图对象 |
 | Compositor | 分层合成、嵌套玻璃、顶层（对话框 / popover）、morph | `src/renderer/layers.ts`、`gpu.ts` / `webgl2/renderer.ts` 的分层绘制、`core/overlay.ts`、`interaction/morph.ts` | 有（共享场景与一条模糊链） |
 | Renderer | WebGPU / WebGL2 / CSS / 普通 DOM | `src/renderer/gpu.ts`、`src/webgl2/`、`core/overlay.ts` + `runtime/styles.ts`、`[glass]` 没有 active 时的 CSS | 有 |
 | Performance | 帧监测、自适应质量、预算、profile、局部质量 | `src/performance/`、`renderer/quality.ts`、`stage.setQuality` / `onFrame`、`GlassPanel.setQuality` | 整页 + 先降贵的那几块（0.4） |
@@ -103,6 +103,12 @@ Firefox / Safari / 移动端的实测（没有设备，矩阵里是推断的格�
 - 独立的场景图（层、Z 序、脏状态），嵌套玻璃共享场景采集与模糊链的规则写成显式的；Portal、Overlay、Popover、离屏渲染。
 - **已做**：脏状态三级（整帧、场景、层改过的那一块，见上面「一帧」）—— 只动了玻璃的帧沿用场景与模糊链，有层的页面
   局部复原；被不透明根背景盖住的内置场景不再让静止页面每帧都画。
+- **1.1 做了只读的那一份**（`src/renderer/scene.ts`，内部，不进稳定承诺）：`PanelRegistry.measure()` 量出的面板、合并组、填充
+  每帧编成 `Scene { nodes, roots, layers }`，是渲染器的正式输入（`FrameInput.scene`）。节点按实际绘制顺序排（层号从小到大；
+  同一层先填充、再单独的面板、再合并组，成员紧跟组、与组同一个 order）；父亲是最近的、这一帧也是节点的玻璃祖先（屏外的跳过，
+  合并组的成员挂在组下）；脏标记分 transform / layout / material / content 四类，相对上一个画了的帧。四类的并集与 1.0 时
+  `unchangedFrame` 逐项比扁平数组的结论逐项等价（scene.test.ts 用 1.0 那份比较的拷贝做对照，随机帧逐个改一项）。
+  场景不能从外面改、下一帧整个重建 —— DOM 仍是唯一真源。后端暂时还读三个扁平数组（场景的视图）与 `scene.layers`。
 - **1.0 定下来不做**：可变的场景图对象 —— 场景图就是 DOM（层、Z 序、嵌套都从元素树与层叠上下文读出来，layers.ts），
   再给一份可以改的对象就有了两个真源；只读的一份是 `stage.debug.scene()`（`SceneSnapshot`：每块玻璃的组、层、矩形、材质、
   效果链、质量，每块填充），检查器与测试用它。顶层（对话框、popover）里的 GPU 玻璃 —— 顶层的玻璃只能折射 Glassium 的场景、
@@ -205,6 +211,9 @@ src/renderer/      与后端无关的一层
   backend.ts         渲染后端接口，一帧的输入输出
   gpu.ts             WebGPU 后端
   panels.ts          面板注册表、合并组、测量、uniform 打包
+  scene.ts           测量结果 → 只读的 Scene（节点树、层、Z 序、脏标记），渲染器的输入
+  layers.ts          按层分组、层要重画的那一块
+  idle.ts            静止时不画（整帧）、场景沿用（sceneReusable）
   blur.ts            模糊链（级数、σ ↔ 级别）
   layering.ts        面板与画布之间有什么：命中测试 + 点名警告
   clipping.ts        面板的裁剪祖先（按包含块链）与裁剪矩形
@@ -243,6 +252,7 @@ stage 是**外壳**：画布、面板注册表、调试参数、帧循环、监�
 
 ```
 测量  所有面板一次 getBoundingClientRect（帧内之后不再碰布局），读一遍 CSS 上的实际不透明度
+场景  量到的东西编成只读的 Scene：父子、层、Z 序、与上一个画了的帧相比的脏标记（scene.ts）
 打包  Panel / Group → uniform（512B / 1792B 步长）
 场景  内置程序化场景，或用户的图片 / 视频 / 画布（按 object-fit 铺）→ 模糊链第 0 级
 填充  <glass-fill> 的纯色圆角矩形画进第 0 级（之前先拷一份没有填充的场景）
@@ -254,7 +264,7 @@ stage 是**外壳**：画布、面板注册表、调试参数、帧循环、监�
 ```
 
 测量之后先比一次：这一帧的全部输入（视口、背景参数、场景、每块面板的矩形与降级结果……）与上一帧
-相同，就不画 —— 浏览器继续显示上一帧（`src/renderer/idle.ts`）。静态页面因此没有持续的 GPU 开销；
+相同（场景的节点一个不多一个不少、四类脏标记都不脏），就不画 —— 浏览器继续显示上一帧（`src/renderer/idle.ts`）。静态页面因此没有持续的 GPU 开销；
 测量照做，滚动与布局变化下一帧就能发现。
 
 要画的时候再比一次**场景**（`sceneReusable`）：场景目标与整条模糊链只取决于视口、混合空间、场景参数与用户场景、
