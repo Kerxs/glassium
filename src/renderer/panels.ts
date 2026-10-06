@@ -226,6 +226,16 @@ export const OVERLAY_ATTRIBUTE = 'data-glassium-overlay'
 export const OVERLAY_OPT_IN = 'overlay'
 
 /**
+ * 这块玻璃按 CSS 画：它自己或者某个祖先写了 `overlay`、或者已经被 stage 标成 overlay。
+ * 收背景、收内容（runtime 的 absorb / content）要跳过它们：CSS 玻璃不上 GPU，它后面的东西本来就由
+ * backdrop-filter 看得见；收进场景反倒把它们挪到页面最底下 —— 对话框的遮罩跑到正文底下、对话框里着色按钮的底色被清掉。
+ * 顶层里的对话框在 stage 第一次测量、标上属性之前认不出来，那之后的扫描就跳过了。
+ */
+export function drawnWithCss(el: { closest(selector: string): unknown }): boolean {
+  return el.closest(`[${OVERLAY_OPT_IN}], [${OVERLAY_ATTRIBUTE}]`) != null
+}
+
+/**
  * 玻璃最多叠几层（层号 0 起）。写在一块玻璃里面的玻璃（卡片里的按钮、卡片里开关的旋钮）在它上面一层：
  * 画它之前先把画布上已经画好的那一块（下面那层的玻璃也在里面）重新采回场景目标、重建那一块的模糊链，
  * 于是它折射、模糊的是下面那层玻璃，而不是在下面那层上开一个洞。每多一层多一轮局部的重采样与模糊。

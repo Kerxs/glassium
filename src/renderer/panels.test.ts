@@ -13,6 +13,7 @@ import { levelForSigma } from './blur.ts'
 import { UNBOUNDED } from './clipping.ts'
 import {
   CLIP_UNBOUNDED_PX,
+  drawnWithCss,
   MAX_GLASS_LAYER,
   PanelRegistry,
   RIM_MIN_PX,
@@ -479,4 +480,18 @@ test('单块的质量系数乘在全局的上面；分辨率只看全局；结�
   assert.equal(again.quality, pa!.quality, '全局没变：同一个对象（静止时不画的比较按引用）')
   a.setQuality(null)
   assert.equal(registry.measure(viewport).panels[0]!.quality, registry.quality)
+})
+
+test('用 CSS 画的玻璃：自己或祖先写了 overlay、或已被标成 overlay 的认得出来，别的不算', () => {
+  // 只用到 closest：按「自己 + 祖先的属性」模拟
+  const el = (...chain: string[][]) => ({
+    closest(selector: string) {
+      const wanted = selector.split(',').map((s) => s.trim().slice(1, -1))
+      return chain.some((attrs) => attrs.some((a) => wanted.includes(a))) ? {} : null
+    }
+  })
+  assert.equal(drawnWithCss(el(['glass', 'overlay'])), true, '自己写了 overlay')
+  assert.equal(drawnWithCss(el(['glass'], ['glass', 'data-glassium-overlay'])), true, '对话框里的按钮：祖先被标成 overlay')
+  assert.equal(drawnWithCss(el(['glass', 'data-glassium-overlay'])), true, 'stage 标上的（顶层里的对话框）')
+  assert.equal(drawnWithCss(el(['glass'], ['glass'])), false, '普通的 GPU 玻璃')
 })

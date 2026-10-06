@@ -18,7 +18,7 @@
 
 import { sameOriginImage } from '../renderer/paint-content.ts'
 import { inspectPanel } from '../renderer/layering.ts'
-import type { SceneBitmapFill, SceneFill } from '../renderer/panels.ts'
+import { drawnWithCss, type SceneBitmapFill, type SceneFill } from '../renderer/panels.ts'
 import { currentStage, onStageChange, type GlassStage } from '../renderer/stage.ts'
 import { placeImage, planBackground, type BackgroundPlan, type BackgroundStyle } from './background.ts'
 import { isContentBlock, releaseContent, scanContent } from './content.ts'
@@ -169,7 +169,8 @@ function scan(movedOnly = false): void {
     stageOf = stage
   }
   const selector = config.absorbForComponents ? `[${GLASS_ID_ATTRIBUTE}], [data-glassium-active]` : `[${GLASS_ID_ATTRIBUTE}]`
-  const panels = typeof document === 'undefined' ? [] : [...document.querySelectorAll<HTMLElement>(selector)]
+  // 用 CSS 画的玻璃不收它后面的东西（drawnWithCss）
+  const panels = typeof document === 'undefined' ? [] : [...document.querySelectorAll<HTMLElement>(selector)].filter((p) => !drawnWithCss(p))
   // 每次扫描都记下每块玻璃的位置；只扫动了的时候，没动的跳过命中测试
   const moved = new Set(panels.filter(movedInDocument))
   const probe = (list: readonly HTMLElement[]): readonly HTMLElement[] => (movedOnly ? list.filter((p) => moved.has(p)) : list)
@@ -213,7 +214,7 @@ function scan(movedOnly = false): void {
 
 /** 内容块只看 runtime 的玻璃（组件里的字本来就在组件自己的层里）。 */
 function runtimePanels(): HTMLElement[] {
-  return [...document.querySelectorAll<HTMLElement>(`[${GLASS_ID_ATTRIBUTE}]`)]
+  return [...document.querySelectorAll<HTMLElement>(`[${GLASS_ID_ATTRIBUTE}]`)].filter((p) => !drawnWithCss(p))
 }
 
 /** 内容块接管它自己的背景（背景色由内容的 painter 画）：背景层那一份放手。 */
