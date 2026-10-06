@@ -88,8 +88,15 @@ export function releaseContent(): void {
 /**
  * 扫一遍：panels 是 runtime 的玻璃。新收的块会让 stage 立刻画一帧（DOM 里的字刚变透明，场景里的那一份要同一帧出现）。
  * @param takeOver 块原来的背景被收成了背景层（absorb.ts）：让它放手，背景改由这一块的 painter 画
+ * @param probe 这一次做命中测试的玻璃（默认全部；滚动时只有相对页面动了的，见 absorb.ts 的 scheduleScrollScan）。
+ *   没测的玻璃后面已经收了的块照留：放不放只看离所有玻璃（panels）远不远
  */
-export function scanContent(stage: GlassStage, panels: readonly HTMLElement[], takeOver: (el: HTMLElement) => void): void {
+export function scanContent(
+  stage: GlassStage,
+  panels: readonly HTMLElement[],
+  takeOver: (el: HTMLElement) => void,
+  probe: readonly HTMLElement[] = panels
+): void {
   listen()
   if (stage !== stageOf) {
     for (const e of entries.values()) e.fill = null
@@ -106,7 +113,7 @@ export function scanContent(stage: GlassStage, panels: readonly HTMLElement[], t
   }
   generation++
   let added = false
-  for (const panel of panels) {
+  for (const panel of probe) {
     if (!panel.isConnected) continue
     const floor = occludingAncestor(panel)
     for (const stack of hitStacksBehind(panel, stage.canvas, 6, 4) ?? []) {
