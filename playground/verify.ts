@@ -265,6 +265,31 @@ function pixelDiff(a: Uint8Array, b: Uint8Array, width: number): string {
   return `${count} 个像素不同，最大差 ${max}，范围 (${x0}, ${y0})–(${x1}, ${y1})` + (count <= 6 ? `：${listed.join('；')}` : '')
 }
 
+/**
+ * WebGL2 的驱动噪声容许多少：至多这么多个像素、每个通道至多差 1 级。
+ *
+ * 本机（NVIDIA RTX 4070 Laptop + ANGLE / D3D11）上，**送进 GPU 的调用流逐字节相同**（钩住 WebGL2 的全部上传与绘制、
+ * 每帧算哈希，40 帧一个哈希），画出来的画布却会在两种结果之间分段切换：头几帧一种、之后一种、过一阵又切回来，
+ * 差在 v-card 折射带的一个像素上 1 级（185 ↔ 184）。像是驱动在后台换了一版编译结果，两版在一个正好压在量化边界上的
+ * 像素上差 1 ulp。改一行着色器（哪怕只是在末尾多一句）现象就消失或挪地方，所以不是哪一步写错了，着色器这边消不掉；
+ * WebGPU（D3D12）上没有。于是「同一画面重画应当相同」的比较在 WebGL2 上容许这一点，WebGPU 照旧逐位比。
+ */
+const WEBGL2_NOISE_PIXELS = 2
+
+/** 两次回读算不算同一画面：逐位相同；或者 WebGL2 上只差驱动噪声（见 WEBGL2_NOISE_PIXELS）。 */
+function sameFrame(a: Uint8Array, b: Uint8Array): boolean {
+  if (a.length !== b.length) return false
+  let pixels = 0
+  for (let i = 0; i < a.length; i += 4) {
+    let d = 0
+    for (let c = 0; c < 4; c++) d = Math.max(d, Math.abs(a[i + c]! - b[i + c]!))
+    if (d === 0) continue
+    if (d > 1 || stage.debug.stats().backend !== 'webgl2') return false
+    if (++pixels > WEBGL2_NOISE_PIXELS) return false
+  }
+  return true
+}
+
 /** `rgb(r, g, b)` / `rgba(r, g, b, a)` → 0–1 的 [r, g, b, a]。只给验证页算预期值用。 */
 function parseRgb(css: string): [number, number, number, number] | null {
   const m = /^rgba?\(\s*([\d.]+),\s*([\d.]+),\s*([\d.]+)(?:,\s*([\d.]+))?\s*\)$/.exec(css.trim())
@@ -468,6 +493,7 @@ async function run(): Promise<void> {
     // 静止的画面连着出 21 帧，整张画布必须逐位相同。WebGL2 在 NVIDIA RTX 4070 Laptop + ANGLE（D3D11）上曾经不是：
     // 片元着色器里除以 uniform 的结果在帧与帧之间差 1 ulp，经过双线性采样变成 ±1 的色阶，一成到四成的帧
     // 与别的帧不同（见 webgl2/shaders.ts 的 uStageInv）。后面按哈希比对的检查都靠这一条。
+    // 那之后剩下的是驱动自己的噪声（同一份调用流画出两种结果，见 WEBGL2_NOISE_PIXELS）：WebGL2 上容许，照实写进详情。
     // 关掉沿用场景：每一帧都整帧画（场景、模糊链都重建）—— 沿用的帧天然相同，验不出重建是不是确定的
     stage.debug.setSceneReuse(false)
     try {
@@ -476,14 +502,25 @@ async function run(): Promise<void> {
       const first = await readback(full)
       const firstHash = await sha(first)
       let differing = 0
+      let noisy = 0
       let where = ''
+      let noise = ''
       for (let i = 0; i < 20; i++) {
         const next = await readback(full)
         if ((await sha(next)) === firstHash) continue
+        // WebGL2 的驱动噪声（见 WEBGL2_NOISE_PIXELS）：照实记下来，不算失败
+        if (sameFrame(first, next)) {
+          noisy++
+          if (!noise) noise = pixelDiff(first, next, full.width)
+          continue
+        }
         differing++
         if (!where) where = pixelDiff(first, next, full.width)
       }
-      const detail = `整张画布（${full.width}×${full.height}）连着 21 帧整帧画：` + (differing === 0 ? '逐位相同' : `${differing} 帧与第一帧不同，头一帧 ${where}`)
+      const detail =
+        `整张画布（${full.width}×${full.height}）连着 21 帧整帧画：` +
+        (differing === 0 ? '逐位相同' : `${differing} 帧与第一帧不同，头一帧 ${where}`) +
+        (noisy > 0 ? `（另有 ${noisy} 帧只差 WebGL2 驱动噪声：${noise}）` : '')
       return differing === 0 ? pass(detail) : fail(detail)
     } finally {
       stage.debug.setSceneReuse(reuseDefault)
@@ -3405,8 +3442,9 @@ async function run(): Promise<void> {
       panelEl.style.left = '532px'
       const moved = await reused()
       const movedFull = await full()
+      // 换色之后紧接着画，中间不让出：页面可见（rAF 在跑）时让出一下，rAF 就先画了新颜色的一帧，这一帧反倒沿用了。
+      // 填充的颜色每帧从计算样式读，不用等任何回调
       fill.style.setProperty('--glass-fill', 'rgb(200, 60, 60)')
-      await sleep(0)
       const recolored = await reused()
       const recoloredFull = await full()
       // 嵌套：panelEl 里面再放一块玻璃（第 1 层）
@@ -3674,6 +3712,8 @@ async function run(): Promise<void> {
       bytesOf.set(h, bytes)
       return h
     }
+    // 「应当逐位不变 / 复原」的比较：WebGL2 上容许驱动噪声（见 WEBGL2_NOISE_PIXELS）
+    const same = (a: string, b: string): boolean => a === b || sameFrame(bytesOf.get(a)!, bytesOf.get(b)!)
     // 复原不了时说清楚差多少：差 1 级是数值抖动，差得多是状态没复原
     const diffOf = (a: string, b: string): string => {
       if (a === b) return ''
@@ -3718,18 +3758,18 @@ async function run(): Promise<void> {
       const pinned = await hashOf([bigEl])
       ;(big as unknown as LocalQualityTarget).setLocalQuality(null)
       stage.debug.renderNow()
-      const pinnedKept = (await hashOf([bigEl])) === pinned
+      const pinnedKept = same(await hashOf([bigEl]), pinned)
       big.update({ quality: 'auto' })
       stage.debug.renderNow()
       const big3 = await hashOf([bigEl])
       const detail =
-        `起步 0.8、四块：单独降了 ${lowered} 块、整页那一档 ${globalQ}、整页系数满 ${globalFull} · 大的变了 ${big1 !== big0}、小的逐位不变 ${small1 === small0} · ` +
-        `dispose 后大的复原 ${big2 === big0}${diffOf(big0, big2)} · 只有一块：整页那一档 ${alone.global}、单独降 ${alone.lowered} 块、整页色散 ${alone.dispersion} · ` +
-        `写死 0.35：变了 ${pinned !== big0}、自适应不碰 ${pinnedKept}、改回 auto 复原 ${big3 === big0}${diffOf(big0, big3)}`
+        `起步 0.8、四块：单独降了 ${lowered} 块、整页那一档 ${globalQ}、整页系数满 ${globalFull} · 大的变了 ${!same(big1, big0)}、小的逐位不变 ${same(small1, small0)}${diffOf(small0, small1)} · ` +
+        `dispose 后大的复原 ${same(big2, big0)}${diffOf(big0, big2)} · 只有一块：整页那一档 ${alone.global}、单独降 ${alone.lowered} 块、整页色散 ${alone.dispersion} · ` +
+        `写死 0.35：变了 ${!same(pinned, big0)}、自适应不碰 ${pinnedKept}、改回 auto 复原 ${same(big3, big0)}${diffOf(big0, big3)}`
       const ok =
-        lowered === 1 && globalQ === 1 && globalFull && big1 !== big0 && small1 === small0 && big2 === big0 &&
+        lowered === 1 && globalQ === 1 && globalFull && !same(big1, big0) && same(small1, small0) && same(big2, big0) &&
         alone.global === 0.8 && alone.lowered === 0 && alone.dispersion < 1 &&
-        pinned !== big0 && pinnedKept && big3 === big0
+        !same(pinned, big0) && pinnedKept && same(big3, big0)
       return ok ? pass(detail) : fail(detail)
     } finally {
       adaptive?.dispose()

@@ -13,6 +13,14 @@
   两个后端的分层改读 `scene.layers`。像素、`stats()`、draw 数不变（verify、regress、bench 对照过）。
   `inspectFrame` 的参数类型放宽成 `InspectableFrame`（视口 + 三个扁平数组，1.0 时传的对象照样能传）。
 
+### 修复
+
+- **verify.html 在 WebGL2 上偶发失败**（1.0.0 起就有）：`deterministic`、`local-quality` 偶尔差一个像素 1 级。查清了是驱动噪声
+  —— 送进 GPU 的调用流逐字节相同，NVIDIA + ANGLE（D3D11）给出两种结果（docs/calibration.md「WebGL2 帧间差 1 级」）。
+  这两项「同一画面重画应当相同」的比较在 WebGL2 上容许至多 2 个像素差 1 级，并写进详情；WebGPU 照旧逐位比。
+- **verify.html 的 `scene-reuse` 在页面可见时失败**：给填充换色之后让出了一下，rAF 在跑时会先画掉新颜色的那一帧，
+  接下来那一帧反倒沿用了场景。改成换色后紧接着画。只影响验证页，不影响库。
+
 ### 变化
 
 - 删掉了用不上的文件：组件目录里两个转发文件（`components/attributes.ts`、`components/morph-glass.ts`，包的 `exports`
