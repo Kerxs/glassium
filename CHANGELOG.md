@@ -5,13 +5,9 @@
 
 ## [未发布]
 
-### 内部
+## [1.0.1] — 2026-10-06
 
-- **只读的场景**（`src/renderer/scene.ts`，内部，公开接口不变）：每帧量到的面板、合并组、填充编成有类型的 `Scene`
-  （节点带父子、层、Z 序、包围盒、裁剪、不透明度、transform / layout / material / content 四类脏标记），作为渲染器的正式输入
-  （`FrameInput.scene`）。「静止时不画」改为读场景的脏标记，结论与之前逐项相同（有对照测试）；`stage.debug.scene()` 从场景读；
-  两个后端的分层改读 `scene.layers`。像素、`stats()`、draw 数不变（verify、regress、bench 对照过）。
-  `inspectFrame` 的参数类型放宽成 `InspectableFrame`（视口 + 三个扁平数组，1.0 时传的对象照样能传）。
+补丁版本：滚动卡顿的修复、验证页的两处修复，加上一项内部重构。公开接口、HTML 属性、`stats()` 字段都没变。
 
 ### 修复
 
@@ -30,6 +26,14 @@
   本来就不允许深路径引用，对使用者没有影响；它们的测试挪到了真身旁边）、旧地址的跳转页（`demo.html`、`runtime.html`、`devices.html`、`playground.html`；
   旧链接现在是 404，站点入口是首页的 `#overview`、`#devices`、`#editor`）、早期的开发记录
   `docs/progress.md`（内容在 CHANGELOG 与 calibration.md 里）。旧版本的标签与 Release 删了，下面旧版本的链接改指当时的提交。
+
+### 内部
+
+- **只读的场景**（`src/renderer/scene.ts`，内部，公开接口不变）：每帧量到的面板、合并组、填充编成有类型的 `Scene`
+  （节点带父子、层、Z 序、包围盒、裁剪、不透明度、transform / layout / material / content 四类脏标记），作为渲染器的正式输入
+  （`FrameInput.scene`）。「静止时不画」改为读场景的脏标记，结论与之前逐项相同（有对照测试）；`stage.debug.scene()` 从场景读；
+  两个后端的分层改读 `scene.layers`。像素、`stats()`、draw 数不变（verify、regress、bench 对照过）。
+  `inspectFrame` 的参数类型放宽成 `InspectableFrame`（视口 + 三个扁平数组，1.0 时传的对象照样能传）。
 
 ## [1.0.0] — 2026-09-30
 
@@ -257,7 +261,8 @@ Glassium 从组件库转向 **Web Liquid Glass 渲染运行时**（docs/architec
 玻璃折射的是 Glassium 自己画的场景，不是它背后的 DOM；盖在 DOM 上的玻璃没有折射。完整的列表在
 [docs/limitations.md](docs/limitations.md)，先读开头那三条编写规则。
 
-[未发布]: https://github.com/Kerxs/glassium/compare/v1.0.0...HEAD
+[未发布]: https://github.com/Kerxs/glassium/compare/v1.0.1...HEAD
+[1.0.1]: https://github.com/Kerxs/glassium/releases/tag/v1.0.1
 [1.0.0]: https://github.com/Kerxs/glassium/releases/tag/v1.0.0
 [0.4.0]: https://github.com/Kerxs/glassium/tree/ebbbdd9f83c37a8bacbdcb11b343d86684514772
 [0.3.0]: https://github.com/Kerxs/glassium/tree/d8f5be53c182395513a5d62c1172d732ad474373
