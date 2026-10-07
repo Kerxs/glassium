@@ -5,6 +5,10 @@
 
 ## [未发布]
 
+## [1.1.0] — 2026-10-07
+
+次版本：新增 `backend: 'css'`，修了收背景的两处问题 —— 都是 [Meshora](https://github.com/Kerxs/meshora) 的客户端用的时候撞上的。公开接口只加不改。
+
 ### 新增
 
 - **`configure({ backend: 'css' })`**：不建 GPU stage，所有玻璃（`[glass]` 与组件）照材质用 CSS 画 —— 与 overlay 玻璃同一套画法
@@ -277,7 +281,8 @@ Glassium 从组件库转向 **Web Liquid Glass 渲染运行时**（docs/architec
 玻璃折射的是 Glassium 自己画的场景，不是它背后的 DOM；盖在 DOM 上的玻璃没有折射。完整的列表在
 [docs/limitations.md](docs/limitations.md)，先读开头那三条编写规则。
 
-[未发布]: https://github.com/Kerxs/glassium/compare/v1.0.1...HEAD
+[未发布]: https://github.com/Kerxs/glassium/compare/v1.1.0...HEAD
+[1.1.0]: https://github.com/Kerxs/glassium/releases/tag/v1.1.0
 [1.0.1]: https://github.com/Kerxs/glassium/releases/tag/v1.0.1
 [1.0.0]: https://github.com/Kerxs/glassium/releases/tag/v1.0.0
 [0.4.0]: https://github.com/Kerxs/glassium/tree/ebbbdd9f83c37a8bacbdcb11b343d86684514772
