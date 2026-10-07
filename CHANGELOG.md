@@ -5,6 +5,16 @@
 
 ## [未发布]
 
+### 变化
+
+- **GPU 玻璃生效时，元素自己的底色换成透明**（runtime 样式表里一条优先级 0 的规则）：GPU 玻璃画在页面底下，元素的底色会把它
+  整块盖住 —— 以前 `<button glass>` 要自己写 `background: transparent` 去掉浏览器的默认底色（Meshora 就写了一条）。
+  作者自己写的底色照样盖过这一条；CSS 画的玻璃（没生效、overlay）不受影响。
+
+### 文档
+
+- limitations.md：CSS 画的玻璃套 CSS 画的玻璃、里层伸到外层外面时会透出下面的内容（Chromium），以及怎么避开。
+
 ## [1.1.0] — 2026-10-07
 
 次版本：新增 `backend: 'css'`，修了收背景的两处问题 —— 都是 [Meshora](https://github.com/Kerxs/meshora) 的客户端用的时候撞上的。公开接口只加不改。

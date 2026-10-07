@@ -5,6 +5,8 @@
  *   （`data-glassium-overlay`）时，用 backdrop-filter 画一块近似的玻璃。与组件影子树里的 OVERLAY_HOST_CSS 同一套变量。
  *   选择器包在 :where() 里，优先级 0，作者的样式都能盖过它。
  * - 每块玻璃的材质写成 CSS 变量：`[data-glassium-glass="3"] { --glassium-blur: … }`，材质变了才重写。
+ * - GPU 玻璃生效时，元素自己的底色换成透明（优先级 0）：GPU 玻璃画在页面底下，元素的底色会把它整块盖住。
+ *   清掉的是浏览器给 `<button>` 之类的默认底色 —— 作者自己写的底色照样盖过这一条（那是作者要的）。
  * - 收进场景的背景（absorb.ts）：`[data-glassium-absorbed] { background: transparent !important }`。
  */
 
@@ -16,7 +18,8 @@ export const GLASS_ID_ATTRIBUTE = 'data-glassium-glass'
 /** 背景被收进场景的元素（absorb.ts）。 */
 export const ABSORBED_ATTRIBUTE = 'data-glassium-absorbed'
 
-const BASE_CSS = `
+/** runtime 样式表的固定部分（导出给测试核对）。 */
+export const BASE_CSS = `
 :where([glass]:not([data-glassium-active]), [glass][data-glassium-overlay]) {
   background-color: var(--glassium-tint, rgba(255, 255, 255, 0.18));
   box-shadow:
@@ -27,6 +30,9 @@ const BASE_CSS = `
     0 6px 12px -4px var(--glassium-shadow, rgba(0, 0, 0, 0.053));
   -webkit-backdrop-filter: blur(var(--glassium-blur, 8px)) saturate(var(--glassium-saturate, 1.4));
   backdrop-filter: blur(var(--glassium-blur, 8px)) saturate(var(--glassium-saturate, 1.4));
+}
+:where([glass][data-glassium-active]:not([data-glassium-overlay])) {
+  background-color: transparent;
 }
 [${ABSORBED_ATTRIBUTE}] {
   background: transparent !important;
