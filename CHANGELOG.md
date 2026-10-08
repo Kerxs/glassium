@@ -5,6 +5,11 @@
 
 ## [未发布]
 
+## [1.1.1] — 2026-10-08
+
+补丁版本：都是 [Meshora](https://github.com/Kerxs/meshora) 的客户端用的时候要的 —— CSS 画玻璃时标签栏也有液态玻璃透镜，
+GPU 玻璃生效时元素自己的默认底色换成透明。公开接口不变。
+
 ### 新增
 
 - **`<glass-tab-bar>` 在 CSS 画玻璃时也有透镜**（`backend: 'css'`、对话框 / popover 里）：以前按住、拖动只是一块浅色鼓起来，
@@ -299,7 +304,8 @@ Glassium 从组件库转向 **Web Liquid Glass 渲染运行时**（docs/architec
 玻璃折射的是 Glassium 自己画的场景，不是它背后的 DOM；盖在 DOM 上的玻璃没有折射。完整的列表在
 [docs/limitations.md](docs/limitations.md)，先读开头那三条编写规则。
 
-[未发布]: https://github.com/Kerxs/glassium/compare/v1.1.0...HEAD
+[未发布]: https://github.com/Kerxs/glassium/compare/v1.1.1...HEAD
+[1.1.1]: https://github.com/Kerxs/glassium/releases/tag/v1.1.1
 [1.1.0]: https://github.com/Kerxs/glassium/releases/tag/v1.1.0
 [1.0.1]: https://github.com/Kerxs/glassium/releases/tag/v1.0.1
 [1.0.0]: https://github.com/Kerxs/glassium/releases/tag/v1.0.0
