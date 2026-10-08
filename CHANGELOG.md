@@ -5,6 +5,11 @@
 
 ## [未发布]
 
+## [1.1.2] — 2026-10-08
+
+补丁版本：都是 [Meshora](https://github.com/Kerxs/meshora) 的客户端用的时候要的 —— 启动不再卡半秒、页面不动时不再一直重读样式与重扫背景，
+CSS 画的玻璃也有液态玻璃的边。公开接口不变。
+
 ### 性能
 
 都是 Meshora 的客户端"每次启动卡、用着不流畅"查出来的（CPU 慢四倍的模拟下量的）：
@@ -329,7 +334,8 @@ Glassium 从组件库转向 **Web Liquid Glass 渲染运行时**（docs/architec
 玻璃折射的是 Glassium 自己画的场景，不是它背后的 DOM；盖在 DOM 上的玻璃没有折射。完整的列表在
 [docs/limitations.md](docs/limitations.md)，先读开头那三条编写规则。
 
-[未发布]: https://github.com/Kerxs/glassium/compare/v1.1.1...HEAD
+[未发布]: https://github.com/Kerxs/glassium/compare/v1.1.2...HEAD
+[1.1.2]: https://github.com/Kerxs/glassium/releases/tag/v1.1.2
 [1.1.1]: https://github.com/Kerxs/glassium/releases/tag/v1.1.1
 [1.1.0]: https://github.com/Kerxs/glassium/releases/tag/v1.1.0
 [1.0.1]: https://github.com/Kerxs/glassium/releases/tag/v1.0.1
