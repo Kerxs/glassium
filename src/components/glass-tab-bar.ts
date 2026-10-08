@@ -33,6 +33,7 @@ import { OVERLAY_HOST_CSS } from '../core/overlay.ts'
 import type { GlassPanel } from '../renderer/panels.ts'
 import { GlassElement, sharedSheet } from './base.ts'
 import { initialMinimize, nextMinimize, type MinimizeState } from './minimize.ts'
+import { CSS_LENS_BLEED, CssLens } from './css-lens.ts'
 import { SceneLabels } from './scene-label.ts'
 import { Segments, segmentValue } from './segments.ts'
 import { StageLink } from './stage-link.ts'
@@ -91,19 +92,19 @@ const CSS = `
   translate: var(--_x, 0px) 0;
   scale: var(--_jx, 1) var(--_jy, 1);
   transition: translate 0.35s cubic-bezier(0.3, 1.2, 0.5, 1), width 0.35s cubic-bezier(0.3, 1.2, 0.5, 1), scale 0.2s ease,
-    opacity 0.2s ease;
+    opacity 0.2s ease, background-color 0.2s ease, box-shadow 0.2s ease;
 }
 :host([data-pressed]) [part='bubble'] {
   scale: calc(var(--glass-press-scale, 1.45) * var(--_jx, 1)) calc(var(--glass-press-scale, 1.45) * 0.94 * var(--_jy, 1));
 }
 :host([data-dragging]) [part='bubble'] {
-  transition: width 0.2s ease, scale 0.06s linear;
+  transition: width 0.2s ease, scale 0.06s linear, background-color 0.2s ease, box-shadow 0.2s ease;
 }
 /* 用户换选中时飞过去（segments.ts）：只轻轻鼓起（--glass-fly-scale，比长按小），位置与宽度逐帧由脚本写、不走过渡；
    scale 的过渡很短，果冻不被抹平。写在按下那条后面：飞行时 data-pressed 也在（材质是透镜），大小按这条 */
 :host([data-flying]) [part='bubble'] {
   scale: calc(var(--glass-fly-scale, 1.2) * var(--_jx, 1)) calc(var(--glass-fly-scale, 1.2) * var(--_jy, 1));
-  transition: scale 0.05s linear, opacity 0.2s ease;
+  transition: scale 0.05s linear, opacity 0.2s ease, background-color 0.2s ease, box-shadow 0.2s ease;
 }
 /* 按住时透镜下面垫的那块：与气泡同一个位置、宽度、缩放（同样的过渡），画在图标与文字的下面 */
 [part='lens'],
@@ -149,6 +150,24 @@ const CSS = `
   opacity: 1;
 }
 :host([data-lensing]) ::slotted(*) {
+  opacity: 0;
+}
+/* CSS 画玻璃时的透镜（css-lens.ts）：按住时各格的内容由这张画布画 —— 透镜外原样，透镜里放大、换选中色、带色散；
+   DOM 的内容淡出。画布四边各伸出一点：气泡鼓起来会伸出栏外 */
+[part='css-lens'] {
+  position: absolute;
+  left: -${CSS_LENS_BLEED}px;
+  top: -${CSS_LENS_BLEED}px;
+  width: calc(100% + ${CSS_LENS_BLEED * 2}px);
+  height: calc(100% + ${CSS_LENS_BLEED * 2}px);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.12s ease;
+}
+:host([data-css-lensing]) [part='css-lens'] {
+  opacity: 1;
+}
+:host([data-css-lensing]) ::slotted(*) {
   opacity: 0;
 }
 /* 各格：内容在上面（DOM 在画布之上）。按钮的默认外观去掉 */
@@ -203,16 +222,26 @@ const CSS = `
 :host([data-minimized]) [part='bubble'] {
   opacity: 0;
 }
-/* 没有玻璃时（或在对话框 / popover 里用 CSS 画时）：栏的表面来自 glassium.css，气泡画成一块浅色 */
+/* 没有玻璃时（或在对话框 / popover 里用 CSS 画时）：栏的表面来自 glassium.css，气泡画成一块浅色、上沿一道亮边；
+   按住时变成透明的透镜：一圈细亮边、上亮下暗、左右两边一红一蓝的色散、底下一点投影（里面的字由 css-lens 画） */
 :host(:not([data-glassium-active])) [part='bubble'],
 [part='bubble'][data-glassium-overlay] {
-  background: rgba(255, 255, 255, 0.22);
+  background-color: rgba(255, 255, 255, 0.18);
+  box-shadow: inset 0 1px 0.5px rgba(255, 255, 255, 0.3), inset 0 -0.5px 0.5px rgba(255, 255, 255, 0.1);
+}
+:host(:not([data-glassium-active])[data-pressed]) [part='bubble'],
+:host([data-pressed]) [part='bubble'][data-glassium-overlay] {
+  background-color: rgba(255, 255, 255, 0.05);
+  box-shadow: inset 0 0 0 0.5px rgba(255, 255, 255, 0.45), inset 0 1.5px 1px rgba(255, 255, 255, 0.5),
+    inset 0 -1px 1px rgba(255, 255, 255, 0.18), inset 3px 0 3px -1.5px rgba(255, 70, 120, 0.35),
+    inset -3px 0 3px -1.5px rgba(70, 170, 255, 0.35), inset 0 0 10px rgba(255, 255, 255, 0.1), 0 4px 14px rgba(0, 0, 0, 0.22);
 }
 @media (prefers-reduced-motion: reduce) {
   [part='bubble'],
   [part='lens'],
   [part='lens-labels'],
   [part='labels'],
+  [part='css-lens'],
   ::slotted(*),
   :host([data-dragging]) [part='bubble'],
   :host([data-dragging]) [part='lens'],
@@ -239,6 +268,7 @@ export class GlassTabBar extends GlassElement {
   readonly #lens: HTMLElement
   readonly #lensLabels: HTMLElement
   readonly #labels: SceneLabels
+  readonly #cssLens: CssLens
   #bubblePanel: GlassPanel | null = null
   readonly #tween = new PressTween((energy) => this.#bubblePanel?.setMaterial(bubbleMaterial(energy)))
   // 气泡单独注册（栏本身由 GlassElement 注册）：它写在栏里面，自然就在栏的上面一层。
@@ -294,8 +324,27 @@ export class GlassTabBar extends GlassElement {
     slot.addEventListener('slotchange', () => {
       this.#syncTabs()
       this.#labels.invalidate()
+      this.#cssLens?.invalidate()
     })
-    root.append(this.#lens, labels, this.#lensLabels, this.#bubble, slot)
+    // CSS 画玻璃时的透镜：画布在气泡下面（气泡的亮边压在字上），各格的 DOM 内容上面
+    const cssLensCanvas = document.createElement('canvas')
+    cssLensCanvas.setAttribute('part', 'css-lens')
+    this.#cssLens = new CssLens({
+      host: this,
+      canvas: cssLensCanvas,
+      lens: this.#bubble,
+      sources: () => this.tabs.map((element) => ({ element })),
+      color: () => {
+        const t = this.tabs[this.#segments.selected]
+        return t ? getComputedStyle(t).color : undefined
+      },
+      magnify: SEGMENT_THUMB_PRESSED.magnify,
+      pressedScale: () => {
+        const v = Number.parseFloat(getComputedStyle(this).getPropertyValue('--glass-press-scale'))
+        return (Number.isFinite(v) && v > 0 ? v : 1.45) * 0.94
+      }
+    })
+    root.append(this.#lens, labels, this.#lensLabels, cssLensCanvas, this.#bubble, slot)
 
     this.#segments = new Segments({
       host: this,
@@ -309,6 +358,10 @@ export class GlassTabBar extends GlassElement {
         this.toggleAttribute('data-pressed', pressed)
         // 内容画进场景只在镜像能用时（见 SceneLabels.ready）；缩起来的栏只剩一格，不用
         this.toggleAttribute('data-lensing', pressed && this.#labels.ready && !this.minimized)
+        // 镜像用不了（CSS 画玻璃）时用画布画透镜；高对比度下不画
+        const css = pressed && !this.#labels.ready && !this.minimized && !forcedColors()
+        this.toggleAttribute('data-css-lensing', css)
+        this.#cssLens.press(css)
         this.#tween.press(pressed)
       },
       onUserSelect: () => {
@@ -316,7 +369,11 @@ export class GlassTabBar extends GlassElement {
         this.dispatchEvent(new Event('input', { bubbles: true, composed: true }))
         this.dispatchEvent(new Event('change', { bubbles: true }))
       },
-      onSelectionChange: () => this.#labels.invalidate() // 选中的那一格换了颜色
+      onSelectionChange: () => {
+        // 选中的那一格换了颜色
+        this.#labels.invalidate()
+        this.#cssLens.invalidate()
+      }
     })
     // 各格的宽度变了（字体加载、栏定宽变化、缩起与展开的过渡）气泡要跟上，画进场景的内容也要重画
     this.#resize =
@@ -324,6 +381,7 @@ export class GlassTabBar extends GlassElement {
         ? new ResizeObserver(() => {
             this.#segments.place()
             this.#labels.invalidate()
+            this.#cssLens.invalidate()
           })
         : null
 
@@ -409,6 +467,8 @@ export class GlassTabBar extends GlassElement {
     this.#tween.reset()
     this.toggleAttribute('data-pressed', false)
     this.toggleAttribute('data-lensing', false)
+    this.toggleAttribute('data-css-lensing', false)
+    this.#cssLens.release()
     this.#segments.release()
   }
 
@@ -454,6 +514,11 @@ export class GlassTabBar extends GlassElement {
     const byValue = keep !== null ? this.#segments.indexOf(keep) : -1
     this.#segments.select(this.#dirty && byValue >= 0 ? byValue : this.#indexOfDefault())
   }
+}
+
+/** 高对比度（强制配色）模式：不画 CSS 透镜，DOM 的字照常。 */
+function forcedColors(): boolean {
+  return typeof matchMedia === 'function' && matchMedia('(forced-colors: active)').matches
 }
 
 /** 文档滚了多远（CSS 像素）。 */
