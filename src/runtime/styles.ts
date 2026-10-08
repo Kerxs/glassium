@@ -22,10 +22,14 @@ export const ABSORBED_ATTRIBUTE = 'data-glassium-absorbed'
 export const BASE_CSS = `
 :where([glass]:not([data-glassium-active]), [glass][data-glassium-overlay]) {
   background-color: var(--glassium-tint, rgba(255, 255, 255, 0.18));
+  background-image: linear-gradient(180deg, var(--glassium-sheen, rgba(255, 255, 255, 0.072)), transparent 45%);
   box-shadow:
     inset 0 1px 0 0 var(--glassium-rim-light, rgba(255, 255, 255, 0.495)),
     inset 0 -1px 0 0 var(--glassium-rim-light, rgba(255, 255, 255, 0.495)),
     inset 0 0 0 1px var(--glassium-rim-side, rgba(255, 255, 255, 0.223)),
+    inset 0 0 var(--glassium-band, 8px) 0 var(--glassium-band-light, rgba(255, 255, 255, 0.126)),
+    inset 2px 0 3px -1px var(--glassium-disp-red, rgba(255, 70, 120, 0)),
+    inset -2px 0 3px -1px var(--glassium-disp-blue, rgba(70, 170, 255, 0)),
     0 0 0 0.5px var(--glassium-edge, rgba(41, 41, 41, 0.315)),
     0 6px 12px -4px var(--glassium-shadow, rgba(0, 0, 0, 0.053));
   -webkit-backdrop-filter: blur(var(--glassium-blur, 8px)) saturate(var(--glassium-saturate, 1.4));

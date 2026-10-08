@@ -11,6 +11,8 @@
  * - tint：`background-color` 盖在模糊过的背景上，就是 mix(背景, tint.rgb, tint.a) —— 与着色器相同；
  * - 亮边与投影：近似成 `box-shadow` —— 亮边一整圈、上下两条更亮（与着色器的 RIM_BASE 相同的比例），最外一圈
  *   半像素的深灰外线（着色器的外线：白底上看得见、暗底上看不见）；
+ * - 液态玻璃的边：折射做不了，近似出它的样子 —— 边上一圈由亮到透的光带（宽度跟着 refraction：折射带越深，
+ *   玻璃看着越厚）、左右一红一蓝两条色边（强度跟着 dispersion，没有色散就没有）、顶上一道淡淡的高光；
  *   影子往下挪、四周往里缩，只在玻璃正下方露出来（与 GPU 投影同一个形状的近似）。
  *
  * 这里只算数，写成 CSS 自定义属性；规则在 glassium.css 与各组件的影子样式里。
@@ -29,6 +31,17 @@ const RIM_PEAK = 0.55
 const RIM_BASE = 0.45
 /** 外线在 highlight = 1 时的不透明度：着色器往深灰混的比例（左右 0.5、上下约 0.2），CSS 一圈同深，取中间。 */
 const EDGE_PEAK = 0.35
+/** 边上光带的宽度：refraction 为 0 时这么宽（CSS px）…… */
+const BAND_MIN = 3
+/** ……每 1 的 refraction 再宽这么多，最宽 BAND_MAX。CSS 不知道元素多大，按 GPU 折射带在常见尺寸上的宽度取 */
+const BAND_PER_REFRACTION = 20
+const BAND_MAX = 18
+/** 光带在 highlight = 1 时的不透明度 */
+const BAND_PEAK = 0.14
+/** 色边在 dispersion = 1 时的不透明度（最多 0.5） */
+const DISPERSION_PEAK = 0.9
+/** 顶上高光在 highlight = 1 时的不透明度 */
+const SHEEN_PEAK = 0.08
 
 const round = (x: number, digits = 4): number => Number(x.toFixed(digits))
 
@@ -48,6 +61,11 @@ export function overlayVars(material: GlassMaterial): Record<string, string> {
     '--glassium-rim-light': `rgba(255, 255, 255, ${round(m.highlight * RIM_PEAK * opacity, 3)})`,
     '--glassium-rim-side': `rgba(255, 255, 255, ${round(m.highlight * RIM_PEAK * RIM_BASE * opacity, 3)})`,
     '--glassium-edge': `rgba(41, 41, 41, ${round(m.highlight * EDGE_PEAK * opacity, 3)})`,
+    '--glassium-band': `${round(Math.min(BAND_MAX, BAND_MIN + Math.max(0, m.refraction) * BAND_PER_REFRACTION), 2)}px`,
+    '--glassium-band-light': `rgba(255, 255, 255, ${round(m.highlight * BAND_PEAK * opacity, 3)})`,
+    '--glassium-disp-red': `rgba(255, 70, 120, ${round(Math.min(0.5, Math.max(0, m.dispersion) * DISPERSION_PEAK) * opacity, 3)})`,
+    '--glassium-disp-blue': `rgba(70, 170, 255, ${round(Math.min(0.5, Math.max(0, m.dispersion) * DISPERSION_PEAK) * opacity, 3)})`,
+    '--glassium-sheen': `rgba(255, 255, 255, ${round(m.highlight * SHEEN_PEAK * opacity, 3)})`,
     '--glassium-shadow': `rgba(0, 0, 0, ${round(m.shadow * SHADOW_PEAK * opacity, 3)})`
   }
 }
@@ -60,10 +78,14 @@ export function overlayVars(material: GlassMaterial): Record<string, string> {
 export const OVERLAY_HOST_CSS = `
 :host([data-glassium-overlay]) {
   background-color: var(--glassium-tint, rgba(255, 255, 255, 0.18));
+  background-image: linear-gradient(180deg, var(--glassium-sheen, rgba(255, 255, 255, 0.072)), transparent 45%);
   box-shadow:
     inset 0 1px 0 0 var(--glassium-rim-light, rgba(255, 255, 255, 0.495)),
     inset 0 -1px 0 0 var(--glassium-rim-light, rgba(255, 255, 255, 0.495)),
     inset 0 0 0 1px var(--glassium-rim-side, rgba(255, 255, 255, 0.223)),
+    inset 0 0 var(--glassium-band, 8px) 0 var(--glassium-band-light, rgba(255, 255, 255, 0.126)),
+    inset 2px 0 3px -1px var(--glassium-disp-red, rgba(255, 70, 120, 0)),
+    inset -2px 0 3px -1px var(--glassium-disp-blue, rgba(70, 170, 255, 0)),
     0 0 0 0.5px var(--glassium-edge, rgba(41, 41, 41, 0.315)),
     0 6px 12px -4px var(--glassium-shadow, rgba(0, 0, 0, 0.053));
   -webkit-backdrop-filter: blur(var(--glassium-blur, 8px)) saturate(var(--glassium-saturate, 1.4));

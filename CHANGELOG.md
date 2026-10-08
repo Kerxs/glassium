@@ -5,6 +5,14 @@
 
 ## [未发布]
 
+### 变化
+
+- **CSS 画的玻璃也有液态玻璃的边**（overlay、对话框 / popover 里、`backend: 'css'`）：以前只有一像素的亮边和投影，
+  看着是一块平的磨砂板。折射还是做不了，近似出它的样子：边上一圈由亮到透的光带（宽度跟着 `refraction`，折射带越深玻璃看着越厚，
+  3–18px）、左右一红一蓝两条色边（强度跟着 `dispersion`，没有色散就没有）、顶上一道淡淡的高光（跟着 `highlight`）。
+  都乘 `opacity`；减少透明度、不支持 `backdrop-filter` 时换成实底，高光也去掉。新的 CSS 自定义属性：`--glassium-band`、
+  `--glassium-band-light`、`--glassium-disp-red`、`--glassium-disp-blue`、`--glassium-sheen`。按 Meshora 的需要做的（弹窗、安卓客户端）。
+
 ## [1.1.1] — 2026-10-08
 
 补丁版本：都是 [Meshora](https://github.com/Kerxs/meshora) 的客户端用的时候要的 —— CSS 画玻璃时标签栏也有液态玻璃透镜，

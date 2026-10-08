@@ -145,6 +145,7 @@
     ),
   :where(glass-card, glass-button, glass-tab-bar)[data-glassium-overlay] {
     background-color: rgba(18, 30, 50, 0.82);
+    background-image: none;
   }
 }
 
@@ -161,6 +162,7 @@
     ),
   :where(glass-card, glass-button, glass-tab-bar)[data-glassium-overlay] {
     background-color: rgba(28, 28, 32, 0.9);
+    background-image: none;
     -webkit-backdrop-filter: blur(24px);
     backdrop-filter: blur(24px);
   }
