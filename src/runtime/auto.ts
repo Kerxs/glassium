@@ -129,14 +129,24 @@ function ours(node: Node): boolean {
   return node instanceof HTMLElement && (node.hasAttribute('data-glassium-scene') || node.hasAttribute(ROOT_FILL_ATTRIBUTE))
 }
 
+/** 只是文字变了（改了文字节点，或者只增删了文字节点）：不会多出、少掉玻璃后面带背景的元素。 */
+function textOnly(r: MutationRecord): boolean {
+  if (r.type === 'characterData') return true
+  if (r.type !== 'childList') return false
+  const text = (n: Node): boolean => n.nodeType === Node.TEXT_NODE
+  return [...r.addedNodes].every(text) && [...r.removedNodes].every(text)
+}
+
 function onMutations(records: MutationRecord[]): void {
   let changed = false
   for (const r of records) {
     if (ours(r.target)) continue
-    changed = true
     // 收进场景的内容块里的文字、子元素、样式变了：只重画那一块
     invalidateContentAt(r.target)
-    if (r.type === 'characterData') continue
+    // 只改了文字（数字刷新之类）不重扫背景：扫一次要对每块玻璃做好几次命中测试（elementsFromPoint），
+    // 每秒刷新一遍状态的页面会一直在扫
+    if (textOnly(r)) continue
+    changed = true
     if (r.type === 'attributes') {
       const el = r.target as HTMLElement
       if (r.attributeName === 'class' || r.attributeName === 'style') {

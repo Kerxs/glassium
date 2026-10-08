@@ -86,6 +86,12 @@ export class GpuRenderer implements Renderer {
   // 'rgba8unorm-srgb' 第一次用到时再建。bind group 布局是显式的、两套共用 —— 'auto' 布局的
   // bind group 不能拿给别的管线用，那样换一次格式就得把 bind group 全部重建。
   readonly #chainPipelines = new Map<GPUTextureFormat, ChainPipelines>()
+  /**
+   * 构造期间要建的管线：用 createRenderPipelineAsync 发出去，在这里等（{@link GpuRenderer.create} 等它们）。
+   * 同步的 createRenderPipeline 会让 GPU 进程在编译着色器时整个停住，页面一帧都出不来 —— 玻璃的着色器大，
+   * 慢的机器上启动时卡半秒。异步编译在后台线程，页面照常出帧。构造完之后是 null：运行时再要的管线（别的格式）照旧同步建
+   */
+  #compiling: Promise<void>[] | null = []
   /** 上一帧的场景输入（沿用场景与模糊链时比它，见 idle.ts 的 sceneReusable）。 */
   #lastScene: SceneKey | null = null
   /** GPU 计时（设备不支持 timestamp-query 时是 null）。 */
@@ -117,17 +123,17 @@ export class GpuRenderer implements Renderer {
   #uploadedSource: SceneImage['source'] | null = null
   #uploadedVersion = -1
   #uploadWarned = false
-  readonly #backdropPipeline: GPURenderPipeline
-  readonly #glassPipeline: GPURenderPipeline
-  readonly #probePipeline: GPURenderPipeline
+  #backdropPipeline!: GPURenderPipeline
+  #glassPipeline!: GPURenderPipeline
+  #probePipeline!: GPURenderPipeline
   readonly #glassLayout: GPUBindGroupLayout
-  readonly #groupPipeline: GPURenderPipeline
-  readonly #groupProbePipeline: GPURenderPipeline
+  #groupPipeline!: GPURenderPipeline
+  #groupProbePipeline!: GPURenderPipeline
   readonly #groupLayout: GPUBindGroupLayout
   // 填充：同一个着色器、两类目标（场景目标见 ChainPipelines.fillScene，画布是 getPreferredCanvasFormat 的格式）
   readonly #fillLayout: GPUBindGroupLayout
   readonly #fillPipelineLayout: GPUPipelineLayout
-  readonly #fillCanvasPipeline: GPURenderPipeline
+  #fillCanvasPipeline!: GPURenderPipeline
   readonly #fillSceneDest: GPUBuffer
   readonly #fillCanvasDest: GPUBuffer
   // 位图填充的图集（atlas.ts）：一张纹理，版本或画布变了整张重传。没有位图填充时是 1×1 的透明占位
@@ -220,13 +226,16 @@ export class GpuRenderer implements Renderer {
     this.#backdropLayout = sampledLayout('glassium:backdrop')
     this.#blurLayout = sampledLayout('glassium:blur')
 
-    this.#backdropPipeline = device.createRenderPipeline({
-      label: 'glassium:backdrop',
-      layout: device.createPipelineLayout({ label: 'glassium:backdrop', bindGroupLayouts: [this.#backdropLayout] }),
-      vertex: { module: this.#modules.backdrop, entryPoint: 'vs' },
-      fragment: { module: this.#modules.backdrop, entryPoint: 'fs', targets: [{ format }] },
-      primitive: { topology: 'triangle-list' }
-    })
+    this.#pipeline(
+      {
+        label: 'glassium:backdrop',
+        layout: device.createPipelineLayout({ label: 'glassium:backdrop', bindGroupLayouts: [this.#backdropLayout] }),
+        vertex: { module: this.#modules.backdrop, entryPoint: 'vs' },
+        fragment: { module: this.#modules.backdrop, entryPoint: 'fs', targets: [{ format }] },
+        primitive: { topology: 'triangle-list' }
+      },
+      (pipeline) => (this.#backdropPipeline = pipeline)
+    )
     // 原样：tint 的 alpha 0、saturation 1、第 0 级；线性光模式下先解码（写在 resize 里，随格式变）
     this.#resampleUniforms = device.createBuffer({
       label: 'glassium:layer-resample-uniforms',
@@ -290,35 +299,41 @@ export class GpuRenderer implements Renderer {
       bindGroupLayouts: [this.#glassLayout]
     })
     const glassModule = device.createShaderModule({ label: 'glassium:glass', code: GLASS_WGSL })
-    this.#glassPipeline = device.createRenderPipeline({
-      label: 'glassium:glass',
-      layout: glassPipelineLayout,
-      vertex: { module: glassModule, entryPoint: 'vs' },
-      fragment: {
-        module: glassModule,
-        entryPoint: 'fs',
-        targets: [
-          {
-            format,
-            // 片元输出预乘色，所以是 one / one-minus-src-alpha，不是 src-alpha。
-            // 用错成非预乘混合的话，玻璃边缘的抗锯齿会多乘一次 alpha，出现一圈暗边。
-            blend: {
-              color: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha', operation: 'add' },
-              alpha: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha', operation: 'add' }
+    this.#pipeline(
+      {
+        label: 'glassium:glass',
+        layout: glassPipelineLayout,
+        vertex: { module: glassModule, entryPoint: 'vs' },
+        fragment: {
+          module: glassModule,
+          entryPoint: 'fs',
+          targets: [
+            {
+              format,
+              // 片元输出预乘色，所以是 one / one-minus-src-alpha，不是 src-alpha。
+              // 用错成非预乘混合的话，玻璃边缘的抗锯齿会多乘一次 alpha，出现一圈暗边。
+              blend: {
+                color: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha', operation: 'add' },
+                alpha: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha', operation: 'add' }
+              }
             }
-          }
-        ]
+          ]
+        },
+        primitive: { topology: 'triangle-list' }
       },
-      primitive: { topology: 'triangle-list' }
-    })
+      (pipeline) => (this.#glassPipeline = pipeline)
+    )
     // 探针：同一个模块、另一个入口，写 rgba32float，不混合（32 位浮点默认不可混合）。
-    this.#probePipeline = device.createRenderPipeline({
-      label: 'glassium:glass-probe',
-      layout: glassPipelineLayout,
-      vertex: { module: glassModule, entryPoint: 'vs' },
-      fragment: { module: glassModule, entryPoint: 'fsProbe', targets: [{ format: 'rgba32float' }] },
-      primitive: { topology: 'triangle-list' }
-    })
+    this.#pipeline(
+      {
+        label: 'glassium:glass-probe',
+        layout: glassPipelineLayout,
+        vertex: { module: glassModule, entryPoint: 'vs' },
+        fragment: { module: glassModule, entryPoint: 'fsProbe', targets: [{ format: 'rgba32float' }] },
+        primitive: { topology: 'triangle-list' }
+      },
+      (pipeline) => (this.#probePipeline = pipeline)
+    )
 
     // 合并组：同一套绑定号，只有 binding 0 的结构体不同（一组 4 块面板，400B）。
     // 单独一条管线而不是在单块面板的着色器里加分支 —— 单块面板的输出因此一个字节都不变。
@@ -340,32 +355,38 @@ export class GpuRenderer implements Renderer {
       bindGroupLayouts: [this.#groupLayout]
     })
     const groupModule = device.createShaderModule({ label: 'glassium:glass-group', code: GLASS_GROUP_WGSL })
-    this.#groupPipeline = device.createRenderPipeline({
-      label: 'glassium:glass-group',
-      layout: groupPipelineLayout,
-      vertex: { module: groupModule, entryPoint: 'vs' },
-      fragment: {
-        module: groupModule,
-        entryPoint: 'fs',
-        targets: [
-          {
-            format,
-            blend: {
-              color: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha', operation: 'add' },
-              alpha: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha', operation: 'add' }
+    this.#pipeline(
+      {
+        label: 'glassium:glass-group',
+        layout: groupPipelineLayout,
+        vertex: { module: groupModule, entryPoint: 'vs' },
+        fragment: {
+          module: groupModule,
+          entryPoint: 'fs',
+          targets: [
+            {
+              format,
+              blend: {
+                color: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha', operation: 'add' },
+                alpha: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha', operation: 'add' }
+              }
             }
-          }
-        ]
+          ]
+        },
+        primitive: { topology: 'triangle-list' }
       },
-      primitive: { topology: 'triangle-list' }
-    })
-    this.#groupProbePipeline = device.createRenderPipeline({
-      label: 'glassium:glass-group-probe',
-      layout: groupPipelineLayout,
-      vertex: { module: groupModule, entryPoint: 'vs' },
-      fragment: { module: groupModule, entryPoint: 'fsProbe', targets: [{ format: 'rgba32float' }] },
-      primitive: { topology: 'triangle-list' }
-    })
+      (pipeline) => (this.#groupPipeline = pipeline)
+    )
+    this.#pipeline(
+      {
+        label: 'glassium:glass-group-probe',
+        layout: groupPipelineLayout,
+        vertex: { module: groupModule, entryPoint: 'vs' },
+        fragment: { module: groupModule, entryPoint: 'fsProbe', targets: [{ format: 'rgba32float' }] },
+        primitive: { topology: 'triangle-list' }
+      },
+      (pipeline) => (this.#groupProbePipeline = pipeline)
+    )
 
     // 填充：Fill 结构体按动态偏移切换，Dest（画到哪里）两份 —— 场景目标一份、画布一份，
     // 同一帧里两个 pass 各用各的，不共用一块 buffer（同一帧两次 writeBuffer 只有后写的生效）
@@ -394,7 +415,7 @@ export class GpuRenderer implements Renderer {
       label: 'glassium:fill',
       bindGroupLayouts: [this.#fillLayout]
     })
-    this.#fillCanvasPipeline = this.#fillPipeline('glassium:fill-canvas', format)
+    this.#fillPipeline('glassium:fill-canvas', format, (pipeline) => (this.#fillCanvasPipeline = pipeline))
     this.#fillSceneDest = device.createBuffer({
       label: 'glassium:fill-scene-dest',
       size: FILL_DEST_BYTES,
@@ -425,34 +446,43 @@ export class GpuRenderer implements Renderer {
     this.#pipelinesFor(BACKDROP_FORMAT) // 默认格式的那一套一开始就建：第一帧不等编译
   }
 
+  /** 建一条管线，交给 `set`。构造期间异步（见 #compiling），之后同步。 */
+  #pipeline(descriptor: GPURenderPipelineDescriptor, set: (pipeline: GPURenderPipeline) => void): void {
+    if (this.#compiling) this.#compiling.push(this.device.createRenderPipelineAsync(descriptor).then(set))
+    else set(this.device.createRenderPipeline(descriptor))
+  }
+
   /** 画进模糊链的那几条管线（场景、图片、模糊、层的重采样、场景里的填充），按目标格式各一套，建一次。 */
   #pipelinesFor(format: GPUTextureFormat): ChainPipelines {
     const existing = this.#chainPipelines.get(format)
     if (existing) return existing
     const device = this.device
     const suffix = format === BACKDROP_FORMAT ? '' : `-${format}`
-    const pipeline = (label: string, module: GPUShaderModule, layout: GPUBindGroupLayout): GPURenderPipeline =>
-      device.createRenderPipeline({
-        label: `${label}${suffix}`,
-        layout: device.createPipelineLayout({ label, bindGroupLayouts: [layout] }),
-        vertex: { module, entryPoint: 'vs' },
-        fragment: { module, entryPoint: 'fs', targets: [{ format }] },
-        primitive: { topology: 'triangle-list' }
-      })
-    const set: ChainPipelines = {
-      scene: pipeline('glassium:scene', this.#modules.scene, this.#sceneLayout),
-      image: pipeline('glassium:scene-image', this.#modules.image, this.#imageLayout),
-      blur: pipeline('glassium:blur', this.#modules.blur, this.#blurLayout),
-      resample: pipeline('glassium:layer-resample', this.#modules.backdrop, this.#backdropLayout),
-      fillScene: this.#fillPipeline(`glassium:fill-scene${suffix}`, format)
-    }
+    // 构造期间是异步建的：五个字段在 GpuRenderer.create 返回之前都会填上
+    const set = {} as { -readonly [K in keyof ChainPipelines]: GPURenderPipeline }
+    const pipeline = (key: keyof ChainPipelines, label: string, module: GPUShaderModule, layout: GPUBindGroupLayout): void =>
+      this.#pipeline(
+        {
+          label: `${label}${suffix}`,
+          layout: device.createPipelineLayout({ label, bindGroupLayouts: [layout] }),
+          vertex: { module, entryPoint: 'vs' },
+          fragment: { module, entryPoint: 'fs', targets: [{ format }] },
+          primitive: { topology: 'triangle-list' }
+        },
+        (p) => (set[key] = p)
+      )
+    pipeline('scene', 'glassium:scene', this.#modules.scene, this.#sceneLayout)
+    pipeline('image', 'glassium:scene-image', this.#modules.image, this.#imageLayout)
+    pipeline('blur', 'glassium:blur', this.#modules.blur, this.#blurLayout)
+    pipeline('resample', 'glassium:layer-resample', this.#modules.backdrop, this.#backdropLayout)
+    this.#fillPipeline(`glassium:fill-scene${suffix}`, format, (p) => (set.fillScene = p))
     this.#chainPipelines.set(format, set)
     return set
   }
 
   /** 填充的管线：预乘色、one / one-minus-src-alpha 混合。场景目标与画布各一条，只有目标格式不同。 */
-  #fillPipeline(label: string, target: GPUTextureFormat): GPURenderPipeline {
-    return this.device.createRenderPipeline({
+  #fillPipeline(label: string, target: GPUTextureFormat, set: (pipeline: GPURenderPipeline) => void): void {
+    this.#pipeline({
       label,
       layout: this.#fillPipelineLayout,
       vertex: { module: this.#modules.fill, entryPoint: 'vs' },
@@ -470,7 +500,7 @@ export class GpuRenderer implements Renderer {
         ]
       },
       primitive: { topology: 'triangle-list' }
-    })
+    }, set)
   }
 
   static async create(
@@ -480,7 +510,16 @@ export class GpuRenderer implements Renderer {
     alphaMode: GPUCanvasAlphaMode
   ): Promise<GpuRenderer> {
     const probe = await probeCapabilities(device)
-    return new GpuRenderer(device, format, context, alphaMode, probe)
+    const renderer = new GpuRenderer(device, format, context, alphaMode, probe)
+    await renderer.#compiled()
+    return renderer
+  }
+
+  /** 等构造期间发出去的管线都建好；之后再要的管线同步建。 */
+  async #compiled(): Promise<void> {
+    const jobs = this.#compiling ?? []
+    this.#compiling = null
+    await Promise.all(jobs)
   }
 
   get report(): ProbeReport {

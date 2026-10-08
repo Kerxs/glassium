@@ -18,11 +18,12 @@ import { currentStage, onStageChange, stageOrPending, type GlassStage } from '..
 import { absorbedElements } from './absorb.ts'
 import { startRuntime, whenScanned } from './auto.ts'
 import { contentBlocks, contentStats } from './content.ts'
-import { detectSync, detectWebGpu, tierOf, type GlassiumCapabilities, type RendererKind } from './capabilities.ts'
+import { detectSync, detectWebGl2, detectWebGpu, tierOf, type GlassiumCapabilities, type RendererKind } from './capabilities.ts'
 import { configure, getConfig, type GlassiumConfig } from './config.ts'
 import { glass, glassOf } from './glass.ts'
 
 let syncCaps: ReturnType<typeof detectSync> | null = null
+let glCaps: ReturnType<typeof detectWebGl2> | null = null
 let webgpu: boolean | null = null
 let webgpuProbe: Promise<boolean> | null = null
 
@@ -32,11 +33,29 @@ function rendererOf(stage: GlassStage | null): RendererKind {
   return stage.backend === 'webgpu' ? 'webgpu' : stage.backend === 'webgl2' ? 'webgl2' : 'css'
 }
 
+/**
+ * webgl2、maxTextureSize 与 tier 是 getter：读到才查 WebGL2（建上下文很贵，见 capabilities.ts）。
+ * 后端已经是 WebGPU 时 tier 不看 webgl2，读 tier 也不会建上下文
+ */
 function capabilities(): GlassiumCapabilities {
   syncCaps ??= detectSync()
+  const gl = (): ReturnType<typeof detectWebGl2> => (glCaps ??= detectWebGl2())
   const renderer = rendererOf(currentStage())
-  const base = { ...syncCaps, webgpu, renderer }
-  return { ...base, tier: tierOf(base) }
+  const caps: GlassiumCapabilities = {
+    ...syncCaps,
+    webgpu,
+    renderer,
+    get webgl2() {
+      return gl().webgl2
+    },
+    get maxTextureSize() {
+      return gl().maxTextureSize
+    },
+    get tier() {
+      return tierOf(caps)
+    }
+  }
+  return caps
 }
 
 function probeWebGpu(): Promise<boolean> {

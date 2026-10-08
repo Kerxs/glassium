@@ -1154,8 +1154,11 @@ async function buildStage(options: GlassStageOptions): Promise<GlassStage> {
   // DOM 或样式变了：面板的裁剪祖先可能变了（被挪进 / 挪出滚动容器、某个祖先的 overflow 改了），
   // 文字颜色也可能变了（减少透明度时磨砂按它选）。这里只让缓存作废，重读推迟到下一帧；
   // 也请求一帧，reduced-motion 下循环不跑时才看得到变化。
-  const clipObserver = new MutationObserver(() => {
+  const clipObserver = new MutationObserver((records) => {
     if (disposed) return
+    // 只改了自己画布的不算：层级检查做命中测试时临时切画布的 pointer-events（layering.ts 的 hitTest），
+    // 不排除的话每次检查都让所有面板的样式缓存作废、再画一帧 —— 页面什么都不动时也一直在重读样式、重画
+    if (records.every((r) => r.target === canvas)) return
     panels.invalidateStyles()
     if (rafId === 0) requestRender()
   })

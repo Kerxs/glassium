@@ -200,7 +200,10 @@ async function load(source: GlassSceneSource): Promise<Loaded> {
   }
   // 上面的 typeof 守卫让 TS 收窄不掉那几种类型；走到这里的只剩画布与 VideoFrame
   const direct = source as HTMLCanvasElement | OffscreenCanvas | VideoFrame
-  assertOriginClean(direct)
+  // 画布不预先查：查法是把它画到 1×1 的画布上再读一个像素，GPU 加速的画布要整张同步回 CPU，
+  // 慢的机器上堵主线程上百毫秒（页面拿自己的画布当场景，一启动就撞上）。画布是页面自己画的，被跨源图片
+  // 污染很少见；真被污染了，上传时会失败，后端警告一次（带上 CORS 的提示）、先画内置场景
+  if (typeof VideoFrame !== 'undefined' && direct instanceof VideoFrame) assertOriginClean(direct)
   return { kind: 'canvas', source: direct, url: null, release: noop }
 }
 
