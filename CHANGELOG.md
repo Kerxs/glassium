@@ -5,6 +5,11 @@
 
 ## [未发布]
 
+## [1.1.3] — 2026-10-09
+
+按 Meshora 的需要（安卓客户端要和电脑一样的液态玻璃）：CSS 画的玻璃在 Chromium 上也折射、色散；`backend: 'css'` 时少做几样白费的事。
+新增一个配置项 `cssRefraction`（默认开），其余公开接口不变。
+
 ### 新增
 
 - **CSS 画的玻璃也折射、色散（Chromium）**：`backend: 'css'`、对话框 / popover 里、`overlay` 的玻璃以前只有模糊与着色，边上的东西不会被拉弯。
@@ -349,7 +354,8 @@ Glassium 从组件库转向 **Web Liquid Glass 渲染运行时**（docs/architec
 玻璃折射的是 Glassium 自己画的场景，不是它背后的 DOM；盖在 DOM 上的玻璃没有折射。完整的列表在
 [docs/limitations.md](docs/limitations.md)，先读开头那三条编写规则。
 
-[未发布]: https://github.com/Kerxs/glassium/compare/v1.1.2...HEAD
+[未发布]: https://github.com/Kerxs/glassium/compare/v1.1.3...HEAD
+[1.1.3]: https://github.com/Kerxs/glassium/releases/tag/v1.1.3
 [1.1.2]: https://github.com/Kerxs/glassium/releases/tag/v1.1.2
 [1.1.1]: https://github.com/Kerxs/glassium/releases/tag/v1.1.1
 [1.1.0]: https://github.com/Kerxs/glassium/releases/tag/v1.1.0
