@@ -27,7 +27,7 @@ const LINGER_MS = 360
 /** 色散：红、蓝两份在透镜边上比选中色那份多偏 / 少偏透镜半宽的这么多（按压到底时）。 */
 const DISPERSION = 0.035
 /** 透镜里横向逐条贴的竖条有多宽（CSS 像素）。 */
-const STRIP_PX = 1.5
+const STRIP_PX = 2
 /** 压缩集中在边上多窄的一圈：越大越窄（lensMap 里的指数）。 */
 const EDGE_POWER = 4
 
@@ -118,7 +118,8 @@ export class CssLens {
   /** 画布与离屏按宿主的尺寸、设备像素比；内容变了就重画两份。 */
   #prepare(): number {
     const { host, canvas } = this.#o
-    const ratio = Math.min(globalThis.devicePixelRatio || 1, 3)
+    // 最多 2 倍：手机是 3 倍屏，按 3 倍画这张横跨整条栏的画布，飞过去的那一下每帧都要贴好几百条
+    const ratio = Math.min(globalThis.devicePixelRatio || 1, 2)
     const w = host.offsetWidth + CSS_LENS_BLEED * 2
     const h = host.offsetHeight + CSS_LENS_BLEED * 2
     const pw = Math.max(1, Math.round(w * ratio))
@@ -224,6 +225,8 @@ export class CssLens {
         const x0 = lx + i * sw
         const u0 = (x0 - cx) / half
         const u1 = (x0 + sw - cx) / half
+        // 红、蓝两份在中间那段（离中心不到 55%）与选中色那份重合、被它盖住：不贴，省掉大半的贴图
+        if (spread !== 1 && Math.max(Math.abs(u0), Math.abs(u1)) < 0.55) continue
         // 色散只在边上：偏多偏少按 |u|^k 加权，中间与选中色那份重合
         const s0 = cx + lensMap(u0, m) * half * (1 + (spread - 1) * Math.abs(u0) ** EDGE_POWER)
         const s1 = cx + lensMap(u1, m) * half * (1 + (spread - 1) * Math.abs(u1) ** EDGE_POWER)

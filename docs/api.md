@@ -114,6 +114,7 @@ handle.destroy()
 | `absorbBackgrounds` | `true` | 玻璃后面挡着的 CSS 背景自动收进场景 |
 | `absorbForComponents` | `false` | 组件（`<glass-*>`）也收 |
 | `memoryBudget` | `null` | 显存预算（字节，估计值）：超了先放闲着的纹理、再降场景分辨率（`stage.setMemoryBudget`） |
+| `cssRefraction` | `true` | CSS 画的玻璃（`backend: 'css'`、对话框 / popover 里、`overlay`）也折射、色散：Chromium 上 `backdrop-filter` 叠一层按元素尺寸与圆角生成的 SVG 位移滤镜（边宽跟着 `refraction`，拉多远跟着 `distortion`，红绿蓝分开跟着 `dispersion`）。别的浏览器不认，照旧只有模糊与着色；玻璃多、设备弱时可以关掉 |
 | `absorbContent` | `true` | 玻璃后面的内容（文字、图片、SVG、画布、视频）画进场景（DOM Renderer） |
 | `rememberQuality` | `true` | 自适应的结果记在 localStorage，下次从附近起步 |
 

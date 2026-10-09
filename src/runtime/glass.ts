@@ -27,6 +27,8 @@ import { GlassBinding } from './binding.ts'
 import { scheduleAbsorb } from './absorb.ts'
 import { ensureStage } from './ensure-stage.ts'
 import { cornerRadiusFromCss, isInteractiveElement, runtimePreset, runtimePresetNames, RUNTIME_PRESETS } from './presets.ts'
+import { getConfig } from './config.ts'
+import { dropRefraction, syncRefraction } from './refraction.ts'
 import { GLASS_ID_ATTRIBUTE, installRuntimeStyles, removeGlassVars, setGlassVars } from './styles.ts'
 
 export interface GlassInteractionOptions {
@@ -173,6 +175,7 @@ class RuntimeGlass implements GlassHandle {
   /** 元素进 / 出文档（auto.ts 的 MutationObserver 告诉）。 */
   setConnected(connected: boolean): void {
     if (this.destroyed) return
+    syncRefraction(this.element, this.#id, this.#material, connected)
     if (connected && !this.#binding.connected) this.#binding.connect()
     else if (!connected && this.#binding.connected) {
       this.#binding.disconnect()
@@ -191,6 +194,7 @@ class RuntimeGlass implements GlassHandle {
     this.#press = null
     this.#motion?.dispose()
     this.#motion = null
+    dropRefraction(this.#id)
     removeGlassVars(this.#id)
     this.element.removeAttribute(GLASS_ID_ATTRIBUTE)
     if (handles.get(this.element) === this) handles.delete(this.element)
@@ -211,6 +215,7 @@ class RuntimeGlass implements GlassHandle {
         : {}
     this.#material = { ...base, ...radius, ...o.material }
     setGlassVars(this.#id, this.#material)
+    syncRefraction(this.element, this.#id, this.#material, this.element.isConnected)
   }
 
   /** 固定的单块质量；'auto' 时由自适应质量（performance/adaptive.ts）通过 binding 设。 */
@@ -254,7 +259,8 @@ class RuntimeGlass implements GlassHandle {
     const auto = isInteractiveElement(this.element)
     // 果冻、飞行：跟着元素的位置走（element-motion.ts），与按压各管各的
     const motion = i === true ? { jelly: true, glide: true } : i === false ? { jelly: false, glide: false } : { jelly: i?.jelly ?? false, glide: i?.glide ?? false }
-    if (motion.jelly || motion.glide) {
+    // CSS 画的玻璃（backend: 'css'）没有 GPU 面板可推变换：不跑。它每帧都要量一次元素的位置，白量
+    if ((motion.jelly || motion.glide) && getConfig().backend !== 'css') {
       if (this.#motion) this.#motion.setOptions(motion)
       else this.#motion = ElementMotion.forElement(this.element, (p) => this.#binding.setPresentation(p), motion)
     } else if (this.#motion) {

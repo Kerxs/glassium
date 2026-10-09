@@ -38,6 +38,7 @@ config absorbContent
 config absorbForComponents
 config auto
 config backend
+config cssRefraction
 config memoryBudget
 config quality
 config rememberQuality

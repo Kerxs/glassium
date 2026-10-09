@@ -5,6 +5,19 @@
 
 ## [未发布]
 
+### 新增
+
+- **CSS 画的玻璃也折射、色散（Chromium）**：`backend: 'css'`、对话框 / popover 里、`overlay` 的玻璃以前只有模糊与着色，边上的东西不会被拉弯。
+  现在 Chromium 上 `backdrop-filter` 叠一层 SVG 位移滤镜（runtime/refraction.ts）：按元素的尺寸与圆角生成位移图（只算边上那一圈，
+  `toBlob` 异步编码，同样形状的共用一张、来回切页不重算），边宽跟着 `refraction`、拉多远跟着 `distortion`；有 `dispersion` 时
+  红、绿、蓝各位移一次、拉得多少略有不同，边上分出颜色。只管 CSS 画的玻璃（GPU 玻璃不建），尺寸变了重算。
+  新配置项 `configure({ cssRefraction })`，默认 true；别的浏览器不认 url()，照旧只有模糊与着色。按 Meshora 的需要做的（安卓客户端）。
+
+### 性能
+
+- `backend: 'css'` 时不跑元素的果冻 / 飞行（`glass-jelly`、`glass-glide`）：没有 GPU 面板可推变换，它却每帧都量一次元素的位置。
+- `<glass-tab-bar>` 的 CSS 透镜：画布最多按 2 倍像素画（手机是 3 倍屏）、竖条 2px、红蓝两份只贴边上那段 —— 飞过去的那一下每帧少贴一大半。
+
 ## [1.1.2] — 2026-10-08
 
 补丁版本：都是 [Meshora](https://github.com/Kerxs/meshora) 的客户端用的时候要的 —— 启动不再卡半秒、页面不动时不再一直重读样式与重扫背景，

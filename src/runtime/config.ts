@@ -29,6 +29,11 @@ export interface GlassiumConfig {
   readonly rememberQuality: boolean
   /** 显存预算（字节，估计值；null 不限）。超了先放闲着的纹理、再降场景分辨率（stage.setMemoryBudget）。默认 null。 */
   readonly memoryBudget: number | null
+  /**
+   * CSS 画的玻璃也折射、色散（Chromium：backdrop-filter 叠一层 SVG 位移滤镜，见 refraction.ts）。默认 true；
+   * 别的浏览器不认，照旧只有模糊与着色。玻璃多、设备弱时可以关掉
+   */
+  readonly cssRefraction: boolean
 }
 
 export const DEFAULT_CONFIG: GlassiumConfig = Object.freeze({
@@ -39,7 +44,8 @@ export const DEFAULT_CONFIG: GlassiumConfig = Object.freeze({
   absorbForComponents: false,
   absorbContent: true,
   rememberQuality: true,
-  memoryBudget: null
+  memoryBudget: null,
+  cssRefraction: true
 })
 
 let current: GlassiumConfig = DEFAULT_CONFIG
