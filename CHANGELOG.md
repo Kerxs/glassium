@@ -12,6 +12,8 @@
   `toBlob` 异步编码，同样形状的共用一张、来回切页不重算），边宽跟着 `refraction`、拉多远跟着 `distortion`；有 `dispersion` 时
   红、绿、蓝各位移一次、拉得多少略有不同，边上分出颜色。只管 CSS 画的玻璃（GPU 玻璃不建），尺寸变了重算。
   新配置项 `configure({ cssRefraction })`，默认 true；别的浏览器不认 url()，照旧只有模糊与着色。按 Meshora 的需要做的（安卓客户端）。
+  位移图编码成 `data:` 地址（内容安全策略的 img-src 常常不放 `blob:`）；GPU stage 还在建的那一小段不生成（转眼就换成 GPU 玻璃），
+  只给一直用 CSS 画的玻璃生成：overlay 的、`backend: 'css'`、stage 停用时。
 
 ### 性能
 

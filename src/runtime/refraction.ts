@@ -7,8 +7,8 @@
  * 拉 —— 和 GPU 玻璃一样，边上看见的是外面一点的东西，越靠边拉得越多；有色散时红、绿、蓝各位移一次、拉得多少略有不同，
  * 再合起来，边上就分出颜色。
  *
- * - 位移图按元素的尺寸与圆角算（CSS 像素），只算边上那一圈，中间是中性色（不动）；用 `toBlob` 异步编码，
- *   编码不占主线程；同样尺寸、圆角、宽度的玻璃共用一张（引用计数；没人用的先留着几十张，来回切页不重算）。
+ * - 位移图按元素的尺寸与圆角算（CSS 像素），只算边上那一圈，中间是中性色（不动）；异步编码成 `data:` 地址
+ *   （不用 `blob:`：CSP 常常不放它），编码不占主线程；同样尺寸、圆角、宽度的玻璃共用一张（引用计数；没人用的先留着几十张，来回切页不重算）。
  * - 边上那一圈多宽跟着 `refraction`（短边 × refraction × 0.5，3–48px），拉多远跟着 `distortion`，色散跟着 `dispersion`。
  * - 只管 CSS 画的玻璃：GPU 玻璃（`data-glassium-active` 且不是 overlay）不建，免得白生成位移图；
  *   两个属性变了跟着建或拆（MutationObserver 只看这两个属性）。尺寸变了重算（ResizeObserver，一帧合并一次）。
@@ -16,6 +16,7 @@
  */
 
 import type { GlassMaterial } from '../core/material.ts'
+import { currentStage, onStageChange } from '../renderer/stage.ts'
 import { ACTIVE_ATTRIBUTE } from './binding.ts'
 import { getConfig } from './config.ts'
 
@@ -142,10 +143,13 @@ function releaseMap(shape: MapShape): void {
     if (e.refs > 0) continue
     maps.delete(key)
     spare--
-    void e.url.then((url) => url && URL.revokeObjectURL(url))
   }
 }
 
+/**
+ * 位移图编码成 `data:` 地址。不用 `blob:`：内容安全策略（CSP）的 img-src 常常只放 'self' 与 data:（Meshora 就是），
+ * blob: 的 feImage 会被拦下、滤镜里没有位移图。toBlob 在后台编码，FileReader 再异步转成 data:，都不占主线程
+ */
 function renderMap(shape: MapShape): Promise<string | null> {
   const canvas = document.createElement('canvas')
   canvas.width = shape.width
@@ -153,7 +157,15 @@ function renderMap(shape: MapShape): Promise<string | null> {
   const ctx = canvas.getContext('2d')
   if (!ctx) return Promise.resolve(null)
   ctx.putImageData(new ImageData(mapPixels(shape), shape.width, shape.height), 0, 0)
-  return new Promise((resolve) => canvas.toBlob((blob) => resolve(blob ? URL.createObjectURL(blob) : null), 'image/png'))
+  return new Promise((resolve) =>
+    canvas.toBlob((blob) => {
+      if (!blob) return resolve(null)
+      const reader = new FileReader()
+      reader.onload = () => resolve(typeof reader.result === 'string' ? reader.result : null)
+      reader.onerror = () => resolve(null)
+      reader.readAsDataURL(blob)
+    }, 'image/png')
+  )
 }
 
 // —— 每块玻璃的滤镜 ——
@@ -196,6 +208,7 @@ export function syncRefraction(element: HTMLElement, id: string, material: Glass
     observe(t)
   }
   t.material = material
+  watchStage()
   schedule(t)
 }
 
@@ -241,9 +254,27 @@ function schedule(t: Tracked): void {
   })
 }
 
-/** CSS 画的吗：GPU 玻璃生效了、又不是 overlay 的，不用这里管。 */
+/**
+ * 一直是 CSS 画的吗：overlay 的（对话框 / popover 里、写了 overlay）、`backend: 'css'`、或者 stage 停用了（高对比度、
+ * 设备丢失）。GPU stage 还在建的那一小段也是 CSS 画的，但马上就换成 GPU 玻璃 —— 不算，
+ * 不然一启动就给页面上每块玻璃都算一张位移图（慢的机器上几百毫秒）、转眼又全作废
+ */
 function drawnWithCss(el: HTMLElement): boolean {
-  return !el.hasAttribute(ACTIVE_ATTRIBUTE) || el.hasAttribute(OVERLAY)
+  if (el.hasAttribute(OVERLAY) || getConfig().backend === 'css') return true
+  if (el.hasAttribute(ACTIVE_ATTRIBUTE)) return false
+  const stage = currentStage()
+  return stage !== null && !stage.active
+}
+
+let watchingStage = false
+
+/** stage 建好、停用、恢复时，所有玻璃重新看一遍要不要折射。 */
+function watchStage(): void {
+  if (watchingStage) return
+  watchingStage = true
+  onStageChange(() => {
+    for (const t of tracked.values()) schedule(t)
+  })
 }
 
 function update(t: Tracked): void {
